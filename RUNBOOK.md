@@ -1,310 +1,458 @@
-# HƯỚNG DẪN CHẠY THẬT & TEST HỆ THỐNG DRONE DELIVERY
+# RUNBOOK — Drone Delivery System
 
-Tài liệu này tổng hợp toàn bộ các bước để chạy hệ thống Drone Delivery trên môi trường LAN nội bộ, từ backend (SQLite), frontend, Raspberry Pi cho đến kiểm thử chức năng và kiểm thử camera/ArUco.
-
----
-
-## TÓM TẮT TRẠNG THÁI HIỆN TẠI
-
-- ✅ **Backend SQLite** — FastAPI + SQLAlchemy Async + SQLite (drone_delivery.db) đã khởi động thành công và API endpoints hoạt động.
-- ✅ **Frontend** — React + Vite + TypeScript có khung vận hành đầy đủ trên mạng LAN nội bộ.
-- ✅ **Raspberry Pi** — FSM, điều khiển lệnh từ server, telemetry relay và logic mission cơ bản đã tích hợp.
-- 🔶 **Vision/ArUco** — Đang ở giai đoạn phát triển; hiện vẫn còn lỗi cần tiếp tục sửa để detection ổn định hơn.
-- 🔶 **SITL/Hardware** — Chưa có chuyến bay thực tế end-to-end hoàn chỉnh, vì vậy phần tích hợp vẫn ở giai đoạn chuẩn bị.
-
-### Trạng thái tổng quát
-- Hệ thống: đang vận hành ở mức prototype/điều khiển thử nghiệm.
-- Mức độ hoàn thiện: Backend/Frontend đã sẵn sàng hoạt động, Pi mission flow có nền tảng ổn định, vision precision landing còn đang hoàn thiện.
+Hướng dẫn vận hành, debug, và troubleshooting hệ thống Drone Delivery
+trên môi trường Raspberry Pi 5 thực tế (headless).
 
 ---
 
-## 1. YÊU CẦU MÔI TRƯỜNG
+## TÓM TẮT TRẠNG THÁI HỆ THỐNG
 
-### 1.1 Phần cứng
-- Máy tính trung tâm chạy backend + frontend
-- Raspberry Pi 4 nối với Pixhawk 6C
-- Camera CSI hoặc webcam để test vision
-- Wi-Fi LAN nội bộ, các thiết bị cùng mạng
-
-### 1.2 Phần mềm
-- Python 3.10+ (khuyến cáo 3.12+)
-- Node.js 18+
-- SQLite3 (đã tích hợp sẵn trong Python)
-- PowerShell hoặc terminal tương thích
-
-### 1.3 Cấu hình mạng LAN
-Các thiết bị nên dùng cấu hình tương ứng trong params_system.json:
-- Server: 192.168.2.28
-- Raspberry Pi: 192.168.2.100
-- Backend port: 8000
-- Frontend port: 3000
+| Component | Trạng thái |
+|-----------|-----------|
+| Backend (FastAPI + SQLite) | ✅ Hoạt động |
+| Frontend (React + Vite) | ✅ Hoạt động |
+| Companion (Raspberry Pi 5) | ✅ Triển khai thực tế |
+| MAVLink (Pixhawk 6C UART) | ✅ `/dev/ttyAMA0` |
+| Vision / ArUco Landing | 🔶 Đang phát triển |
+| PX4 End-to-End Flight | 🔶 Giai đoạn test |
 
 ---
 
-## 2. CHECKLIST CHẠY TRÊN RASPBERRY PI THẬT
+## 1. KIẾN TRÚC PHẦN CỨNG
 
-### 2.1 Chuẩn bị trước khi chạy
-- [ ] Đảm bảo Raspberry Pi đã kết nối đúng mạng LAN nội bộ.
-- [ ] Đặt IP tĩnh cho Pi theo cấu hình trong params_system.json: 192.168.1.10.
-- [ ] Kiểm tra Pi có thể ping tới server ở 192.168.1.100.
-- [ ] Kiểm tra camera đã kết nối và có thể mở được.
-- [ ] Kiểm tra Pixhawk đã nối đúng UART/serial và có nguồn điện ổn định.
-- [ ] Đảm bảo môi trường Python trên Pi đã cài đầy đủ dependency từ raspberry-pi/requirements.txt.
-
-### 2.2 Khởi động hệ thống trên Pi
-- [ ] SSH vào Pi hoặc dùng terminal trực tiếp.
-- [ ] Kích hoạt môi trường Python nếu cần.
-- [ ] Chạy lệnh:
-```powershell
-cd /home/pi/DroneDelivery/raspberry-pi
-export PYTHONPATH=$PWD/src
-python3 src/main.py
 ```
-- [ ] Xác nhận Pi bắt đầu chạy mission manager và kết nối tới backend qua WebSocket.
-
-### 2.3 Kiểm tra kết nối với Backend
-- [ ] Mở health check backend trên server: http://192.168.1.100:8000/health.
-- [ ] Xác nhận Pi có log hiển thị kết nối tới server thành công.
-- [ ] Kiểm tra telemetry đầu tiên xuất hiện trên dashboard frontend.
-
-### 2.4 Kiểm tra camera và ArUco
-- [ ] Chạy test camera:
-```powershell
-cd /home/pi/DroneDelivery/raspberry-pi
-export PYTHONPATH=$PWD/src
-python3 tools/test_webcam_aruco.py
+Laptop / PC Developer
+        │
+        │  VS Code Remote SSH (SSH over LAN/WiFi Hotspot)
+        ▼
+Raspberry Pi 5  (192.168.137.139)
+        │
+        │  MAVLink UART — /dev/ttyAMA0 — 57600 baud
+        │  (Pixhawk TELEM1 ↔ Pi GPIO14/15)
+        ▼
+Pixhawk 6C  (PX4 Firmware)
+        │
+        ├── GPS Module
+        ├── MTF-02P Rangefinder
+        └── Motors / ESCs
 ```
-- [ ] Nếu có marker trong khung hình, xác nhận marker được vẽ và offset hiển thị.
-- [ ] Nếu không phát hiện marker, kiểm tra ánh sáng, góc nhìn và dictionary ArUco.
-
-### 2.5 Kiểm tra mission flow cơ bản
-- [ ] Gửi lệnh START/ARM từ frontend hoặc backend.
-- [ ] Xác nhận Pi chuyển sang trạng thái ARM.
-- [ ] Xác nhận Pi chuyển sang TAKEOFF và telemetry cập nhật đúng.
-- [ ] Xác nhận Pi có thể chuyển sang SEARCH_ARUCO / PRECISION_LANDING khi marker xuất hiện.
-
-### 2.6 Kiểm tra failsafe an toàn
-- [ ] Ngắt kết nối mạng hoặc server để kiểm tra RTL/failsafe.
-- [ ] Xác nhận Pi chuyển sang RETURN_HOME hoặc trạng thái an toàn khi mất kết nối.
-- [ ] Ghi log các state transition để debug.
-
-### 2.7 Dừng hệ thống
-- [ ] Dùng Ctrl+C để dừng process trên Pi.
-- [ ] Kiểm tra hệ thống không còn gửi telemetry sai hoặc lỗi.
-- [ ] Ghi nhận lại kết quả thử nghiệm để cải tiến tiếp.
 
 ---
 
-## 3. CÀI ĐẶT MÔI TRƯỜNG
+## 2. PHÁT TRIỂN QUA VS CODE REMOTE SSH
 
-### 2.1 Tạo và kích hoạt virtual environment Python
+### 2.1 Cài đặt VS Code Remote SSH
 
-PowerShell:
-```powershell
-cd C:\Users\MSI GAMING\Desktop\DroneDelivery
-python -m venv .venv
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-.\.venv\Scripts\Activate.ps1
+1. Cài extension **Remote - SSH** trong VS Code
+2. `Ctrl+Shift+P` → `Remote-SSH: Connect to Host`
+3. Nhập: `rpi5@192.168.137.139`
+4. Lần đầu sẽ copy SSH key và cài VS Code Server tự động
+
+### 2.2 Mở project trên Pi
+
+Trong VS Code sau khi connect:
+- `File → Open Folder` → `/opt/drone-delivery-system`
+
+Bây giờ bạn có thể:
+- ✅ Chỉnh sửa code trực tiếp trên Pi
+- ✅ Mở Terminal → chạy lệnh trên Pi
+- ✅ Xem log realtime trong terminal VS Code
+
+### 2.3 SSH thủ công (Terminal)
+
+```bash
+ssh rpi5@192.168.137.139
+
+# Tạo SSH alias để connect nhanh (thêm vào ~/.ssh/config trên Laptop)
+Host pi-drone
+    HostName 192.168.137.139
+    User rpi5
+    IdentityFile ~/.ssh/id_rsa
+
+# Sau đó dùng:
+ssh pi-drone
 ```
 
-### 2.2 Cài đặt Python dependencies
-```powershell
-pip install -r server\backend\requirements.txt
-pip install -r raspberry-pi\requirements.txt
+---
+
+## 3. CÀI ĐẶT TRÊN RASPBERRY PI
+
+### 3.1 Cài lần đầu (chạy 1 lần)
+
+```bash
+# SSH vào Pi
+ssh rpi5@192.168.137.139
+
+# Clone project (nếu chưa có)
+git clone https://github.com/padungaz/drone-delivery-system.git /opt/drone-delivery-system
+cd /opt/drone-delivery-system/companion
+
+# Cài tự động qua install script
+chmod +x install_service.sh
+sudo ./install_service.sh
 ```
 
-### 2.3 Cài đặt frontend dependencies
-```powershell
+### 3.2 Cấu hình .env
+
+```bash
+nano /opt/drone-delivery-system/companion/.env
+```
+
+```bash
+SERVER_IP=192.168.137.1          # IP laptop/PC hotspot
+SERVER_PORT=8000
+DRONE_ID=drone-01
+MAVLINK_DEVICE=/dev/ttyAMA0     # hoặc /dev/ttyUSB0
+MAVLINK_BAUD=57600
+LOG_FILE=/var/log/drone-companion.log
+LOG_LEVEL=INFO
+```
+
+### 3.3 Enable UART trên Raspberry Pi 5
+
+```bash
+sudo raspi-config
+# Interface Options → Serial Port
+#   Login shell over serial: NO
+#   Serial hardware enabled: YES
+```
+
+Hoặc thêm vào `/boot/firmware/config.txt`:
+```
+enable_uart=1
+dtoverlay=disable-bt
+```
+
+Sau đó reboot:
+```bash
+sudo reboot
+```
+
+Kiểm tra UART available:
+```bash
+ls -la /dev/ttyAMA0
+# crw-rw---- 1 root dialout ... /dev/ttyAMA0
+```
+
+---
+
+## 4. CHẠY HỆ THỐNG
+
+### 4.1 Backend (Laptop/PC)
+
+```bash
+cd backend
+source venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# Kiểm tra
+curl http://192.168.137.1:8000/health
+# {"status":"ok","service":"drone-delivery-backend"}
+```
+
+### 4.2 Frontend (Laptop/PC)
+
+```bash
 cd frontend
-npm install
+npm run dev -- --host 0.0.0.0
+# Truy cập: http://192.168.137.1:5173
 ```
 
-### 2.4 Chuẩn bị database SQLite
-- SQLite đã tích hợp sẵn trong Python, **không cần cài đặt riêng**
-- Database file `drone_delivery.db` sẽ được tạo tự động khi backend khởi động lần đầu
-- Nếu muốn xóa db và khởi tạo lại: xóa file `server/backend/drone_delivery.db`
+### 4.3 Companion (Raspberry Pi — thủ công)
 
----
-
-## 3. CHẠY HỆ THỐNG THẬT
-
-### 3.1 Chạy Backend (SQLite)
-```powershell
-cd C:\Users\MSI GAMING\Desktop\DroneDelivery
-.\.venv\Scripts\Activate.ps1
-cd server\backend
-# Bind to all interfaces so Pi / other machines in LAN can connect
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --log-level info
+```bash
+ssh rpi5@192.168.137.139
+cd /opt/drone-delivery-system/companion
+source venv/bin/activate
+python main.py
 ```
 
-Kiểm tra backend:
+Log khởi động dự kiến:
 ```
-http://192.168.2.28:8000/health
-```
-
-⚠️ **Lưu ý:**
-- Backend sử dụng **SQLite** (không cần PostgreSQL)
-- Database file: `server/backend/drone_delivery.db`
-- Port mặc định: 8001 (nếu port 8000 bận, dùng port khác)
-- Các bảng sẽ được tạo tự động khi backend khởi động lần đầu
-
-### 3.2 Chạy Frontend
-```powershell
-cd C:\Users\MSI GAMING\Desktop\DroneDelivery\frontend
-npm run dev -- --host 0.0.0.0 --port 3000
-```
-
-Truy cập giao diện:
-```text
-http://192.168.2.28:3000
+============================================================
+Drone Delivery Companion — Raspberry Pi 5
+============================================================
+[INFO] Pi hostname  : raspberrypi
+[INFO] Pi IP        : 192.168.137.139
+[INFO] Drone ID     : drone-01
+[INFO] MAVLink dev  : /dev/ttyAMA0  @ 57600 baud
+[INFO] Backend      : http://192.168.137.1:8000
+[INFO] WebSocket    : ws://192.168.137.1:8000/ws/drone/drone-01
+[INFO] Log file     : /var/log/drone-companion.log
+[INFO] Mission state: IDLE
+============================================================
+[INFO] Waiting for PX4 heartbeat (timeout=30s)...
+[INFO] PX4 heartbeat received — system=1 component=1
+[INFO] WebSocket connected to ws://192.168.137.1:8000/ws/drone/drone-01
+[INFO] Companion setup complete
 ```
 
-### 3.3 Chạy Raspberry Pi Application
-Trên Pi thật hoặc máy tính test:
-```powershell
-cd C:\Users\MSI GAMING\Desktop\DroneDelivery\raspberry-pi
-$env:PYTHONPATH = "$PWD\src"
-python src\main.py
-```
+### 4.4 Companion (systemd — auto-start)
 
-Nếu dùng script tự động:
-```powershell
-bash run.sh
-```
+```bash
+# Start / Stop
+sudo systemctl start  drone-companion
+sudo systemctl stop   drone-companion
+sudo systemctl restart drone-companion
 
-### 3.4 Kết nối với Pixhawk
-- Kiểm tra cổng UART/serial
-- Đảm bảo MAVLink đang kết nối đúng baudrate
-- Nếu dùng simulator hoặc test trên máy tính, cần cấu hình đúng target serial
+# Status
+sudo systemctl status drone-companion
 
-### 3.5 Chạy test camera/ArUco (nếu cần kiểm tra vision)
-```powershell
-cd C:\Users\MSI GAMING\Desktop\DroneDelivery\raspberry-pi
-$env:PYTHONPATH = "$PWD\src"
-python tools\test_webcam_aruco.py
+# Log realtime
+journalctl -u drone-companion -f
+
+# Log 100 dòng gần nhất
+journalctl -u drone-companion -n 100
 ```
 
 ---
 
-## 4. CHẠY TEST HỆ THỐNG
+## 5. KIỂM TRA KẾT NỐI
 
-### 4.1 Test backend import / health
-```powershell
-cd C:\Users\MSI GAMING\Desktop\DroneDelivery\server\backend
-python -c "import main; print('backend ok')"
+### 5.1 Test MAVLink thủ công
+
+```bash
+python3 -c "
+from pymavlink import mavutil
+conn = mavutil.mavlink_connection('/dev/ttyAMA0', baud=57600)
+print('Waiting for heartbeat...')
+conn.wait_heartbeat(timeout=30)
+print('PX4 connected — system:', conn.target_system, 'component:', conn.target_component)
+"
 ```
 
-### 4.2 Test frontend build
-```powershell
-cd C:\Users\MSI GAMING\Desktop\DroneDelivery\frontend
-npm run build
+### 5.2 Test WebSocket thủ công
+
+```bash
+python3 -c "
+import asyncio, websockets
+
+async def test():
+    url = 'ws://192.168.137.1:8000/ws/drone/drone-01'
+    async with websockets.connect(url) as ws:
+        print('Connected:', url)
+
+asyncio.run(test())
+"
 ```
 
-### 4.3 Test Raspberry Pi mission manager
-```powershell
-cd C:\Users\MSI GAMING\Desktop\DroneDelivery\raspberry-pi
-$env:PYTHONPATH = "$PWD\src"
-python -m unittest tests.test_mission_manager_commands
-```
+### 5.3 Test network connectivity
 
-### 4.4 Test import module Pi
-```powershell
-cd C:\Users\MSI GAMING\Desktop\DroneDelivery\raspberry-pi
-$env:PYTHONPATH = "$PWD\src"
-python -m unittest tests.test_main_import
-```
+```bash
+# Từ Pi → ping Backend
+ping -c 4 192.168.137.1
 
-### 4.5 Test camera ArUco trực tiếp
-```powershell
-cd C:\Users\MSI GAMING\Desktop\DroneDelivery\raspberry-pi
-$env:PYTHONPATH = "$PWD\src"
-python tools\test_webcam_aruco.py
-```
+# Từ Laptop → ping Pi
+ping -c 4 192.168.137.139
 
----
-
-## 5. LUỒNG HOẠT ĐỘNG HỆ THỐNG
-
-### 5.1 Luồng vận hành tổng quát
-1. Người vận hành mở dashboard trên frontend.
-2. Frontend gửi lệnh hoặc mission tới backend qua HTTP/REST.
-3. Backend relay lệnh tới Raspberry Pi qua WebSocket.
-4. Raspberry Pi nhận lệnh và điều phối qua state machine (FSM).
-5. Pi gửi các lệnh MAVLink tới Pixhawk để ARM, TAKEOFF, di chuyển, RTL hoặc LAND.
-6. Nếu đang ở giai đoạn landing, camera trên Pi chạy nhận diện ArUco marker.
-7. Pi tính offset, yaw error và gửi telemetry về backend/frontend.
-8. Frontend hiển thị trạng thái drone, mission phase, vision metadata và log hệ thống.
-
-### 5.2 Sơ đồ luồng
-```mermaid
-flowchart LR
-    A[User / Operator] --> B[Frontend Dashboard]
-    B --> C[Backend FastAPI]
-    C --> D[Raspberry Pi]
-    D --> E[Pixhawk / PX4]
-    D --> F[Camera + ArUco Detector]
-    F --> D
-    D --> G[Telemetry WebSocket]
-    G --> C
-    C --> B
-```
-
-### 5.3 Luồng mission chính
-```text
-IDLE -> ARMING -> TAKEOFF -> FLY_TO_PICKUP -> DESCEND -> SEARCH_ARUCO -> PRECISION_LANDING -> WAIT_PICKUP_CONFIRM (Landed/Disarmed) -> ARMING -> TAKEOFF -> FLY_TO_DROP -> DESCEND -> SEARCH_ARUCO -> PRECISION_LANDING -> WAIT_DROP_CONFIRM (Landed/Disarmed) -> ARMING -> RETURN_HOME (Landed/Disarmed) -> IDLE
+# Kiểm tra port 8000 từ Pi
+curl http://192.168.137.1:8000/health
 ```
 
 ---
 
-## 6. CÁC VẤN ĐỀ THƯỜNG GẶP
+## 6. LUỒNG MISSION
 
-### 6.1 Backend không khởi động
-- Kiểm tra cổng 8001 (hoặc port bạn sử dụng) có đang bận không
-- Kiểm tra file `drone_delivery.db` nếu muốn xóa toàn bộ dữ liệu và khởi tạo lại
-- Kiểm tra tất cả dependencies đã cài đặt: `pip install -r server/backend/requirements.txt`
-- Kiểm tra phiên bản Python: `python --version` (khuyến cáo 3.12+)
+```
+IDLE → ARMING → TAKEOFF → FLY_TO_PICKUP → DESCEND
+     → SEARCH_ARUCO → PRECISION_LANDING
+     → WAIT_PICKUP_CONFIRM
+     → ARMING → TAKEOFF → FLY_TO_DROP → DESCEND
+     → SEARCH_ARUCO → PRECISION_LANDING
+     → WAIT_DROP_CONFIRM
+     → ARMING → RETURN_HOME → IDLE
+```
 
-### 6.2 Frontend không kết nối được backend
-- Đảm bảo backend đang chạy trên `127.0.0.1:8001` (hoặc port tương ứng)
-- Kiểm tra CORS configuration trong `server/backend/app/core/config.py`
-- Kiểm tra environment variables trong `.env` file
-- Kiểm tra firewall cho phép kết nối local
-
-### 6.3 Pi không kết nối được server
-- Kiểm tra Pi và server cùng mạng LAN
-- Kiểm tra firewall và cổng 8000
-- Kiểm tra WebSocket URL
-
-### 6.4 Camera/ArUco không phát hiện marker
-- Kiểm tra camera nguồn sáng và độ nét
-- Đổi dictionary ArUco phù hợp
-- Chạy tool test_webcam_aruco.py để debug trước khi bay thật
-
----
-
-## 7. MẸO VẬN HÀNH AN TOÀN
-- Không chạy mission thật trước khi test camera và state machine xong
-- Luôn có fail-safe cho mất kết nối server hoặc mất heartbeat
-- Nếu phát hiện marker không ổn định, ưu tiên quay về RTL thay vì tiếp tục hạ cánh
-- Ghi log đầy đủ mỗi lần chạy thử
+| Trạng thái | Mô tả | Trigger |
+|-----------|-------|---------|
+| `IDLE` | Chờ lệnh | - |
+| `ARMING` | Gửi ARM, chờ PX4 confirm | START_MISSION |
+| `TAKEOFF` | Cất cánh lên TAKEOFF_ALTITUDE_M | armed=True |
+| `FLY_TO_PICKUP` | Bay đến pickup GPS | altitude OK |
+| `DESCEND` | Hạ xuống DESCEND_ALTITUDE_M | reached pickup |
+| `SEARCH_ARUCO` | Camera tìm ArUco marker | altitude OK |
+| `PRECISION_LANDING` | Hạ cánh chính xác | marker detected |
+| `WAIT_PICKUP_CONFIRM` | Chờ người xác nhận | landed |
+| `RETURN_HOME` | RTL về Home | DROP_COMPLETE |
 
 ---
 
-## 8. CẬP NHẬT GẦN ĐÂY (2026-07-13)
+## 7. TROUBLESHOOTING
 
-### Tối Ưu Logic Vận Hành (FSM) & Tương Tác Người Dùng
-- **PX4 Auto-Disarm Integration:** Cập nhật FSM để nhận biết hành vi tự động Disarm sau khi chạm đất (Landed) của PX4. Loại bỏ các lệnh Disarm thủ công dư thừa từ Companion.
-- **User Confirm Gates:** Thêm hai trạng thái dừng chờ `WAIT_PICKUP_CONFIRM` và `WAIT_DROP_CONFIRM` sau khi hạ cánh để người vận hành xác nhận an toàn trước khi cất cánh tiếp qua các nút `PICKUP OK` và `DROP OK`.
-- **Continuous Delivery Mode:** Cho phép kích hoạt lại nút `START MISSION` khi drone đang trên đường bay về (`RETURN_HOME`). Người dùng có thể gửi ngay vị trí pickup mới để drone thực hiện cất cánh tiếp tục mà không cần đợi đáp về Home hoàn toàn.
-- **Safety Features:** Đảm bảo lệnh ARM chỉ gửi một lần duy nhất mỗi lần chuyển trạng thái cất cánh và chờ xác nhận `armed=True` từ heartbeat của PX4 trước khi Takeoff.
+### 7.1 Không nhận MAVLink / Timeout
 
-### Database Migration: PostgreSQL → SQLite
-- ✅ Backend đã chuyển từ PostgreSQL sang SQLite3
-- ✅ Database file tự động tạo: `server/backend/drone_delivery.db`
-- ✅ Tất cả API endpoints (CRUD) hoạt động đúng
-- ✅ Data persistence được kiểm chứng qua test tạo và truy xuất Orders
+**Triệu chứng:**
+```
+[WARNING] MAVLink connection failed (attempt 1) — retrying in 5s
+```
 
-### Performance & Stability
-- Backend khởi động nhanh hơn (~1 giây)
-- Không cần cấu hình external database
-- Phù hợp cho development, testing, và deployment trên Pi
+**Kiểm tra:**
+```bash
+# 1. Kiểm tra device tồn tại
+ls -la /dev/ttyAMA0
+
+# 2. Kiểm tra quyền (cần nhóm dialout)
+groups rpi5
+# → rpi5 adm dialout sudo ...
+# Nếu thiếu dialout: sudo usermod -aG dialout rpi5  (rồi logout/login lại)
+
+# 3. Kiểm tra UART enabled
+cat /boot/firmware/config.txt | grep uart
+
+# 4. Test trực tiếp pymavlink
+python3 -c "
+from pymavlink import mavutil
+conn = mavutil.mavlink_connection('/dev/ttyAMA0', baud=57600)
+conn.wait_heartbeat(timeout=15)
+print('OK')
+"
+```
+
+**Giải pháp:**
+- Kiểm tra wiring TELEM1 ↔ Pi (TX↔RX phải chéo)
+- Kiểm tra baudrate khớp trong QGroundControl (`SER_TEL1_BAUD = 57600`)
+- Enable UART: `sudo raspi-config` → Interface → Serial
+- Thêm `enable_uart=1` vào `/boot/firmware/config.txt`
+- Thêm `dtoverlay=disable-bt` nếu `/dev/ttyAMA0` đang dùng cho Bluetooth
+
+---
+
+### 7.2 Không nhận PX4 Heartbeat
+
+**Triệu chứng:** MAVLink connect thành công nhưng `wait_heartbeat()` timeout
+
+**Kiểm tra:**
+- PX4 đã boot chưa? LED Pixhawk nhấp nháy đúng pattern?
+- Baudrare khớp: QGroundControl → Parameters → `SER_TEL1_BAUD = 57600`
+- MAVLink protocol: `MAV_1_CONFIG = TELEM1`, `MAV_1_RATE = 0`
+- Dây TX/RX có đúng chiều không?
+
+---
+
+### 7.3 WebSocket không kết nối
+
+**Triệu chứng:**
+```
+[WARNING] WebSocket connect failed (attempt 1): ... — retrying in 3s
+```
+
+**Kiểm tra:**
+```bash
+# 1. Backend có đang chạy không?
+curl http://192.168.137.1:8000/health
+
+# 2. Đúng IP trong .env?
+cat /opt/drone-delivery-system/companion/.env | grep SERVER_IP
+
+# 3. Firewall trên Laptop
+# Windows: Allow port 8000 inbound
+# Linux: sudo ufw allow 8000
+
+# 4. Ping connectivity
+ping -c 4 192.168.137.1
+```
+
+---
+
+### 7.4 Sai UART device
+
+**Kiểm tra tất cả serial device:**
+```bash
+ls /dev/tty*
+# GPIO UART:   /dev/ttyAMA0  (sau khi disable Bluetooth)
+# USB Serial:  /dev/ttyUSB0, /dev/ttyACM0
+
+# Xem chi tiết
+dmesg | grep tty
+```
+
+**Cập nhật .env:**
+```bash
+# Nếu dùng USB-Serial adapter:
+MAVLINK_DEVICE=/dev/ttyUSB0
+
+# Nếu dùng GPIO UART (khuyên dùng):
+MAVLINK_DEVICE=/dev/ttyAMA0
+```
+
+---
+
+### 7.5 Sai IP / Không ping được
+
+```bash
+# Kiểm tra IP của Pi
+hostname -I
+
+# Cấu hình static IP (Pi 5 dùng NetworkManager, không phải dhcpcd)
+sudo nmcli con mod "$(nmcli -t -f NAME con show --active | head -1)" \
+    ipv4.addresses 192.168.137.139/24 \
+    ipv4.gateway 192.168.137.1 \
+    ipv4.method manual
+sudo nmcli con up "$(nmcli -t -f NAME con show --active | head -1)"
+```
+
+---
+
+### 7.6 Log file không tạo được
+
+```bash
+# Tạo và cấp quyền log file
+sudo touch /var/log/drone-companion.log
+sudo chown rpi5:rpi5 /var/log/drone-companion.log
+
+# Hoặc đổi LOG_FILE thành local path trong .env:
+LOG_FILE=/home/rpi5/drone-companion.log
+```
+
+---
+
+## 8. UPDATE CODE TRÊN PI
+
+```bash
+# Từ VS Code Remote SSH terminal hoặc SSH thông thường:
+cd /opt/drone-delivery-system
+git pull
+
+# Restart service
+sudo systemctl restart drone-companion
+journalctl -u drone-companion -f
+```
+
+---
+
+## 9. PRE-FLIGHT CHECKLIST
+
+- [ ] Backend `192.168.137.1:8000` → `curl http://192.168.137.1:8000/health` OK
+- [ ] Pi `192.168.137.139` — ping từ Laptop OK
+- [ ] SSH vào Pi thành công (rpi5@192.168.137.139)
+- [ ] `.env` đã cấu hình đúng `SERVER_IP`, `MAVLINK_DEVICE`
+- [ ] `python main.py` → PX4 heartbeat received
+- [ ] WebSocket connected trong log
+- [ ] Dashboard frontend hiển thị telemetry sau 2 giây
+- [ ] GPS fix ≥ 6 satellites (trong dashboard)
+- [ ] Battery > 50%
+- [ ] ArUco marker đặt đúng vị trí pickup và drop
+- [ ] Test FORCE RTL trước khi bay thật
+- [ ] Khu vực bay clear (không người, không vật cản)
+
+---
+
+## 10. CẬP NHẬT GẦN ĐÂY
+
+### 2026-07-14 — Chuyển sang Raspberry Pi 5 thực tế
+
+- ✅ Xóa toàn bộ PC simulation / Windows COM port
+- ✅ Config đọc từ environment variables (`.env` file)
+- ✅ Main startup log: hostname, IP, MAVLink, WebSocket, mission state
+- ✅ MAVLink auto-reconnect (retry vô hạn, không exit)
+- ✅ WebSocket log chi tiết (URL, attempt number, delay)
+- ✅ Tạo systemd service `drone-companion.service`
+- ✅ Tạo `install_service.sh` — cài tự động 1 lần
+- ✅ Cập nhật tài liệu cho headless Pi + VS Code SSH workflow
+
+### 2026-07-13 — FSM & Mission Flow
+
+- ✅ PX4 Auto-Disarm Integration
+- ✅ WAIT_PICKUP_CONFIRM / WAIT_DROP_CONFIRM gates
+- ✅ Continuous Delivery Mode (intercept trong RETURN_HOME)
+- ✅ Database: PostgreSQL → SQLite

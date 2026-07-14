@@ -1,3 +1,10 @@
+"""
+WebSocket client — kết nối Raspberry Pi tới FastAPI Backend qua LAN.
+
+URL:  ws://SERVER_IP:8000/ws/drone/drone-01
+Auto-reconnect với delay WS_RECONNECT_DELAY_SEC.
+"""
+
 import asyncio
 import json
 import logging
@@ -12,15 +19,15 @@ logger = logging.getLogger(__name__)
 
 
 class WebSocketClient:
-    """WebSocket client with automatic reconnection to FastAPI backend."""
+    """WebSocket client với auto-reconnect tới FastAPI backend."""
 
     def __init__(self, on_command: Optional[Callable[[dict], None]] = None):
         self.url = config.WS_URL
-        self._on_command = on_command
+        self._on_command       = on_command
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
-        self._connected = False
+        self._connected        = False
         self._reconnect_attempts = 0
-        self._should_run = True
+        self._should_run       = True
 
     @property
     def is_connected(self) -> bool:
@@ -29,24 +36,33 @@ class WebSocketClient:
     async def connect(self) -> bool:
         while self._should_run:
             try:
-                logger.info("Connecting to %s", self.url)
+                logger.info(
+                    "[INFO] WebSocket connecting to %s (attempt %d)...",
+                    self.url,
+                    self._reconnect_attempts + 1,
+                )
                 self._ws = await websockets.connect(self.url)
                 self._connected = True
                 self._reconnect_attempts = 0
-                logger.info("WebSocket connected")
+                logger.info("[INFO] WebSocket connected to %s", self.url)
                 return True
+
             except Exception as exc:
                 self._reconnect_attempts += 1
                 logger.warning(
-                    "WebSocket connect failed (attempt %d): %s",
+                    "[WARNING] WebSocket connect failed (attempt %d): %s — retrying in %.0fs",
                     self._reconnect_attempts,
                     exc,
+                    config.WS_RECONNECT_DELAY_SEC,
                 )
                 if (
                     config.WS_MAX_RECONNECT_ATTEMPTS > 0
                     and self._reconnect_attempts >= config.WS_MAX_RECONNECT_ATTEMPTS
                 ):
-                    logger.error("Max reconnect attempts reached")
+                    logger.error(
+                        "[ERROR] WebSocket max reconnect attempts (%d) reached",
+                        config.WS_MAX_RECONNECT_ATTEMPTS,
+                    )
                     return False
                 await asyncio.sleep(config.WS_RECONNECT_DELAY_SEC)
         return False
@@ -62,12 +78,18 @@ class WebSocketClient:
                 data = json.loads(message)
                 if data.get("type") == "command" and self._on_command:
                     self._on_command(data.get("payload", {}))
+
             except ConnectionClosed:
-                logger.warning("WebSocket connection closed, reconnecting...")
+                logger.warning(
+                    "[WARNING] WebSocket disconnected from %s — reconnecting in %.0fs",
+                    self.url,
+                    config.WS_RECONNECT_DELAY_SEC,
+                )
                 self._connected = False
                 await asyncio.sleep(config.WS_RECONNECT_DELAY_SEC)
+
             except Exception as exc:
-                logger.error("WebSocket listen error: %s", exc)
+                logger.error("[ERROR] WebSocket listen error: %s", exc)
                 self._connected = False
                 await asyncio.sleep(config.WS_RECONNECT_DELAY_SEC)
 
@@ -78,7 +100,7 @@ class WebSocketClient:
             await self._ws.send(json.dumps(message))
             return True
         except Exception as exc:
-            logger.error("WebSocket send failed: %s", exc)
+            logger.error("[ERROR] WebSocket send failed: %s", exc)
             self._connected = False
             return False
 
@@ -102,9 +124,9 @@ class WebSocketClient:
             "type": "landing_result",
             "payload": {
                 "location_type": location_type,
-                "success": success,
-                "offset_x": offset_x,
-                "offset_y": offset_y,
+                "success":       success,
+                "offset_x":      offset_x,
+                "offset_y":      offset_y,
             },
         })
 
@@ -112,3 +134,4 @@ class WebSocketClient:
         self._should_run = False
         if self._ws:
             asyncio.create_task(self._ws.close())
+        logger.info("[INFO] WebSocket client stopped")

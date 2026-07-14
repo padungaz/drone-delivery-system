@@ -1,0 +1,34 @@
+[Unit]
+Description=Drone Delivery Companion Computer
+Documentation=https://github.com/padungaz/drone-delivery-system
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+
+# Project path on Raspberry Pi
+WorkingDirectory=/opt/drone-delivery-system/companion
+
+# Load .env file for SERVER_IP, MAVLINK_DEVICE, etc.
+EnvironmentFile=/opt/drone-delivery-system/companion/.env
+
+# Run with venv python
+ExecStart=/opt/drone-delivery-system/companion/venv/bin/python main.py
+
+# Auto-restart on crash (5-second delay)
+Restart=always
+RestartSec=5
+
+# Log to systemd journal (view with: journalctl -u drone-companion -f)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=drone-companion
+
+# Give UART access (needed for /dev/ttyAMA0)
+SupplementaryGroups=dialout
+
+[Install]
+WantedBy=multi-user.target

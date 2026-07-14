@@ -1,34 +1,35 @@
-"""Factory — chọn MAVLink backend theo config."""
+"""
+MAVLink factory — trả về MavlinkController kết nối UART tới Pixhawk 6C.
+
+Raspberry Pi 5 production deployment:
+  MAVLINK_DEVICE = /dev/ttyAMA0  (GPIO UART — Pixhawk TELEM1)
+               hoặc /dev/ttyUSB0  (USB-Serial adapter)
+  MAVLINK_BAUD   = 57600 | 921600
+"""
 
 import logging
 
 import config
+from src.mavlink_service.controller import MavlinkController
 
 logger = logging.getLogger(__name__)
 
 
-def create_mavlink_controller():
+def create_mavlink_controller() -> MavlinkController:
     """
-    Trả về controller phù hợp:
-      sim + mock  → MavlinkSimulator (không cần PX4)
-      sim + sitl  → MavlinkController qua UDP (PX4 SITL)
-      pi          → MavlinkController qua UART
-    """
-    if config.IS_SIM and config.MAVLINK_BACKEND == "mock":
-        from src.mavlink_service.simulator import MavlinkSimulator
-        logger.info("Using MAVLink MOCK (PC simulation)")
-        return MavlinkSimulator()
+    Tạo và cấu hình MavlinkController cho Raspberry Pi 5.
 
-    from src.mavlink_service.controller import MavlinkController
+    Device và baudrate được đọc từ environment variables:
+      MAVLINK_DEVICE (default: /dev/ttyAMA0)
+      MAVLINK_BAUD   (default: 57600)
+    """
     ctrl = MavlinkController()
+    ctrl.connection_uri = config.MAVLINK_DEVICE
+    ctrl.use_baud = True
 
-    if config.IS_SIM and config.MAVLINK_BACKEND == "sitl":
-        ctrl.connection_uri = config.MAVLINK_SITL_URI
-        ctrl.use_baud = False
-        logger.info("Using MAVLink SITL: %s", config.MAVLINK_SITL_URI)
-    else:
-        ctrl.connection_uri = config.MAVLINK_DEVICE
-        ctrl.use_baud = True
-        logger.info("Using MAVLink serial: %s", config.MAVLINK_DEVICE)
-
+    logger.info(
+        "MAVLink controller: serial %s @ %d baud",
+        config.MAVLINK_DEVICE,
+        config.MAVLINK_BAUD,
+    )
     return ctrl
