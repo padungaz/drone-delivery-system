@@ -34,7 +34,11 @@ echo ""
 # 1. Create install directory and copy files
 echo "[1/6] Copying companion files to $INSTALL_DIR..."
 sudo mkdir -p "$INSTALL_DIR"
-sudo cp -r "$SCRIPT_DIR"/. "$INSTALL_DIR/"
+if [ "$SCRIPT_DIR" != "$INSTALL_DIR" ]; then
+    sudo cp -r "$SCRIPT_DIR"/. "$INSTALL_DIR/"
+else
+    echo "       Already in $INSTALL_DIR — skipping copy"
+fi
 sudo chown -R "$REAL_USER:$REAL_GROUP" "$INSTALL_DIR"
 
 # 2. Create Python virtual environment
