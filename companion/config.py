@@ -239,6 +239,10 @@ ARUCO_MARKER_ID = 0
 ARUCO_CAMERA_FPS = 30
 
 
+# Tần suất gửi ArUco detection result về backend (giây)
+CAMERA_ARUCO_SEND_INTERVAL_SEC = 2.0
+
+
 
 # ===========================================================================
 # Mission

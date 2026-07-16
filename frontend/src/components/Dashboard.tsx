@@ -4,6 +4,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import { MissionForm } from "./MissionForm";
 import { TelemetryPanel } from "./TelemetryPanel";
 import { ControlButtons } from "./ControlButtons";
+import { CameraPanel } from "./CameraPanel";
 
 const DEFAULT_LOCATIONS: MissionLocations = {
   home_lat: 21.0285,
@@ -15,7 +16,8 @@ const DEFAULT_LOCATIONS: MissionLocations = {
 };
 
 export function Dashboard() {
-  const { connected, telemetry, droneOnline, lastError } = useWebSocket();
+  const { connected, telemetry, droneOnline, lastError, cameraStatus, arucoDetection } =
+    useWebSocket();
   const [locations, setLocations] = useState<MissionLocations>(DEFAULT_LOCATIONS);
 
   return (
@@ -37,6 +39,11 @@ export function Dashboard() {
       <main className="main-grid">
         <MissionForm onChange={setLocations} />
         <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
+        <CameraPanel
+          cameraStatus={cameraStatus}
+          arucoDetection={arucoDetection}
+          droneOnline={droneOnline}
+        />
         <ControlButtons
           locations={locations}
           telemetry={telemetry}

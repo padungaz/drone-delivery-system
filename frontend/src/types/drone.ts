@@ -87,3 +87,18 @@ export const FLYING_STATES: ReadonlySet<DroneState> = new Set([
   "LANDING",
   "RTL",
 ]);
+
+// Camera test feature
+export type CameraStatus = "OFF" | "ON" | "ERROR";
+
+export interface ArucoDetection {
+  aruco_detected: boolean;
+  marker_id?: number;
+  center_x?: number;
+  center_y?: number;
+  offset_x?: number;
+  offset_y?: number;
+  image_width?: number;
+  image_height?: number;
+  timestamp?: string;
+}

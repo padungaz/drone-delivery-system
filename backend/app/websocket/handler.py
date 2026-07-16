@@ -114,6 +114,19 @@ async def handle_drone_websocket(
                     await manager.broadcast_to_clients(
                         {"type": "error", "payload": {"drone_id": drone_id, **p}}
                     )
+                elif msg_type == "camera_status":
+                    # Broadcast camera ON/OFF/ERROR status to all frontend clients
+                    p = payload.get("payload", {})
+                    await manager.broadcast_to_clients(
+                        {"type": "camera_status", "payload": {"drone_id": drone_id, **p}}
+                    )
+                    logger.info("Camera status from %s: %s", drone_id, p.get("camera"))
+                elif msg_type == "aruco_detection":
+                    # Broadcast ArUco detection result to all frontend clients
+                    p = payload.get("payload", {})
+                    await manager.broadcast_to_clients(
+                        {"type": "aruco_detection", "payload": {"drone_id": drone_id, **p}}
+                    )
             except Exception as exc:
                 logger.error("Invalid message from drone %s: %s", drone_id, exc)
     except WebSocketDisconnect:

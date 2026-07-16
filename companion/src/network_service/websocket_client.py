@@ -130,8 +130,23 @@ class WebSocketClient:
             },
         })
 
+    async def send_camera_status(self, status: str, device: str) -> bool:
+        """Send camera ON/OFF/ERROR status to backend."""
+        return await self.send({
+            "type": "camera_status",
+            "payload": {"camera": status, "device": device},
+        })
+
+    async def send_aruco_detection(self, payload: dict) -> bool:
+        """Send ArUco detection result to backend."""
+        return await self.send({
+            "type": "aruco_detection",
+            "payload": payload,
+        })
+
     def stop(self) -> None:
         self._should_run = False
         if self._ws:
             asyncio.create_task(self._ws.close())
         logger.info("[INFO] WebSocket client stopped")
+

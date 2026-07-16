@@ -48,6 +48,8 @@ class MissionAction(str, Enum):
     DROP_COMPLETE = "DROP_COMPLETE"
     FORCE_RTL = "FORCE_RTL"
     STOP = "STOP"
+    CAMERA_START = "CAMERA_START"
+    CAMERA_STOP = "CAMERA_STOP"
 
 
 class Location(BaseModel):

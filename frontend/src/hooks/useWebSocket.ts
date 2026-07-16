@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Telemetry, WsMessage } from "../types/drone";
+import type { ArucoDetection, CameraStatus, Telemetry, WsMessage } from "../types/drone";
 import { WS_URL } from "../services/api";
 
 const RECONNECT_DELAY_MS = 3000;
@@ -9,6 +9,8 @@ export function useWebSocket() {
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
   const [droneOnline, setDroneOnline] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>("OFF");
+  const [arucoDetection, setArucoDetection] = useState<ArucoDetection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -33,8 +35,19 @@ export function useWebSocket() {
           setDroneOnline(true);
         } else if (msg.type === "drone_disconnected") {
           setDroneOnline(false);
+          setCameraStatus("OFF");
+          setArucoDetection(null);
         } else if (msg.type === "error") {
           setLastError(String(msg.payload.message ?? "Unknown error"));
+        } else if (msg.type === "camera_status") {
+          const status = (msg.payload.camera as string)?.toUpperCase() as CameraStatus;
+          setCameraStatus(status ?? "OFF");
+          // Clear aruco data when camera turns off
+          if (status === "OFF") {
+            setArucoDetection(null);
+          }
+        } else if (msg.type === "aruco_detection") {
+          setArucoDetection(msg.payload as unknown as ArucoDetection);
         }
       } catch {
         setLastError("Failed to parse WebSocket message");
@@ -60,5 +73,5 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  return { connected, telemetry, droneOnline, lastError };
+  return { connected, telemetry, droneOnline, lastError, cameraStatus, arucoDetection };
 }

@@ -182,6 +182,8 @@ class CompanionApp:
 
     def shutdown(self) -> None:
         self._running = False
+        if self.mission:
+            self.mission.get_camera_service().stop()
         self.vision.stop()
         self.ws.stop()
         logger.info("[INFO] Companion shutdown complete")
@@ -206,6 +208,10 @@ async def main():
     if not app.setup():
         logger.error("[ERROR] Companion setup failed — exiting")
         sys.exit(1)
+
+    # Pass event loop to mission manager for thread-safe async callbacks
+    if app.mission:
+        app.mission.set_event_loop(asyncio.get_running_loop())
 
     await asyncio.gather(
         app.run_ws_listener(),

@@ -166,6 +166,44 @@ async def stop_mission(command: MissionCommand, repo: Repository = Depends(get_r
     return {"status": "STOP sent", "mission_id": record.id}
 
 
+# ---------------------------------------------------------------------------
+# Camera test endpoints (lightweight — no mission record needed)
+# ---------------------------------------------------------------------------
+
+@router.post("/camera/start")
+async def camera_start(drone_id: str = "drone-01"):
+    """Send CAMERA_START command to drone to open USB camera + start ArUco detection."""
+    if not manager.is_drone_connected(drone_id):
+        raise HTTPException(status_code=503, detail=f"Drone {drone_id} not connected")
+
+    sent = await manager.send_to_drone(drone_id, {
+        "type": "command",
+        "payload": {"action": "CAMERA_START"},
+    })
+    if not sent:
+        raise HTTPException(status_code=503, detail="Failed to send CAMERA_START to drone")
+
+    logger.info("CAMERA_START sent to drone %s", drone_id)
+    return {"status": "CAMERA_START sent", "drone_id": drone_id}
+
+
+@router.post("/camera/stop")
+async def camera_stop(drone_id: str = "drone-01"):
+    """Send CAMERA_STOP command to drone to close USB camera."""
+    if not manager.is_drone_connected(drone_id):
+        raise HTTPException(status_code=503, detail=f"Drone {drone_id} not connected")
+
+    sent = await manager.send_to_drone(drone_id, {
+        "type": "command",
+        "payload": {"action": "CAMERA_STOP"},
+    })
+    if not sent:
+        raise HTTPException(status_code=503, detail="Failed to send CAMERA_STOP to drone")
+
+    logger.info("CAMERA_STOP sent to drone %s", drone_id)
+    return {"status": "CAMERA_STOP sent", "drone_id": drone_id}
+
+
 @router.websocket("/ws/drone/{drone_id}")
 async def drone_websocket(websocket: WebSocket, drone_id: str):
     async with async_session() as session:

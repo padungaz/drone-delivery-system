@@ -31,6 +31,7 @@ from src.network_service.websocket_client import WebSocketClient
 from src.state_machine.machine import StateMachine
 from src.state_machine.states import DroneState
 from src.vision_service.aruco_landing import ArucoLandingService
+from src.vision_service.camera_service import CameraService
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +88,20 @@ class MissionManager:
         # Continuous Delivery: a new START arrived while drone is RETURN_HOME
         self._pending_mission: Optional[MissionLocations] = None
 
+        # Camera test service — controlled from frontend
+        self._camera_service = CameraService(
+            on_camera_status=self._on_camera_status_sync,
+            on_aruco_detection=self._on_aruco_detection_sync,
+        )
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+
     # -----------------------------------------------------------------------
     # Command handler (called from WebSocket receive loop)
     # -----------------------------------------------------------------------
+
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Store event loop reference for scheduling async callbacks from threads."""
+        self._event_loop = loop
 
     def handle_command(self, payload: dict) -> None:
         action = payload.get("action", "")
@@ -109,6 +121,12 @@ class MissionManager:
 
         elif action == "STOP":
             self._handle_stop()
+
+        elif action == "CAMERA_START":
+            self._handle_camera_start()
+
+        elif action == "CAMERA_STOP":
+            self._handle_camera_stop()
 
     def _handle_start(self, payload: dict) -> None:
         new_locations = MissionLocations(
@@ -195,6 +213,34 @@ class MissionManager:
         self._pending_mission = None
         self.state_machine.reset()
         logger.info("Mission stopped, reset to IDLE")
+
+    def _handle_camera_start(self) -> None:
+        logger.info("CAMERA_START received")
+        self._camera_service.start()
+
+    def _handle_camera_stop(self) -> None:
+        logger.info("CAMERA_STOP received")
+        self._camera_service.stop()
+
+    # -----------------------------------------------------------------------
+    # Camera callbacks (called from CameraService background thread)
+    # -----------------------------------------------------------------------
+
+    def _on_camera_status_sync(self, status: str, device: str) -> None:
+        """Thread-safe: schedule async WS send on the event loop."""
+        if self._event_loop and self._event_loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self.ws.send_camera_status(status, device),
+                self._event_loop,
+            )
+
+    def _on_aruco_detection_sync(self, payload: dict) -> None:
+        """Thread-safe: schedule async WS send on the event loop."""
+        if self._event_loop and self._event_loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self.ws.send_aruco_detection(payload),
+                self._event_loop,
+            )
 
     # -----------------------------------------------------------------------
     # State entry actions (called once when entering a new state)
@@ -452,3 +498,6 @@ class MissionManager:
 
     def get_landing_phase(self) -> str:
         return self._landing_phase
+
+    def get_camera_service(self) -> CameraService:
+        return self._camera_service

@@ -54,3 +54,17 @@ export async function stopMission(locations: MissionLocations): Promise<Response
 export async function getDroneStatus(): Promise<Response> {
   return fetch(`${API_BASE}/drones/${DRONE_ID}/status`);
 }
+
+/** Send CAMERA_START command to drone via backend. */
+export async function startCamera(): Promise<Response> {
+  return fetch(`${API_BASE}/camera/start?drone_id=${DRONE_ID}`, {
+    method: "POST",
+  });
+}
+
+/** Send CAMERA_STOP command to drone via backend. */
+export async function stopCamera(): Promise<Response> {
+  return fetch(`${API_BASE}/camera/stop?drone_id=${DRONE_ID}`, {
+    method: "POST",
+  });
+}
