@@ -222,7 +222,10 @@ CAMERA_FPS = int(
 #
 # phải giống marker được in
 
-ARUCO_DICTIONARY = "DICT_4X4_50"
+ARUCO_DICTIONARY = os.getenv(
+    "ARUCO_DICTIONARY",
+    "DICT_6X6_50"
+)
 
 
 # Marker thực tế:

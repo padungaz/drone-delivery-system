@@ -25,6 +25,7 @@ ARUCO_DICT_MAP = {
     "DICT_4X4_100": aruco.DICT_4X4_100,
     "DICT_5X5_50": aruco.DICT_5X5_50,
     "DICT_5X5_100": aruco.DICT_5X5_100,
+    "DICT_6X6_50": aruco.DICT_6X6_50,
     "DICT_6X6_250": aruco.DICT_6X6_250,
 }
 
