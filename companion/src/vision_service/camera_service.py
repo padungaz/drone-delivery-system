@@ -282,6 +282,7 @@ class CameraService:
                         "aruco_detected": False,
                         "timestamp": latest_result.timestamp,
                     }
+                    logger.info("[CAMERA] No ArUco detected")
 
                 self._notify_aruco(payload)
 
