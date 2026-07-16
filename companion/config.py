@@ -224,7 +224,7 @@ CAMERA_FPS = int(
 
 ARUCO_DICTIONARY = os.getenv(
     "ARUCO_DICTIONARY",
-    "DICT_6X6_50"
+    "DICT_5X5_50"
 )
 
 

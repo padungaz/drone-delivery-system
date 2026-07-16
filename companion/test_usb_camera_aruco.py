@@ -173,6 +173,9 @@ ARUCO_DICT = {
     "DICT_4X4_50":
         aruco.DICT_4X4_50,
 
+    "DICT_5X5_50":
+        aruco.DICT_5X5_50,
+
     "DICT_5X5_100":
         aruco.DICT_5X5_100,
 
