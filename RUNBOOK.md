@@ -140,12 +140,25 @@ ls -la /dev/ttyAMA0
 
 ### 4.1 Backend (Laptop/PC)
 
+**Windows PowerShell:**
+```powershell
+cd backend
+.\venv\Scripts\Activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# Hoặc chạy trực tiếp không cần activate:
+.\venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+**Linux / Mac / Pi:**
 ```bash
 cd backend
 source venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
 
-# Kiểm tra
+**Kiểm tra:**
+```bash
 curl http://192.168.137.1:8000/health
 # {"status":"ok","service":"drone-delivery-backend"}
 ```
@@ -165,6 +178,37 @@ ssh rpi5@192.168.137.139
 cd /opt/drone-delivery-system/companion
 source venv/bin/activate
 python main.py
+```
+
+### 4.4 Test Camera + ArUco Detection (từ Frontend)
+
+**Yêu cầu:** Backend đang chạy, Companion đang chạy (đã kết nối WebSocket), camera USB đã cắm vào Pi.
+
+1. Mở Dashboard frontend: `http://192.168.137.1:5173`
+2. Nhấn nút **📷 Test Camera** trong panel "Camera & ArUco"
+3. Trạng thái sẽ chuyển từ 🔴 Camera OFF → 🟢 Camera ON
+4. Đưa mã ArUco (DICT_4X4_50, ID=0) ra trước camera USB
+5. Dashboard sẽ hiển thị: Marker ID, Offset X/Y, Center X/Y (cập nhật mỗi 2 giây)
+6. Nhấn **⏹ Stop Camera** để tắt
+
+**Log trên Pi khi camera bật thành công:**
+```
+[CAMERA] Starting camera...
+[CAMERA] Device: /dev/video0
+[CAMERA] Resolution: 640x480
+[CAMERA] FPS: 30
+[CAMERA] ArUco dictionary: DICT_4X4_50
+[CAMERA] Camera started successfully
+[CAMERA] ArUco detection thread started
+```
+
+**Kiểm tra thủ công qua API (không cần frontend):**
+```bash
+# Bật camera
+curl -X POST http://192.168.137.1:8000/camera/start?drone_id=drone-01
+
+# Tắt camera
+curl -X POST http://192.168.137.1:8000/camera/stop?drone_id=drone-01
 ```
 
 Log khởi động dự kiến:
@@ -438,6 +482,17 @@ journalctl -u drone-companion -f
 ---
 
 ## 10. CẬP NHẬT GẦN ĐÂY
+
+### 2026-07-16 — Camera Test + ArUco Detection (Full Stack)
+
+- ✅ Companion: `CameraService` — mở USB camera headless, ArUco detection background thread
+- ✅ Companion: Gửi `camera_status` (ON/OFF/ERROR) và `aruco_detection` qua WebSocket mỗi 2s
+- ✅ Companion: Xử lý command `CAMERA_START` / `CAMERA_STOP` từ frontend
+- ✅ Backend: `POST /camera/start`, `POST /camera/stop` endpoints
+- ✅ Backend: Forward `camera_status` + `aruco_detection` tới frontend clients
+- ✅ Frontend: `CameraPanel` — nút Test Camera, badge ON/OFF/ERROR, bảng ArUco info
+- ✅ Frontend: WebSocket hook nhận `camera_status` + `aruco_detection` realtime
+- ✅ RUNBOOK: Cập nhật lệnh PowerShell cho Windows, thêm hướng dẫn test camera
 
 ### 2026-07-14 — Chuyển sang Raspberry Pi 5 thực tế
 
