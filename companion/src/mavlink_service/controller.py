@@ -124,7 +124,22 @@ class MavlinkController:
                 "Waiting for PX4 heartbeat (timeout=%ds)...",
                 config.MAVLINK_HEARTBEAT_TIMEOUT,
             )
-            self.connection.wait_heartbeat(timeout=config.MAVLINK_HEARTBEAT_TIMEOUT)
+            
+            start_time = time.time()
+            while True:
+                if time.time() - start_time > config.MAVLINK_HEARTBEAT_TIMEOUT:
+                    raise TimeoutError("Heartbeat timeout - No valid PX4 heartbeat received")
+                
+                # Cờ blocking, sẽ trả về message nếu có, không thì None sau 1s
+                msg = self.connection.wait_heartbeat(blocking=True, timeout=1.0)
+                if msg is not None:
+                    # Bỏ qua nếu là system 0 (broadcast) hoặc GCS (thường là 255)
+                    # Chỉ lấy heartbeat của Drone (thường là 1)
+                    if self.connection.target_system != 0 and self.connection.target_system != 255:
+                        break
+                    else:
+                        logger.debug("Bỏ qua heartbeat từ system=%s", self.connection.target_system)
+            
             self._connected = True
 
             logger.info(
