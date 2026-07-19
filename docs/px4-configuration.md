@@ -7,7 +7,7 @@ Tài liệu này lưu trữ các cấu hình phần cứng, tham số PX4 (param
 ## 1. Sơ đồ kết nối phần cứng (Wiring)
 
 ```
-Pixhawk 6C (TELEM1)       Raspberry Pi 5
+Pixhawk 6C (TELEM2)       Raspberry Pi 5
 ───────────────────       ────────────────
   TX  (pin 2)  ──────►    GPIO15 / RXD (pin 10)
   RX  (pin 3)  ◄──────    GPIO14 / TXD (pin 8)
@@ -22,13 +22,13 @@ Pixhawk 6C (TELEM1)       Raspberry Pi 5
 
 Áp dụng các tham số sau qua phần mềm **QGroundControl** hoặc chạy `param set` trực tiếp qua MAVLink console.
 
-### MAVLink (Cổng TELEM1)
+### MAVLink (Cổng TELEM2)
 | Tham số | Giá trị | Mô tả |
 |---------|---------|-------|
-| `MAV_0_CONFIG` | `101` | Dùng cổng TELEM1 |
-| `MAV_0_MODE` | `2` | Chế độ Onboard (Companion Computer) |
-| `MAV_0_RATE` | `1200` | Stream rate (bytes/s) |
-| `SER_TEL1_BAUD` | `57600` | Tốc độ Baud (Baud rate) |
+| `MAV_1_CONFIG` | `102` | Dùng cổng TELEM2 |
+| `MAV_1_MODE` | `2` | Chế độ Onboard (Companion Computer) |
+| `MAV_1_RATE` | `1200` | Stream rate (bytes/s) |
+| `SER_TEL2_BAUD` | `921600` | Tốc độ Baud (Baud rate) |
 
 ### State Estimator (EKF2)
 | Tham số | Giá trị | Mô tả |
@@ -89,10 +89,10 @@ Lưu file bash sau trên Companion để cấu hình nhanh PX4:
 ```bash
 #!/bin/bash
 PARAMS=(
-  "MAV_0_CONFIG 101"
-  "MAV_0_MODE 2"
-  "MAV_0_RATE 1200"
-  "SER_TEL1_BAUD 57600"
+  "MAV_1_CONFIG 102"
+  "MAV_1_MODE 2"
+  "MAV_1_RATE 1200"
+  "SER_TEL2_BAUD 921600"
   "EKF2_EN 1"
   "EKF2_AID_MASK 24"
   "EKF2_HGT_MODE 2"

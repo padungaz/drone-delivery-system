@@ -28,7 +28,7 @@ Chạy trên Raspberry Pi:
 ```bash
 python3 -c "
 from pymavlink import mavutil
-conn = mavutil.mavlink_connection('/dev/ttyAMA0', baud=57600)
+conn = mavutil.mavlink_connection('/dev/ttyAMA0', baud=921600)
 print('Waiting for heartbeat...')
 conn.wait_heartbeat(timeout=15)
 print('PX4 connected — system:', conn.target_system)
@@ -100,7 +100,7 @@ journalctl -u drone-companion -n 100
 ```
 **Khắc phục:**
 - Kiểm tra dây cáp UART (chân TX của Pixhawk phải nối với chân RX của Pi và ngược lại).
-- Kiểm tra tốc độ baudrate trong QGroundControl: `SER_TEL1_BAUD = 57600`.
+- Kiểm tra tốc độ baudrate trong QGroundControl: `SER_TEL2_BAUD = 921600`.
 - Xác minh quyền truy cập cổng Serial: chạy lệnh `groups rpi5`, nếu không có `dialout`, chạy `sudo usermod -aG dialout rpi5` rồi đăng nhập lại.
 - Xác nhận Bluetooth đã bị vô hiệu hóa (`dtoverlay=disable-bt` trong `/boot/firmware/config.txt`) để cổng `/dev/ttyAMA0` khả dụng.
 

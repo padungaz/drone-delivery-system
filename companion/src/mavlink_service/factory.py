@@ -21,7 +21,7 @@ def create_mavlink_controller() -> MavlinkController:
 
     Device và baudrate được đọc từ environment variables:
       MAVLINK_DEVICE (default: /dev/ttyAMA0)
-      MAVLINK_BAUD   (default: 57600)
+      MAVLINK_BAUD   (default: 921600)
     """
     ctrl = MavlinkController()
     ctrl.connection_uri = config.MAVLINK_DEVICE
