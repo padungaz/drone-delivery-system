@@ -351,3 +351,28 @@ class MavlinkController:
             and self.telemetry.altitude_agl < 0.15
             and self.telemetry.ground_speed < 0.3
         )
+
+    def move_relative(self, dx: float, dy: float, dz: float) -> bool:
+        """
+        Move drone relative to current position (in meters).
+        Uses SET_POSITION_TARGET_LOCAL_NED.
+        """
+        if not self._can_send("goto") or not self.connection:
+            return False
+
+        # MAV_FRAME_BODY_OFFSET_NED (9) moves relative to current position and heading
+        # type_mask = 0b110111111000 (ignore velocity, accel, yaw)
+        self.connection.mav.set_position_target_local_ned_send(
+            0, # time_boot_ms
+            self.connection.target_system,
+            self.connection.target_component,
+            mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
+            0b110111111000,
+            dx, dy, dz,
+            0, 0, 0,
+            0, 0, 0,
+            0, 0
+        )
+        self._last_command_time["goto"] = time.time()
+        logger.info("Move relative: dx=%.1f, dy=%.1f, dz=%.1f", dx, dy, dz)
+        return True

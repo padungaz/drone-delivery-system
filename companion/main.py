@@ -184,6 +184,7 @@ class CompanionApp:
         self._running = False
         if self.mission:
             self.mission.get_camera_service().stop()
+            self.mission.shutdown()
         self.vision.stop()
         self.ws.stop()
         logger.info("[INFO] Companion shutdown complete")

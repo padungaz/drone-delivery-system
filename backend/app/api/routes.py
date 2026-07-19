@@ -204,6 +204,40 @@ async def camera_stop(drone_id: str = "drone-01"):
     return {"status": "CAMERA_STOP sent", "drone_id": drone_id}
 
 
+@router.post("/missions/set-mode")
+async def set_mode(mode: str, drone_id: str = "drone-01"):
+    """Send SET_MODE command to drone."""
+    if not manager.is_drone_connected(drone_id):
+        raise HTTPException(status_code=503, detail=f"Drone {drone_id} not connected")
+
+    sent = await manager.send_to_drone(drone_id, {
+        "type": "command",
+        "payload": {"action": "SET_MODE", "mode": mode},
+    })
+    if not sent:
+        raise HTTPException(status_code=503, detail="Failed to send SET_MODE to drone")
+
+    logger.info("SET_MODE (%s) sent to drone %s", mode, drone_id)
+    return {"status": "SET_MODE sent", "drone_id": drone_id}
+
+
+@router.post("/missions/move-relative")
+async def move_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0, drone_id: str = "drone-01"):
+    """Send MOVE_RELATIVE command to drone."""
+    if not manager.is_drone_connected(drone_id):
+        raise HTTPException(status_code=503, detail=f"Drone {drone_id} not connected")
+
+    sent = await manager.send_to_drone(drone_id, {
+        "type": "command",
+        "payload": {"action": "MOVE_RELATIVE", "dx": dx, "dy": dy, "dz": dz},
+    })
+    if not sent:
+        raise HTTPException(status_code=503, detail="Failed to send MOVE_RELATIVE to drone")
+
+    logger.info("MOVE_RELATIVE (dx=%.1f, dy=%.1f, dz=%.1f) sent to drone %s", dx, dy, dz, drone_id)
+    return {"status": "MOVE_RELATIVE sent", "drone_id": drone_id}
+
+
 @router.websocket("/ws/drone/{drone_id}")
 async def drone_websocket(websocket: WebSocket, drone_id: str):
     async with async_session() as session:

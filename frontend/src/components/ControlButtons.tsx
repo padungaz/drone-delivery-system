@@ -18,6 +18,7 @@ interface Props {
   locations: MissionLocations;
   telemetry: Telemetry | null;
   droneOnline: boolean;
+  onOpenManual: () => void;
 }
 
 type Action = "start" | "pickup_ok" | "drop_ok" | "rtl" | "stop";
@@ -42,7 +43,7 @@ const STATE_BANNERS: Record<string, { text: string; cls: string }> = {
   },
 };
 
-export function ControlButtons({ locations, telemetry, droneOnline }: Props) {
+export function ControlButtons({ locations, telemetry, droneOnline, onOpenManual }: Props) {
   const [loading, setLoading] = useState<Action | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -102,6 +103,14 @@ export function ControlButtons({ locations, telemetry, droneOnline }: Props) {
 
       {/* Row 1: primary mission controls */}
       <div className="button-row">
+        <button
+          onClick={onOpenManual}
+          className="btn btn-secondary"
+          title="Open manual control interface"
+        >
+          🎮 Manual Mode
+        </button>
+
         <button
           id="btn-start-mission"
           className="btn btn-start"

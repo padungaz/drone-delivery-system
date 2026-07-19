@@ -48,6 +48,8 @@ export function useWebSocket() {
           }
         } else if (msg.type === "aruco_detection") {
           setArucoDetection(msg.payload as unknown as ArucoDetection);
+        } else if (msg.type === "delivery_requests_update") {
+          window.dispatchEvent(new CustomEvent("delivery_requests_update"));
         }
       } catch {
         setLastError("Failed to parse WebSocket message");

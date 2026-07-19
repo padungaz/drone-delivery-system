@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.customer_routes import customer_router
 from app.api.routes import router
 from app.config import settings
 from app.database.repository import init_db
@@ -26,7 +27,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Drone Delivery System",
     description="LAN-based autonomous drone delivery backend",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -39,3 +40,5 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(customer_router)
+

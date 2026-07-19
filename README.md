@@ -1,145 +1,87 @@
 # Drone Delivery Autonomous System
 
-Hệ thống drone giao hàng tự động chạy hoàn toàn trên mạng LAN nội bộ.
+Hệ thống giao hàng tự động bằng Drone chạy hoàn toàn trên mạng LAN nội bộ, điều khiển bằng Raspberry Pi 5 và Pixhawk 6C qua giao thức MAVLink.
 
-## Kiến trúc hệ thống
+---
 
-```
-Client App (React)  ──HTTP/WS──►  FastAPI Backend (192.168.137.1:8000)
-                                         │
-                                    WebSocket
-                                         │
-                               Raspberry Pi 5 (192.168.137.139)
-                                         │
-                                  MAVLink UART
-                                  (/dev/ttyAMA0)
-                                         │
-                               Pixhawk 6C (PX4 Firmware)
-```
+## Tổng quan Kiến trúc
 
-## Hardware Setup
+```mermaid
+graph TD
+    subgraph ClientLayer [Client Applications]
+        AdminApp["🖥️ Admin Frontend (React)<br/>Port: 5173"]
+        CustApp["📱 Customer Frontend (React)<br/>Port: 5174"]
+    end
 
-| Component | Model | Kết nối |
-|-----------|-------|---------|
-| Companion Computer | Raspberry Pi 5 (4GB/8GB) | LAN WiFi |
-| Flight Controller | Pixhawk 6C | UART GPIO (`/dev/ttyAMA0`) |
-| Firmware | PX4 | MAVLink 1/2 |
-| Camera | CSI Camera Module | CSI port |
-| Rangefinder | MTF-02P | I2C / Serial |
+    subgraph ServerLayer [FastAPI Server]
+        API["⚡ FastAPI Web App<br/>Port: 8000"]
+        DB[(💾 SQLite Database)]
+        ConnMgr["🔌 WebSockets"]
+    end
 
-### MAVLink Wiring (Pixhawk TELEM1 ↔ Pi GPIO UART)
+    subgraph HardwareLayer [Drone]
+        RPi["🍓 Raspberry Pi 5<br/>(Companion Computer)"]
+        Pixhawk["🛸 Pixhawk 6C<br/>(PX4 Firmware)"]
+    end
 
-```
-Pixhawk TELEM1          Raspberry Pi 5
-─────────────           ──────────────
-  TX  (pin 2)  ──────►  GPIO15 / RXD  (pin 10)
-  RX  (pin 3)  ◄──────  GPIO14 / TXD  (pin 8)
-  GND (pin 6)  ────────  GND          (pin 6)
-  5V  (pin 1)  ──────►  5V Power      (optional)
+    CustApp --> API
+    AdminApp --> API
+    AdminApp <--> ConnMgr
+    ConnMgr <--> RPi
+    API <--> DB
+    RPi <--> Pixhawk
 ```
 
-## Development Environment
-
-### Headless Raspberry Pi
-
-Raspberry Pi 5 chạy headless (không màn hình, bàn phím, chuột).
-Toàn bộ development qua **VS Code Remote SSH** từ Laptop:
-
-```
-Laptop/PC Developer
-      │
-      │  VS Code Remote SSH (SSH over LAN/WiFi Hotspot)
-      ▼
-Raspberry Pi 5 (192.168.137.139)
-      │
-      │  MAVLink UART
-      ▼
-Pixhawk 6C (PX4)
-```
-
-### Kết nối SSH
-
-```bash
-ssh rpi5@192.168.137.139
-```
-
-VS Code: `Remote SSH` → `Connect to Host` → `rpi5@192.168.137.139`
+---
 
 ## Cấu trúc Monorepo
 
 | Thư mục | Mô tả |
 |---------|-------|
 | `backend/` | FastAPI server, WebSocket hub, SQLite database |
-| `frontend/` | React + TypeScript control dashboard |
-| `companion/` | Raspberry Pi mission manager, MAVLink, ArUco vision |
-| `docs/` | PX4 parameters, LAN deployment guide, Pi setup guide |
+| `frontend/` | React + TypeScript Admin Control Dashboard |
+| `customer-frontend/` | React + TypeScript Customer Application |
+| `companion/` | Ứng dụng chạy trên Raspberry Pi 5 (MAVLink, ArUco vision) |
+| `docs/` | Tài liệu hệ thống chi tiết |
 
-## Quick Start
+---
 
-### Backend (Laptop/PC — 192.168.2.28)
+## Tài liệu Dự án
 
+Hệ thống tài liệu đã được tổ chức lại để dễ theo dõi và bảo trì. Vui lòng tham khảo các tài liệu dưới đây theo nhu cầu của bạn:
+
+- 📖 **[System Design (Thiết kế Hệ thống)](docs/system-design.md)**: Sơ đồ kiến trúc, luồng giao hàng, API, DB Schema và máy trạng thái FSM.
+- 🚀 **[Deployment Guide (Hướng dẫn Triển khai)](docs/deployment-guide.md)**: Hướng dẫn chi tiết thiết lập phần cứng, mạng LAN, cấu hình Raspberry Pi (headless), cài đặt và chạy ứng dụng Backend/Frontend/Companion.
+- ⚙️ **[PX4 Configuration (Cấu hình PX4)](docs/px4-configuration.md)**: Hướng dẫn đấu nối dây UART và toàn bộ các PX4 parameters cần thiết cho Pixhawk 6C.
+- 🛠 **[RUNBOOK (Vận hành & Gỡ lỗi)](RUNBOOK.md)**: Các lệnh khởi chạy nhanh, checklist trước khi bay, hướng dẫn kiểm tra camera, MAVLink, WebSocket và khắc phục các sự cố thường gặp.
+
+---
+
+## Chạy Nhanh (Quick Start)
+
+*(Xem chi tiết trong tài liệu Deployment Guide, đây chỉ là các lệnh tóm tắt)*
+
+**1. Backend (Port 8000)**
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate          # Linux/Mac
-# venv\Scripts\activate           # Windows
-pip install -r requirements.txt
+source venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-### Frontend
-
+**2. Frontend - Admin (Port 5173)**
 ```bash
 cd frontend
-npm install
-npm run dev
+npm run dev -- --host 0.0.0.0
 ```
 
-### Companion (Raspberry Pi 5 — 192.168.137.139)
-
-SSH vào Raspberry Pi:
-
+**3. Frontend - Customer (Port 5174)**
 ```bash
-ssh rpi5@192.168.137.139
-cd /opt/drone-delivery-system/companion
+cd customer-frontend
+npm run dev -- --host 0.0.0.0 --port 5174
+```
 
-# Cài lần đầu
-cp .env.example .env
-nano .env                          # Sửa SERVER_IP, MAVLINK_DEVICE
-
-# Chạy thủ công
-source venv/bin/activate
-python main.py
-
-# Hoặc chạy qua systemd service
+**4. Companion (Trên Raspberry Pi)**
+```bash
 sudo systemctl start drone-companion
-journalctl -u drone-companion -f   # Xem log realtime
+journalctl -u drone-companion -f
 ```
-
-## Network Configuration
-
-| Device | IP | Port |
-|--------|-----|------|
-| Backend Server (Laptop Hotspot) | `192.168.137.1` | `8000` |
-| Raspberry Pi 5 | `192.168.137.139` | — |
-| React Frontend | `192.168.137.1` | `5173` |
-| WebSocket | `ws://192.168.137.1:8000/ws/drone/drone-01` | — |
-
-## Environment Variables (companion/.env)
-
-```bash
-SERVER_IP=192.168.137.1          # IP Hotspot của Laptop/PC
-SERVER_PORT=8000
-DRONE_ID=drone-01
-MAVLINK_DEVICE=/dev/ttyAMA0     # hoặc /dev/ttyUSB0
-MAVLINK_BAUD=57600
-LOG_FILE=/var/log/drone-companion.log
-LOG_LEVEL=INFO
-```
-
-## Tài liệu
-
-- [Raspberry Pi 5 Setup Guide](docs/raspberry-pi-setup.md)
-- [LAN Deployment Guide](docs/lan-deployment-guide.md)
-- [PX4 Parameter Configuration](docs/px4-parameters.md)
-- [RUNBOOK — Vận hành & Debug](RUNBOOK.md)

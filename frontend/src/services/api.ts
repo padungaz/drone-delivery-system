@@ -68,3 +68,74 @@ export async function stopCamera(): Promise<Response> {
     method: "POST",
   });
 }
+
+/** Set flight mode manually. */
+export async function setFlightMode(mode: string): Promise<Response> {
+  return fetch(`${API_BASE}/missions/set-mode?mode=${mode}&drone_id=${DRONE_ID}`, {
+    method: "POST",
+  });
+}
+
+/** Move drone relatively. */
+export async function moveRelative(dx: number, dy: number, dz: number): Promise<Response> {
+  return fetch(`${API_BASE}/missions/move-relative?dx=${dx}&dy=${dy}&dz=${dz}&drone_id=${DRONE_ID}`, {
+    method: "POST",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Admin — Delivery Requests
+// ---------------------------------------------------------------------------
+
+export async function adminGetDeliveryRequests(status?: string): Promise<Response> {
+  const params = status ? `?status=${status}` : "";
+  return fetch(`${API_BASE}/admin/delivery-requests${params}`);
+}
+
+export async function adminGetDeliveryRequest(id: number): Promise<Response> {
+  return fetch(`${API_BASE}/admin/delivery-requests/${id}`);
+}
+
+export async function adminUpdateDeliveryStatus(
+  id: number,
+  status: string,
+  note?: string,
+  missionId?: number,
+): Promise<Response> {
+  const params = new URLSearchParams({ status });
+  if (note) params.append("note", note);
+  if (missionId != null) params.append("mission_id", String(missionId));
+  return fetch(`${API_BASE}/admin/delivery-requests/${id}/status?${params}`, {
+    method: "PATCH",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Admin — Warehouse Config
+// ---------------------------------------------------------------------------
+
+export async function adminGetWarehouse(): Promise<Response> {
+  return fetch(`${API_BASE}/admin/warehouse`);
+}
+
+export async function adminUpdateWarehouse(data: {
+  name?: string;
+  latitude?: number;
+  longitude?: number;
+  address_text?: string;
+}): Promise<Response> {
+  return fetch(`${API_BASE}/admin/warehouse`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Public — Warehouse (used by customer frontend too)
+// ---------------------------------------------------------------------------
+
+export async function getWarehouse(): Promise<Response> {
+  return fetch(`${API_BASE}/warehouse`);
+}
+

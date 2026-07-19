@@ -111,3 +111,113 @@ class MissionHistoryItem(BaseModel):
 class WebSocketMessage(BaseModel):
     type: str
     payload: dict
+
+
+# ---------------------------------------------------------------------------
+# Customer / Delivery Request schemas (new)
+# ---------------------------------------------------------------------------
+
+class WarehouseConfigResponse(BaseModel):
+    id: int
+    name: str
+    latitude: float
+    longitude: float
+    address_text: str
+    updated_at: datetime
+
+
+class WarehouseConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    address_text: Optional[str] = None
+
+
+class CustomerCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    phone: str = Field(..., min_length=6, max_length=32)
+
+
+class CustomerResponse(BaseModel):
+    id: int
+    name: str
+    phone: str
+    created_at: datetime
+
+
+class CustomerAddressCreate(BaseModel):
+    customer_id: int
+    address_type: str = Field(default="RECEIVE", pattern="^(RECEIVE|SEND)$")
+    address_name: str = Field(..., min_length=1, max_length=128)
+    address_text: str = Field(..., min_length=1, max_length=256)
+    latitude: float
+    longitude: float
+
+
+class CustomerAddressUpdate(BaseModel):
+    address_type: Optional[str] = Field(default=None, pattern="^(RECEIVE|SEND)$")
+    address_name: Optional[str] = None
+    address_text: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class CustomerAddressResponse(BaseModel):
+    id: int
+    customer_id: int
+    address_type: str
+    address_name: str
+    address_text: str
+    latitude: float
+    longitude: float
+    created_at: datetime
+
+
+class DeliveryType(str, Enum):
+    RECEIVE_FROM_WAREHOUSE = "RECEIVE_FROM_WAREHOUSE"
+    SEND_TO_WAREHOUSE = "SEND_TO_WAREHOUSE"
+
+
+class DeliveryStatus(str, Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    FLYING = "FLYING"
+    DELIVERED = "DELIVERED"
+    FAILED = "FAILED"
+    REJECTED = "REJECTED"
+
+
+class DeliveryRequestCreate(BaseModel):
+    customer_name: str = Field(..., min_length=1, max_length=128)
+    customer_phone: str = Field(..., min_length=6, max_length=32)
+    delivery_type: DeliveryType
+    # Customer's address (pickup if RECEIVE, drop if SEND)
+    customer_lat: float
+    customer_lon: float
+    customer_address: str = ""
+    note: str = ""
+
+
+class DeliveryRequestResponse(BaseModel):
+    id: int
+    customer_id: int
+    customer_name: str
+    customer_phone: str
+    delivery_type: str
+    pickup_lat: float
+    pickup_lon: float
+    pickup_address: str
+    drop_lat: float
+    drop_lon: float
+    drop_address: str
+    status: str
+    mission_id: Optional[int]
+    note: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class DeliveryStatusUpdate(BaseModel):
+    status: DeliveryStatus
+    note: Optional[str] = None
+

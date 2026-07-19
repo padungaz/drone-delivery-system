@@ -21,6 +21,7 @@ Mission phases (landing_phase internal flag):
 
 import asyncio
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -95,6 +96,11 @@ class MissionManager:
         )
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
+        # Threading/Timer support for high-rate MAVLink landing target publisher
+        self._landing_target_thread_running = True
+        self._landing_target_thread = threading.Thread(target=self._run_landing_target_publisher, daemon=True)
+        self._landing_target_thread.start()
+
     # -----------------------------------------------------------------------
     # Command handler (called from WebSocket receive loop)
     # -----------------------------------------------------------------------
@@ -127,6 +133,25 @@ class MissionManager:
 
         elif action == "CAMERA_STOP":
             self._handle_camera_stop()
+            
+        elif action == "SET_MODE":
+            self._handle_set_mode(payload)
+            
+        elif action == "MOVE_RELATIVE":
+            self._handle_move_relative(payload)
+
+    def _handle_set_mode(self, payload: dict) -> None:
+        mode = payload.get("mode")
+        if mode:
+            logger.info("Setting flight mode to: %s", mode)
+            self.mavlink.set_mode(mode)
+            
+    def _handle_move_relative(self, payload: dict) -> None:
+        dx = payload.get("dx", 0.0)
+        dy = payload.get("dy", 0.0)
+        dz = payload.get("dz", 0.0)
+        logger.info("Moving relative: dx=%.1f, dy=%.1f, dz=%.1f", dx, dy, dz)
+        self.mavlink.move_relative(dx, dy, dz)
 
     def _handle_start(self, payload: dict) -> None:
         new_locations = MissionLocations(
@@ -447,30 +472,78 @@ class MissionManager:
                 logger.info("ERROR recovery — returning to IDLE")
                 self.state_machine.transition_to(DroneState.IDLE)
 
+    def shutdown(self) -> None:
+        self._landing_target_thread_running = False
+        if self._landing_target_thread:
+            self._landing_target_thread.join(timeout=1.0)
+
     # -----------------------------------------------------------------------
-    # Vision processing
+    # Vision processing & MAVLink Landing Target Publisher
     # -----------------------------------------------------------------------
 
     def process_vision(self) -> None:
-        if self.state_machine.state not in (
-            DroneState.SEARCH_ARUCO,
-            DroneState.PRECISION_LANDING,
-        ):
+        """Called on main tick (50ms loop) to update local FSM state flags."""
+        state = self.state_machine.state
+        if state not in (DroneState.SEARCH_ARUCO, DroneState.PRECISION_LANDING):
             return
 
-        frame = self.vision.capture_frame()
-        if frame is None:
-            return
+        pose = self.vision.last_pose
+        is_blind_zone = (
+            self.mavlink.telemetry.rangefinder_valid
+            and self.mavlink.telemetry.altitude_agl < 0.4
+        )
 
-        pose = self.vision.detect(frame)
-        self._aruco_detected = pose.detected
+        if is_blind_zone:
+            self._aruco_detected = True
+        else:
+            self._aruco_detected = pose.detected
 
-        if pose.detected:
-            self.mavlink.send_landing_target(
-                pose.angle_x,
-                pose.angle_y,
-                pose.distance,
-            )
+    def _run_landing_target_publisher(self) -> None:
+        """Background thread publishing MAVLink LANDING_TARGET messages at a stable 25Hz."""
+        logger.info("MAVLink landing target publisher thread started")
+        while self._landing_target_thread_running:
+            try:
+                state = self.state_machine.state
+                if state in (DroneState.SEARCH_ARUCO, DroneState.PRECISION_LANDING):
+                    pose = self.vision.last_pose
+                    is_blind_zone = (
+                        self.mavlink.telemetry.rangefinder_valid
+                        and self.mavlink.telemetry.altitude_agl < 0.4
+                    )
+
+                    if is_blind_zone:
+                        if pose.detected:
+                            self.mavlink.send_landing_target(
+                                pose.angle_x,
+                                pose.angle_y,
+                                pose.distance,
+                            )
+                        else:
+                            if state == DroneState.PRECISION_LANDING:
+                                last_detected = self.vision.last_detected_pose
+                                if last_detected.detected:
+                                    self.mavlink.send_landing_target(
+                                        last_detected.angle_x,
+                                        last_detected.angle_y,
+                                        last_detected.distance,
+                                    )
+                                else:
+                                    self.mavlink.send_landing_target(0.0, 0.0, self.mavlink.telemetry.altitude_agl)
+
+                                # Force switch flight mode to AUTO.LAND to ensure vertical touchdown
+                                if self.mavlink.telemetry.flight_mode != "AUTO.LAND":
+                                    logger.info("Forcing AUTO.LAND mode for final touchdown")
+                                    self.mavlink.land()
+                    else:
+                        if pose.detected:
+                            self.mavlink.send_landing_target(
+                                pose.angle_x,
+                                pose.angle_y,
+                                pose.distance,
+                            )
+            except Exception as exc:
+                logger.error("Error in landing target publisher thread: %s", exc)
+            time.sleep(0.040)  # 25Hz frequency
 
     # -----------------------------------------------------------------------
     # Main loop tick (~50ms cadence)

@@ -1,5 +1,7 @@
 import logging
 import math
+import threading
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -30,7 +32,7 @@ class MarkerPose:
 
 
 class ArucoLandingService:
-    """ArUco marker detection and LANDING_TARGET pose estimation."""
+    """ArUco marker detection and LANDING_TARGET pose estimation with background threading."""
 
     def __init__(self):
         dict_id = ARUCO_DICT_MAP.get(config.ARUCO_DICTIONARY, cv2.aruco.DICT_4X4_50)
@@ -41,30 +43,42 @@ class ArucoLandingService:
         self.dist_coeffs: Optional[np.ndarray] = None
         self._camera = None
         self._last_pose = MarkerPose()
+        self._last_detected_pose = MarkerPose()
+
+        # Threading support
+        self._lock = threading.Lock()
+        self._thread: Optional[threading.Thread] = None
+        self._running = False
 
     def init_camera(self) -> bool:
+        self.stop()
+
+        initialized = False
         if not config.IS_PI or config.CAMERA_BACKEND != "csi":
             logger.info("Skipping Picamera2 init in simulation mode")
-            return False
+        else:
+            try:
+                # pyrefly: ignore [missing-import]
+                from picamera2 import Picamera2
 
-        try:
-            from picamera2 import Picamera2
+                self._camera = Picamera2()
+                config_cam = self._camera.create_preview_configuration(
+                    main={"size": (640, 480), "format": "RGB888"}
+                )
+                self._camera.configure(config_cam)
+                self._camera.start()
+                logger.info("CSI camera initialized")
+                self._init_camera_matrix(640, 480)
+                initialized = True
+            except ImportError:
+                logger.warning("picamera2 not available — using mock camera for dev")
+            except Exception as exc:
+                logger.error("Camera init failed: %s", exc)
 
-            self._camera = Picamera2()
-            config_cam = self._camera.create_preview_configuration(
-                main={"size": (640, 480), "format": "RGB888"}
-            )
-            self._camera.configure(config_cam)
-            self._camera.start()
-            logger.info("CSI camera initialized")
-            self._init_camera_matrix(640, 480)
-            return True
-        except ImportError:
-            logger.warning("picamera2 not available — using mock camera for dev")
-            return False
-        except Exception as exc:
-            logger.error("Camera init failed: %s", exc)
-            return False
+        self._running = True
+        self._thread = threading.Thread(target=self._run_detection, daemon=True)
+        self._thread.start()
+        return initialized
 
     def _init_camera_matrix(self, width: int, height: int) -> None:
         fx = fy = width * 0.8
@@ -82,6 +96,16 @@ class ArucoLandingService:
             logger.error("Frame capture failed: %s", exc)
             return None
 
+    def _run_detection(self) -> None:
+        logger.info("ArUco detection thread started")
+        while self._running:
+            frame = self.capture_frame()
+            if frame is not None:
+                self.detect(frame)
+            else:
+                # Limit loop rate if camera not available
+                time.sleep(0.033)
+
     def detect(self, frame: np.ndarray) -> MarkerPose:
         if self.camera_matrix is None:
             self._init_camera_matrix(frame.shape[1], frame.shape[0])
@@ -92,7 +116,8 @@ class ArucoLandingService:
         pose = MarkerPose()
 
         if ids is None or len(ids) == 0:
-            self._last_pose = pose
+            with self._lock:
+                self._last_pose = pose
             return pose
 
         target_idx = None
@@ -102,7 +127,8 @@ class ArucoLandingService:
                 break
 
         if target_idx is None:
-            self._last_pose = pose
+            with self._lock:
+                self._last_pose = pose
             return pose
 
         marker_corners = corners[target_idx]
@@ -122,15 +148,34 @@ class ArucoLandingService:
         pose.angle_x = float(math.atan2(tx, tz))
         pose.angle_y = float(math.atan2(ty, tz))
 
-        self._last_pose = pose
+        with self._lock:
+            self._last_pose = pose
+            if pose.detected:
+                self._last_detected_pose = pose
         return pose
 
     @property
     def last_pose(self) -> MarkerPose:
-        return self._last_pose
+        with self._lock:
+            return self._last_pose
+
+    @property
+    def last_detected_pose(self) -> MarkerPose:
+        with self._lock:
+            return self._last_detected_pose
 
     def stop(self) -> None:
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=1.0)
+            self._thread = None
         if self._camera:
-            self._camera.stop()
+            try:
+                self._camera.stop()
+            except Exception as exc:
+                logger.error("Error stopping camera: %s", exc)
             self._camera = None
+        with self._lock:
+            self._last_pose = MarkerPose()
+            self._last_detected_pose = MarkerPose()
             logger.info("Camera stopped")

@@ -1,29 +1,64 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { MissionLocations } from "../types/drone";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { CameraPanel } from "./CameraPanel";
+import { ControlButtons } from "./ControlButtons";
+import { DeliveryRequestsPanel } from "./DeliveryRequestsPanel";
 import { MissionForm } from "./MissionForm";
 import { TelemetryPanel } from "./TelemetryPanel";
-import { ControlButtons } from "./ControlButtons";
-import { CameraPanel } from "./CameraPanel";
+import { WarehouseConfigPanel } from "./WarehouseConfigPanel";
+import { ManualControlModal } from "./ManualControlModal";
 
 const DEFAULT_LOCATIONS: MissionLocations = {
-  home_lat: 21.0285,
-  home_lon: 105.8542,
-  pickup_lat: 21.0290,
-  pickup_lon: 105.8550,
-  drop_lat: 21.0275,
-  drop_lon: 105.8530,
+  home_lat: 0,
+  home_lon: 0,
+  pickup_lat: 0,
+  pickup_lon: 0,
+  drop_lat: 0,
+  drop_lon: 0,
 };
 
 export function Dashboard() {
   const { connected, telemetry, droneOnline, lastError, cameraStatus, arucoDetection } =
     useWebSocket();
-  const [locations, setLocations] = useState<MissionLocations>(DEFAULT_LOCATIONS);
+
+  const [isManualModalOpen, setManualModalOpen] = useState(false);
+
+  const [locations, setLocations] = useState<MissionLocations>(() => {
+    const saved = localStorage.getItem("drone_admin_locations");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // ignore JSON parse error
+      }
+    }
+    return DEFAULT_LOCATIONS;
+  });
+
+  useEffect(() => {
+    localStorage.setItem("drone_admin_locations", JSON.stringify(locations));
+  }, [locations]);
+  // Warehouse home coordinates (loaded from DB via WarehouseConfigPanel)
+  const [warehouseLat, setWarehouseLat] = useState(0);
+  const [warehouseLon, setWarehouseLon] = useState(0);
+
+  const handleWarehouseLoaded = (lat: number, lon: number) => {
+    setWarehouseLat(lat);
+    setWarehouseLon(lon);
+    // Auto-set home = warehouse coordinates
+    setLocations((prev) => ({ ...prev, home_lat: lat, home_lon: lon }));
+  };
+
+  // Called by DeliveryRequestsPanel when "Chọn & START" is pressed
+  const handleDeliveryLocations = (loc: MissionLocations) => {
+    setLocations(loc);
+  };
 
   return (
     <div className="dashboard">
       <header className="header">
-        <h1>Drone Delivery Control</h1>
+        <h1>🚁 Drone Delivery — Admin</h1>
         <div className="connection-badges">
           <span className={`badge ${connected ? "online" : "offline"}`}>
             WS: {connected ? "Connected" : "Disconnected"}
@@ -36,24 +71,51 @@ export function Dashboard() {
 
       {lastError && <div className="error-banner">{lastError}</div>}
 
-      <main className="main-grid">
-        <MissionForm onChange={setLocations} />
+      {/* Row 1: Warehouse + Telemetry */}
+      <div className="main-grid">
+        <WarehouseConfigPanel onWarehouseLoaded={handleWarehouseLoaded} />
         <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
+      </div>
+
+      {/* Row 2: Mission Form + Controls */}
+      <div className="main-grid" style={{ marginTop: "1rem" }}>
+        <MissionForm onChange={setLocations} initialLocations={locations} />
+        <ControlButtons 
+          locations={locations} 
+          telemetry={telemetry} 
+          droneOnline={droneOnline} 
+          onOpenManual={() => setManualModalOpen(true)} 
+        />
+      </div>
+
+      {/* Row 3: Camera */}
+      <div style={{ marginTop: "1rem" }}>
         <CameraPanel
           cameraStatus={cameraStatus}
           arucoDetection={arucoDetection}
           droneOnline={droneOnline}
         />
-        <ControlButtons
-          locations={locations}
-          telemetry={telemetry}
-          droneOnline={droneOnline}
+      </div>
+
+      {/* Row 4: Delivery Requests (full width) */}
+      <div style={{ marginTop: "1rem" }}>
+        <DeliveryRequestsPanel
+          homeLat={warehouseLat}
+          homeLon={warehouseLon}
+          onLocationsSelected={handleDeliveryLocations}
         />
-      </main>
+      </div>
+
+      {/* Manual Control Modal */}
+      <ManualControlModal 
+        isOpen={isManualModalOpen} 
+        onClose={() => setManualModalOpen(false)} 
+        droneStatus={telemetry} 
+      />
 
       <footer className="footer">
-        <span>LAN Mode — 192.168.2.28:8000</span>
-        <span>No Internet / No Cloud</span>
+        <span>LAN Mode — Admin Dashboard</span>
+        <span>Drone Delivery System v2.0</span>
       </footer>
     </div>
   );
