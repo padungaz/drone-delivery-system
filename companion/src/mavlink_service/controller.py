@@ -227,6 +227,14 @@ class MavlinkController:
                 logger.error("Unknown flight mode: %s", mode)
                 return False
             
+            # Pymavlink for PX4 returns a tuple: (main_mode, sub_mode)
+            if isinstance(mode_id, tuple):
+                custom_mode = float(mode_id[0])
+                custom_sub_mode = float(mode_id[1]) if len(mode_id) > 1 else 0.0
+            else:
+                custom_mode = float(mode_id)
+                custom_sub_mode = 0.0
+
             # Use MAV_CMD_DO_SET_MODE for PX4
             self.connection.mav.command_long_send(
                 self.connection.target_system,
@@ -234,11 +242,11 @@ class MavlinkController:
                 mavutil.mavlink.MAV_CMD_DO_SET_MODE,
                 0, # confirmation
                 mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, # param1
-                float(mode_id), # param2: custom mode
-                0.0, # param3: custom sub_mode
+                custom_mode, # param2: custom mode
+                custom_sub_mode, # param3: custom sub_mode
                 0.0, 0.0, 0.0, 0.0 # param4-param7
             )
-            logger.info("Mode set → %s", mode)
+            logger.info("Mode set → %s (custom_mode=%.0f, sub_mode=%.0f)", mode, custom_mode, custom_sub_mode)
             return True
         except Exception as exc:
             logger.error("set_mode failed: %s", exc)
