@@ -133,12 +133,15 @@ class MavlinkController:
                 # Cờ blocking, sẽ trả về message nếu có, không thì None sau 1s
                 msg = self.connection.wait_heartbeat(blocking=True, timeout=1.0)
                 if msg is not None:
+                    src_sys = msg.get_srcSystem()
                     # Bỏ qua nếu là system 0 (broadcast) hoặc GCS (thường là 255)
                     # Chỉ lấy heartbeat của Drone (thường là 1)
-                    if self.connection.target_system != 0 and self.connection.target_system != 255:
+                    if src_sys != 0 and src_sys != 255:
+                        self.connection.target_system = src_sys
+                        self.connection.target_component = msg.get_srcComponent()
                         break
                     else:
-                        logger.debug("Bỏ qua heartbeat từ system=%s", self.connection.target_system)
+                        logger.debug("Bỏ qua heartbeat từ system=%s", src_sys)
             
             self._connected = True
 
