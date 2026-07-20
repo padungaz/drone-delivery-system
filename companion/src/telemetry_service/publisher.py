@@ -24,7 +24,20 @@ class TelemetryPublisher:
 
     def build_payload(self) -> dict:
         t = self.mavlink.telemetry
-        
+        logger.info(
+            "Telemetry status check: Lat=%.6f, Lon=%.6f, AltRel=%.2fm, AltAGL=%.2fm (valid=%s), Bat=%.1f%%, Speed=%.1fm/s, Heading=%.1f, GPS Sat=%d, Mode=%s, Armed=%s",
+            t.latitude,
+            t.longitude,
+            t.altitude_relative,
+            t.altitude_agl,
+            t.rangefinder_valid,
+            t.battery,
+            t.ground_speed,
+            t.heading,
+            t.gps_satellite,
+            t.flight_mode,
+            t.armed,
+        )
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "drone_id": __import__("config").DRONE_ID,
