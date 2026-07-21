@@ -86,7 +86,7 @@ class MavlinkController:
 
     Sends commands:
       - arm / disarm
-      - set_mode
+      - set_mode / set_mode_offboard
       - takeoff
       - goto_location
       - land / rtl
@@ -102,7 +102,7 @@ class MavlinkController:
         self.use_baud = True
 
         # OFFBOARD keepalive: PX4 requires continuous setpoint stream
-        # to stay in OFFBOARD mode (COM_OF_LOSS_T timeout ~1 s).
+        # to stay in OFFBOARD mode (COM_OF_LOSS_T timeout ~1-2 s).
         self._offboard_keepalive_running = False
         self._offboard_keepalive_thread: Optional[threading.Thread] = None
 
@@ -136,12 +136,9 @@ class MavlinkController:
                 if time.time() - start_time > config.MAVLINK_HEARTBEAT_TIMEOUT:
                     raise TimeoutError("Heartbeat timeout - No valid PX4 heartbeat received")
                 
-                # Cờ blocking, sẽ trả về message nếu có, không thì None sau 1s
                 msg = self.connection.wait_heartbeat(blocking=True, timeout=1.0)
                 if msg is not None:
                     src_sys = msg.get_srcSystem()
-                    # Bỏ qua nếu là system 0 (broadcast) hoặc GCS (thường là 255)
-                    # Chỉ lấy heartbeat của Drone (thường là 1)
                     if src_sys != 0 and src_sys != 255:
                         self.connection.target_system = src_sys
                         self.connection.target_component = msg.get_srcComponent()
@@ -233,8 +230,8 @@ class MavlinkController:
     # ===================================================================
 
     def _can_send(self, cmd_type: str) -> bool:
-        now     = time.time()
-        last    = self._last_command_time.get(cmd_type, 0)
+        now      = time.time()
+        last     = self._last_command_time.get(cmd_type, 0)
         cooldown = COMMAND_COOLDOWN.get(cmd_type, 1.0)
         if now - last < cooldown:
             logger.debug("Command %s throttled (cooldown)", cmd_type)
@@ -314,7 +311,6 @@ class MavlinkController:
                     return True
 
                 logger.warning("Mode %s not confirmed, retrying...", mode)
-                # Reset cooldown so retry isn't throttled
                 self._last_command_time.pop("mode", None)
                 time.sleep(0.3)
 
@@ -324,16 +320,18 @@ class MavlinkController:
             logger.error("set_mode failed: %s", exc)
             return False
 
+    # ===================================================================
+    # OFFBOARD control & keepalive (Đã tối ưu dứt điểm Race Condition)
+    # ===================================================================
+
     def set_mode_offboard(self, retries: int = 3) -> bool:
         """
-        Switch to OFFBOARD mode for PX4.
+        Switch to OFFBOARD mode for PX4 safely without stream disconnection.
 
-        PX4 requires an active setpoint stream BEFORE it will accept OFFBOARD,
-        AND a continuous stream to STAY in OFFBOARD (COM_OF_LOSS_T ~1 s).
         This method:
-          1. Pre-streams position-hold setpoints at ~50 Hz for ~2 s
-          2. Sends DO_SET_MODE and verifies the ACK
-          3. Starts a background keepalive thread that keeps streaming
+          1. Starts the background keepalive thread IMMEDIATELY at 20 Hz
+          2. Waits 2.0 seconds while the thread streams velocity setpoints
+          3. Sends MAV_CMD_DO_SET_MODE and verifies ACK (stream never drops!)
         """
         if not self.is_connected:
             logger.error("set_mode_offboard: not connected")
@@ -345,17 +343,16 @@ class MavlinkController:
                 logger.error("OFFBOARD not found in mode_mapping")
                 return False
 
-            # ── Phase 1: Pre-stream setpoints (hold current position) ──
-            logger.info("OFFBOARD: pre-streaming setpoints for 2 s ...")
-            t_start = time.time()
-            while time.time() - t_start < 2.0:
-                self._send_offboard_position_hold()
-                self.poll_messages()
-                time.sleep(0.02)  # ~50 Hz
+            # ── Phase 1: Bật luồng Keepalive thread phát setpoint 20Hz NGAY TỪ ĐẦU ──
+            logger.info("OFFBOARD: Starting continuous setpoint keepalive thread...")
+            self._start_offboard_keepalive()
 
-            # ── Phase 2: Send mode-change with ACK + retry ──
+            # ── Phase 2: Đợi 2.0s cho luồng setpoint đi vào quỹ đạo mượt mà ──
+            logger.info("OFFBOARD: Streaming setpoints for 2 s before switching mode...")
+            time.sleep(2.0)
+
+            # ── Phase 3: Bắn lệnh chuyển mode (Setpoint vẫn đang chảy liên tục 20Hz) ──
             for attempt in range(1, retries + 1):
-                self._send_offboard_position_hold()
                 self._send_set_mode_command(custom_mode, custom_sub_mode)
                 logger.info(
                     "OFFBOARD mode command sent [attempt %d/%d]",
@@ -366,8 +363,6 @@ class MavlinkController:
                     mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.0,
                 ):
                     logger.info("OFFBOARD mode confirmed by PX4 ✓")
-                    # ── Phase 3: Start keepalive so PX4 stays in OFFBOARD ──
-                    self._start_offboard_keepalive()
                     return True
 
                 logger.warning("OFFBOARD not confirmed, retrying...")
@@ -375,14 +370,13 @@ class MavlinkController:
                 time.sleep(0.3)
 
             logger.error("Failed to enter OFFBOARD after %d attempts", retries)
-            return False
-        except Exception as exc:
-            logger.error("set_mode_offboard failed: %s", exc)
+            self._stop_offboard_keepalive()
             return False
 
-    # ===================================================================
-    # OFFBOARD keepalive
-    # ===================================================================
+        except Exception as exc:
+            logger.error("set_mode_offboard failed: %s", exc)
+            self._stop_offboard_keepalive()
+            return False
 
     def _send_offboard_position_hold(self) -> None:
         """Send a single velocity setpoint (0 m/s) to hold current position."""
@@ -391,7 +385,7 @@ class MavlinkController:
             self.connection.target_system,
             self.connection.target_component,
             mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-            0b0000_1111_1100_0111,  # Ignore pos, accel, yaw. Use only velocity.
+            0b0000_1111_1100_0111,  # Ignore pos, accel, yaw. Use only velocity (Vx=0, Vy=0, Vz=0).
             0, 0, 0,       # Position (ignored)
             0, 0, 0,       # Velocity (m/s) -> hold
             0, 0, 0,       # Acceleration (ignored)
@@ -399,8 +393,10 @@ class MavlinkController:
         )
 
     def _start_offboard_keepalive(self) -> None:
-        """Start background thread that streams setpoints to keep OFFBOARD alive."""
-        self._stop_offboard_keepalive()  # stop any existing thread first
+        """Start background thread that streams setpoints at 20Hz to keep OFFBOARD alive."""
+        if self._offboard_keepalive_running:
+            return  # Đã chạy rồi thì giữ nguyên
+        
         self._offboard_keepalive_running = True
         self._offboard_keepalive_thread = threading.Thread(
             target=self._offboard_keepalive_loop, daemon=True,
@@ -419,48 +415,40 @@ class MavlinkController:
 
     def _offboard_keepalive_loop(self) -> None:
         """
-        Background loop: send position-hold setpoints at ~10 Hz.
-        PX4 COM_OF_LOSS_T default is 1.0 s; 10 Hz gives plenty of margin.
-
-        IMPORTANT: PX4 heartbeat arrives at ~1 Hz, so telemetry.flight_mode
-        may still show the OLD mode for up to ~2 s after COMMAND_ACK is received.
-        We use a STARTUP_GRACE_SEC window where we keep streaming setpoints
-        WITHOUT checking the mode — this lets the heartbeat update first.
-
-        After the grace period, we monitor the mode and exit if PX4 leaves OFFBOARD.
+        Background loop: send position-hold setpoints at 20 Hz (0.05s).
         """
-        STARTUP_GRACE_SEC = 3.0   # wait up to 3 heartbeat cycles before checking
+        STARTUP_GRACE_SEC = 3.0   # Bỏ qua kiểm tra flight_mode trong 3s đầu khi vừa bật
         logger.info("OFFBOARD keepalive loop running (grace period %.1f s)", STARTUP_GRACE_SEC)
 
         t_start = time.time()
 
         while self._offboard_keepalive_running and self.is_connected:
             try:
-                elapsed = time.time() - t_start
+                # 1. Luôn bắn gói tin setpoint ngay đầu vòng lặp
+                self._send_offboard_position_hold()
 
+                # 2. Sau thời gian Grace period mới kiểm tra xem PX4 có bị ai đổi sang mode khác không
+                elapsed = time.time() - t_start
                 if elapsed >= STARTUP_GRACE_SEC:
-                    # Grace period passed — now monitor PX4 mode
                     if self.telemetry.flight_mode != "OFFBOARD":
                         logger.info(
-                            "OFFBOARD keepalive: PX4 mode is %s (not OFFBOARD), stopping",
+                            "OFFBOARD keepalive: PX4 mode is %s (not OFFBOARD), stopping thread",
                             self.telemetry.flight_mode,
                         )
                         break
-                else:
-                    logger.debug(
-                        "OFFBOARD keepalive: grace period (%.1f/%.1f s), mode=%s",
-                        elapsed, STARTUP_GRACE_SEC, self.telemetry.flight_mode,
-                    )
-
-                self._send_offboard_position_hold()
 
             except Exception as exc:
                 logger.error("OFFBOARD keepalive error: %s", exc)
                 break
-            time.sleep(0.1)  # 10 Hz
+
+            time.sleep(0.05)  # 20 Hz chuẩn PX4 Offboard
 
         self._offboard_keepalive_running = False
         logger.info("OFFBOARD keepalive loop exited")
+
+    # ===================================================================
+    # Flight commands
+    # ===================================================================
 
     def arm(self) -> bool:
         if not self._can_send("arm"):
@@ -603,8 +591,6 @@ class MavlinkController:
         if not self._can_send("goto") or not self.connection:
             return False
 
-        # MAV_FRAME_BODY_OFFSET_NED (9) moves relative to current position and heading
-        # type_mask = 0b110111111000 (ignore velocity, accel, yaw)
         self.connection.mav.set_position_target_local_ned_send(
             0, # time_boot_ms
             self.connection.target_system,
