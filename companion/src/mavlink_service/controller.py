@@ -421,24 +421,44 @@ class MavlinkController:
         """
         Background loop: send position-hold setpoints at ~10 Hz.
         PX4 COM_OF_LOSS_T default is 1.0 s; 10 Hz gives plenty of margin.
-        Stops automatically when _offboard_keepalive_running is cleared
-        or when PX4 heartbeat shows a non-OFFBOARD mode.
+
+        IMPORTANT: PX4 heartbeat arrives at ~1 Hz, so telemetry.flight_mode
+        may still show the OLD mode for up to ~2 s after COMMAND_ACK is received.
+        We use a STARTUP_GRACE_SEC window where we keep streaming setpoints
+        WITHOUT checking the mode — this lets the heartbeat update first.
+
+        After the grace period, we monitor the mode and exit if PX4 leaves OFFBOARD.
         """
-        logger.info("OFFBOARD keepalive loop running")
+        STARTUP_GRACE_SEC = 3.0   # wait up to 3 heartbeat cycles before checking
+        logger.info("OFFBOARD keepalive loop running (grace period %.1f s)", STARTUP_GRACE_SEC)
+
+        t_start = time.time()
+
         while self._offboard_keepalive_running and self.is_connected:
             try:
-                # If PX4 already exited OFFBOARD (e.g. RTL, LAND), stop keepalive
-                if self.telemetry.flight_mode != "OFFBOARD":
-                    logger.info(
-                        "OFFBOARD keepalive: PX4 mode changed to %s, stopping",
-                        self.telemetry.flight_mode,
+                elapsed = time.time() - t_start
+
+                if elapsed >= STARTUP_GRACE_SEC:
+                    # Grace period passed — now monitor PX4 mode
+                    if self.telemetry.flight_mode != "OFFBOARD":
+                        logger.info(
+                            "OFFBOARD keepalive: PX4 mode is %s (not OFFBOARD), stopping",
+                            self.telemetry.flight_mode,
+                        )
+                        break
+                else:
+                    logger.debug(
+                        "OFFBOARD keepalive: grace period (%.1f/%.1f s), mode=%s",
+                        elapsed, STARTUP_GRACE_SEC, self.telemetry.flight_mode,
                     )
-                    break
+
                 self._send_offboard_position_hold()
+
             except Exception as exc:
                 logger.error("OFFBOARD keepalive error: %s", exc)
                 break
             time.sleep(0.1)  # 10 Hz
+
         self._offboard_keepalive_running = False
         logger.info("OFFBOARD keepalive loop exited")
 
