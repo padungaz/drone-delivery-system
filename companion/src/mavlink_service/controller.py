@@ -385,17 +385,17 @@ class MavlinkController:
     # ===================================================================
 
     def _send_offboard_position_hold(self) -> None:
-        """Send a single position-hold setpoint (LOCAL_NED origin = hold)."""
+        """Send a single velocity setpoint (0 m/s) to hold current position."""
         self.connection.mav.set_position_target_local_ned_send(
             0,
             self.connection.target_system,
             self.connection.target_component,
             mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-            0b0000_1111_1111_1000,  # position only
-            0, 0, 0,
-            0, 0, 0,
-            0, 0, 0,
-            0, 0,
+            0b0000_1111_1100_0111,  # Ignore pos, accel, yaw. Use only velocity.
+            0, 0, 0,       # Position (ignored)
+            0, 0, 0,       # Velocity (m/s) -> hold
+            0, 0, 0,       # Acceleration (ignored)
+            0, 0,          # Yaw, yaw_rate (ignored)
         )
 
     def _start_offboard_keepalive(self) -> None:
