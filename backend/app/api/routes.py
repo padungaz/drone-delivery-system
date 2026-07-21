@@ -238,6 +238,40 @@ async def move_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0, drone
     return {"status": "MOVE_RELATIVE sent", "drone_id": drone_id}
 
 
+@router.post("/missions/arm")
+async def arm_drone(drone_id: str = "drone-01"):
+    """Send ARM command to drone (manual arm, outside mission flow)."""
+    if not manager.is_drone_connected(drone_id):
+        raise HTTPException(status_code=503, detail=f"Drone {drone_id} not connected")
+
+    sent = await manager.send_to_drone(drone_id, {
+        "type": "command",
+        "payload": {"action": "ARM"},
+    })
+    if not sent:
+        raise HTTPException(status_code=503, detail="Failed to send ARM to drone")
+
+    logger.info("ARM sent to drone %s", drone_id)
+    return {"status": "ARM sent", "drone_id": drone_id}
+
+
+@router.post("/missions/disarm")
+async def disarm_drone(force: bool = False, drone_id: str = "drone-01"):
+    """Send DISARM command to drone."""
+    if not manager.is_drone_connected(drone_id):
+        raise HTTPException(status_code=503, detail=f"Drone {drone_id} not connected")
+
+    sent = await manager.send_to_drone(drone_id, {
+        "type": "command",
+        "payload": {"action": "DISARM", "force": force},
+    })
+    if not sent:
+        raise HTTPException(status_code=503, detail="Failed to send DISARM to drone")
+
+    logger.info("DISARM (force=%s) sent to drone %s", force, drone_id)
+    return {"status": "DISARM sent", "drone_id": drone_id}
+
+
 @router.websocket("/ws/drone/{drone_id}")
 async def drone_websocket(websocket: WebSocket, drone_id: str):
     async with async_session() as session:

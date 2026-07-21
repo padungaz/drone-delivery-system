@@ -83,6 +83,20 @@ export async function moveRelative(dx: number, dy: number, dz: number): Promise<
   });
 }
 
+/** Manually ARM the drone (only when IDLE and disarmed). */
+export async function armDrone(): Promise<Response> {
+  return fetch(`${API_BASE}/missions/arm?drone_id=${DRONE_ID}`, {
+    method: "POST",
+  });
+}
+
+/** Manually DISARM the drone. Pass force=true to force-disarm even when flying (emergency). */
+export async function disarmDrone(force = false): Promise<Response> {
+  return fetch(`${API_BASE}/missions/disarm?force=${force}&drone_id=${DRONE_ID}`, {
+    method: "POST",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Admin — Delivery Requests
 // ---------------------------------------------------------------------------

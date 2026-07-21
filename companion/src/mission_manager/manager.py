@@ -136,9 +136,15 @@ class MissionManager:
             
         elif action == "SET_MODE":
             self._handle_set_mode(payload)
-            
+
         elif action == "MOVE_RELATIVE":
             self._handle_move_relative(payload)
+
+        elif action == "ARM":
+            self._handle_arm()
+
+        elif action == "DISARM":
+            self._handle_disarm(payload)
 
     def _handle_set_mode(self, payload: dict) -> None:
         mode = payload.get("mode")
@@ -155,6 +161,32 @@ class MissionManager:
             else:
                 self.mavlink.set_mode(mode)
             
+    def _handle_arm(self) -> None:
+        """Manual ARM command from dashboard (outside mission FSM)."""
+        if self.state_machine.state != DroneState.IDLE:
+            logger.warning(
+                "Manual ARM rejected: drone is in state %s (must be IDLE)",
+                self.state_machine.state.name,
+            )
+            return
+        if self.mavlink.telemetry.armed:
+            logger.warning("Manual ARM rejected: already armed")
+            return
+        logger.info("Manual ARM command sent")
+        self.mavlink.arm()
+
+    def _handle_disarm(self, payload: dict) -> None:
+        """Manual DISARM command from dashboard."""
+        force = payload.get("force", False)
+        if self.state_machine.is_flying() and not force:
+            logger.warning(
+                "Manual DISARM rejected: drone is flying (state=%s). Use force=True to override.",
+                self.state_machine.state.name,
+            )
+            return
+        logger.info("Manual DISARM command sent (force=%s)", force)
+        self.mavlink.disarm(force=force)
+
     def _handle_move_relative(self, payload: dict) -> None:
         dx = payload.get("dx", 0.0)
         dy = payload.get("dy", 0.0)
