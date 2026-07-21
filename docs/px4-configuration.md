@@ -1,6 +1,6 @@
 # Cấu hình PX4 & Pixhawk 6C
 
-Tài liệu này lưu trữ các cấu hình phần cứng, tham số PX4 (parameters), và cách giao tiếp MAVLink với Raspberry Pi Companion.
+Tài liệu này lưu trữ các cấu hình phần cứng, tham số PX4 (parameters), và cách giao tiếp MAVLink với Raspberry Pi Companion (Đã cập nhật theo tham số thực tế từ `pram.params`).
 
 ---
 
@@ -20,38 +20,40 @@ Pixhawk 6C (TELEM2)       Raspberry Pi 5
 
 ## 2. PX4 Parameters
 
-Áp dụng các tham số sau qua phần mềm **QGroundControl** hoặc chạy `param set` trực tiếp qua MAVLink console.
+Áp dụng các tham số sau qua phần mềm **QGroundControl** hoặc nạp từ file `pram.params`.
 
 ### MAVLink (Cổng TELEM2)
 | Tham số | Giá trị | Mô tả |
 |---------|---------|-------|
 | `MAV_1_CONFIG` | `102` | Dùng cổng TELEM2 |
 | `MAV_1_MODE` | `2` | Chế độ Onboard (Companion Computer) |
-| `MAV_1_RATE` | `1200` | Stream rate (bytes/s) |
+| `MAV_1_RATE` | `0` | Stream rate (0 = Không giới hạn tốc độ truyền) |
 | `SER_TEL2_BAUD` | `921600` | Tốc độ Baud (Baud rate) |
 
 ### State Estimator (EKF2)
 | Tham số | Giá trị | Mô tả |
 |---------|---------|-------|
 | `EKF2_EN` | `1` | Bật EKF2 |
-| `EKF2_AID_MASK` | `24` | Kết hợp GPS (1) + Vision Position (16) = 17, dùng 24 cho GPS+EV+flow |
-| `EKF2_HGT_MODE` | `2` | Dùng Range sensor (đo khoảng cách khi hạ cánh) |
+| `EKF2_GPS_CTRL` | `7` | Điều khiển EKF2 GPS fusion |
+| `EKF2_BARO_CTRL` | `1` | Dùng Barometer |
+| `EKF2_RNG_CTRL` | `1` | Dùng Range sensor (đo khoảng cách khi hạ cánh) |
+| `EKF2_OF_CTRL` | `1` | Dùng Optical Flow |
 | `EKF2_REQ_NSATS`| `6` | Số lượng vệ tinh tối thiểu |
 
 ### Navigation & Mission
 | Tham số | Giá trị | Mô tả |
 |---------|---------|-------|
-| `MIS_TAKEOFF_ALT` | `10` | Độ cao cất cánh mặc định (m) |
-| `NAV_ACC_RAD` | `2` | Bán kính chấp nhận khi đến Waypoint (m) |
-| `RTL_RETURN_ALT` | `30` | Độ cao bay khi quay về điểm Home (m) |
-| `RTL_DESCEND_ALT`| `10` | Độ cao hạ xuống khi đến điểm Home (m) |
+| `MIS_TAKEOFF_ALT` | `1.5` | Độ cao cất cánh mặc định (m) |
+| `NAV_ACC_RAD` | `3` | Bán kính chấp nhận khi đến Waypoint (m) |
+| `RTL_RETURN_ALT` | `10` | Độ cao bay khi quay về điểm Home (m) |
+| `RTL_DESCEND_ALT`| `4` | Độ cao hạ xuống khi đến điểm Home (m) |
 
 ### Precision Landing (Hạ cánh chính xác ArUco)
 | Tham số | Giá trị | Mô tả |
 |---------|---------|-------|
 | `PLD_HACC_RAD` | `0.2` | Sai số ngang cho phép (m) |
 | `PLD_MAX_SRCH` | `3` | Số lần tối đa tìm kiếm marker |
-| `PLD_SRCH_ALT` | `10` | Độ cao tìm kiếm (m) |
+| `PLD_SRCH_ALT` | `4` | Độ cao tìm kiếm (m) |
 | `PLD_SRCH_TOUT`| `10` | Thời gian timeout tìm kiếm (s) |
 | `LNDMC_ALT_GND` | `2` | Khoảng cách bị ảnh hưởng hiệu ứng mặt đất (m) |
 | `LNDMC_XY_VEL_MAX`| `1.5` | Vận tốc ngang tối đa khi hạ cánh (m/s) |
@@ -63,6 +65,8 @@ Pixhawk 6C (TELEM2)       Raspberry Pi 5
 | `COM_DISARM_LAND` | `2` | Thời gian tự động Disarm sau khi hạ cánh (s) |
 | `COM_DL_LOSS_T` | `10` | Timeout mất kết nối datalink (s) |
 | `COM_OBC_LOSS_T` | `5` | Timeout mất kết nối với Raspberry Pi Companion (s) |
+| `BAT_LOW_THR` | `0.15` | Ngưỡng cảnh báo pin thấp (15%) |
+| `BAT_CRIT_THR` | `0.07` | Ngưỡng cảnh báo pin nguy hiểm (7%) |
 
 ---
 
@@ -84,32 +88,32 @@ Pixhawk 6C (TELEM2)       Raspberry Pi 5
 
 ## 4. Script nạp thông số tự động (apply_params.sh)
 
-Lưu file bash sau trên Companion để cấu hình nhanh PX4:
+Lưu file bash sau trên Companion để cấu hình nhanh PX4 theo đúng thông số từ `pram.params`:
 
 ```bash
 #!/bin/bash
 PARAMS=(
   "MAV_1_CONFIG 102"
   "MAV_1_MODE 2"
-  "MAV_1_RATE 1200"
+  "MAV_1_RATE 0"
   "SER_TEL2_BAUD 921600"
   "EKF2_EN 1"
-  "EKF2_AID_MASK 24"
-  "EKF2_HGT_MODE 2"
-  "EKF2_REQ_NSATS 6"
   "EKF2_GPS_CTRL 7"
+  "EKF2_BARO_CTRL 1"
   "EKF2_RNG_CTRL 1"
+  "EKF2_OF_CTRL 1"
+  "EKF2_REQ_NSATS 6"
   "PLD_HACC_RAD 0.2"
   "PLD_MAX_SRCH 3"
-  "PLD_SRCH_ALT 10"
+  "PLD_SRCH_ALT 4"
   "PLD_SRCH_TOUT 10"
   "LNDMC_ALT_GND 2"
   "LNDMC_XY_VEL_MAX 1.5"
   "LNDMC_Z_VEL_MAX 0.25"
-  "MIS_TAKEOFF_ALT 10"
-  "NAV_ACC_RAD 2"
-  "RTL_RETURN_ALT 30"
-  "RTL_DESCEND_ALT 10"
+  "MIS_TAKEOFF_ALT 1.5"
+  "NAV_ACC_RAD 3"
+  "RTL_RETURN_ALT 10"
+  "RTL_DESCEND_ALT 4"
   "COM_DISARM_LAND 2"
   "COM_DL_LOSS_T 10"
   "COM_OBC_LOSS_T 5"

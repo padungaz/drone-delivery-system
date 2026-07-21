@@ -236,52 +236,185 @@ class MavlinkController:
         self._last_command_time[cmd_type] = now
         return True
 
-    def set_mode(self, mode: str) -> bool:
+    def _resolve_mode_id(self, mode: str):
+        """Resolve PX4 mode string to (custom_mode, custom_sub_mode) tuple."""
+        mode_id = self.connection.mode_mapping().get(mode)
+        if mode_id is None:
+            return None, None
+        if isinstance(mode_id, tuple):
+            custom_mode = float(mode_id[0])
+            custom_sub_mode = float(mode_id[1]) if len(mode_id) > 1 else 0.0
+        else:
+            custom_mode = float(mode_id)
+            custom_sub_mode = 0.0
+        return custom_mode, custom_sub_mode
+
+    def _send_set_mode_command(self, custom_mode: float, custom_sub_mode: float) -> None:
+        """Send MAV_CMD_DO_SET_MODE to PX4."""
+        self.connection.mav.command_long_send(
+            self.connection.target_system,
+            self.connection.target_component,
+            mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+            0,  # confirmation
+            mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,  # param1
+            custom_mode,      # param2: custom mode
+            custom_sub_mode,  # param3: custom sub_mode
+            0.0, 0.0, 0.0, 0.0,
+        )
+
+    def wait_command_ack(self, command_id: int, timeout: float = 3.0) -> bool:
+        """Wait for COMMAND_ACK from PX4. Returns True if ACCEPTED."""
+        start = time.time()
+        while time.time() - start < timeout:
+            msg = self.connection.recv_match(
+                type="COMMAND_ACK", blocking=True, timeout=0.5,
+            )
+            if msg and msg.command == command_id:
+                if msg.result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
+                    return True
+                else:
+                    logger.warning(
+                        "COMMAND_ACK rejected: cmd=%d result=%d",
+                        command_id, msg.result,
+                    )
+                    return False
+        logger.warning("COMMAND_ACK timeout for cmd=%d", command_id)
+        return False
+
+    def set_mode(self, mode: str, retries: int = 3) -> bool:
+        """Set PX4 flight mode with ACK verification and retry."""
         if not self._can_send("mode"):
             return False
         try:
-            mode_id = self.connection.mode_mapping().get(mode)
-            if mode_id is None:
+            custom_mode, custom_sub_mode = self._resolve_mode_id(mode)
+            if custom_mode is None:
                 logger.error("Unknown flight mode: %s", mode)
                 return False
-            
-            # Pymavlink for PX4 returns a tuple: (main_mode, sub_mode)
-            if isinstance(mode_id, tuple):
-                custom_mode = float(mode_id[0])
-                custom_sub_mode = float(mode_id[1]) if len(mode_id) > 1 else 0.0
-            else:
-                custom_mode = float(mode_id)
-                custom_sub_mode = 0.0
 
-            # Use MAV_CMD_DO_SET_MODE for PX4
-            self.connection.mav.command_long_send(
-                self.connection.target_system,
-                self.connection.target_component,
-                mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-                0, # confirmation
-                mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, # param1
-                custom_mode, # param2: custom mode
-                custom_sub_mode, # param3: custom sub_mode
-                0.0, 0.0, 0.0, 0.0 # param4-param7
-            )
-            logger.info("Mode set → %s (custom_mode=%.0f, sub_mode=%.0f)", mode, custom_mode, custom_sub_mode)
-            return True
+            for attempt in range(1, retries + 1):
+                self._send_set_mode_command(custom_mode, custom_sub_mode)
+                logger.info(
+                    "Mode set → %s (custom_mode=%.0f, sub_mode=%.0f) [attempt %d/%d]",
+                    mode, custom_mode, custom_sub_mode, attempt, retries,
+                )
+
+                if self.wait_command_ack(
+                    mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.0,
+                ):
+                    logger.info("Mode %s confirmed by PX4", mode)
+                    return True
+
+                logger.warning("Mode %s not confirmed, retrying...", mode)
+                # Reset cooldown so retry isn't throttled
+                self._last_command_time.pop("mode", None)
+                time.sleep(0.3)
+
+            logger.error("Failed to set mode %s after %d attempts", mode, retries)
+            return False
         except Exception as exc:
             logger.error("set_mode failed: %s", exc)
+            return False
+
+    def set_mode_offboard(self, retries: int = 3) -> bool:
+        """
+        Switch to OFFBOARD mode for PX4.
+
+        PX4 requires an active setpoint stream BEFORE it will accept OFFBOARD.
+        This method pre-streams position-hold setpoints at ~50 Hz for ~2 s,
+        then sends the DO_SET_MODE command and verifies the ACK.
+        """
+        if not self.is_connected:
+            logger.error("set_mode_offboard: not connected")
+            return False
+
+        try:
+            custom_mode, custom_sub_mode = self._resolve_mode_id("OFFBOARD")
+            if custom_mode is None:
+                logger.error("OFFBOARD not found in mode_mapping")
+                return False
+
+            # ── Phase 1: Pre-stream setpoints (hold current position) ──
+            logger.info("OFFBOARD: pre-streaming setpoints for 2 s ...")
+            t_start = time.time()
+            while time.time() - t_start < 2.0:
+                # type_mask: ignore velocity, accel, yaw-rate → position-hold
+                self.connection.mav.set_position_target_local_ned_send(
+                    0,  # time_boot_ms
+                    self.connection.target_system,
+                    self.connection.target_component,
+                    mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                    0b0000_1111_1111_1000,  # position only
+                    0, 0, 0,   # x, y, z (hold current)
+                    0, 0, 0,   # vx, vy, vz
+                    0, 0, 0,   # afx, afy, afz
+                    0, 0,      # yaw, yaw_rate
+                )
+                # Drain incoming messages so heartbeat stays alive
+                self.poll_messages()
+                time.sleep(0.02)  # ~50 Hz
+
+            # ── Phase 2: Send mode-change with ACK + retry ──
+            for attempt in range(1, retries + 1):
+                # Keep streaming while we wait for ACK
+                self.connection.mav.set_position_target_local_ned_send(
+                    0,
+                    self.connection.target_system,
+                    self.connection.target_component,
+                    mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                    0b0000_1111_1111_1000,
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0,
+                )
+                self._send_set_mode_command(custom_mode, custom_sub_mode)
+                logger.info(
+                    "OFFBOARD mode command sent [attempt %d/%d]",
+                    attempt, retries,
+                )
+
+                if self.wait_command_ack(
+                    mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.0,
+                ):
+                    logger.info("OFFBOARD mode confirmed by PX4 ✓")
+                    return True
+
+                logger.warning("OFFBOARD not confirmed, retrying...")
+                self._last_command_time.pop("mode", None)
+                time.sleep(0.3)
+
+            logger.error("Failed to enter OFFBOARD after %d attempts", retries)
+            return False
+        except Exception as exc:
+            logger.error("set_mode_offboard failed: %s", exc)
             return False
 
     def arm(self) -> bool:
         if not self._can_send("arm"):
             return False
-        self.connection.arducopter_arm()
+        self.connection.mav.command_long_send(
+            self.connection.target_system,
+            self.connection.target_component,
+            mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+            0,
+            1, 0, 0, 0, 0, 0, 0,  # param1=1 → ARM
+        )
         logger.info("ARM command sent")
         return True
 
-    def disarm(self) -> bool:
+    def disarm(self, force: bool = False) -> bool:
         if not self._can_send("disarm"):
             return False
-        self.connection.arducopter_disarm()
-        logger.info("DISARM command sent")
+        self.connection.mav.command_long_send(
+            self.connection.target_system,
+            self.connection.target_component,
+            mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+            0,
+            0,                        # param1=0 → DISARM
+            21196 if force else 0,     # param2=21196 → force disarm
+            0, 0, 0, 0, 0,
+        )
+        logger.info("DISARM command sent (force=%s)", force)
         return True
 
     def takeoff(self, altitude_m: float) -> bool:

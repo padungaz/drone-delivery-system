@@ -144,7 +144,10 @@ class MissionManager:
         mode = payload.get("mode")
         if mode:
             logger.info("Setting flight mode to: %s", mode)
-            self.mavlink.set_mode(mode)
+            if mode == "OFFBOARD":
+                self.mavlink.set_mode_offboard()
+            else:
+                self.mavlink.set_mode(mode)
             
     def _handle_move_relative(self, payload: dict) -> None:
         dx = payload.get("dx", 0.0)
@@ -278,7 +281,14 @@ class MissionManager:
         if state == DroneState.ARMING:
             # Safety: send ARM only once
             self._arm_sent = False
-            self.mavlink.set_mode("GUIDED")
+            # PX4 uses OFFBOARD (not ArduPilot's GUIDED).
+            # set_mode_offboard() pre-streams setpoints for ~2 s so PX4
+            # accepts the mode transition before we arm.
+            ok = self.mavlink.set_mode_offboard()
+            if not ok:
+                logger.error("Failed to enter OFFBOARD — cannot arm")
+                self.state_machine.transition_to(DroneState.ERROR)
+                return
             self.mavlink.arm()
             self._arm_sent = True
 
