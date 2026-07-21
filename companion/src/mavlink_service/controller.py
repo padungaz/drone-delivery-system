@@ -385,11 +385,11 @@ class MavlinkController:
             self.connection.target_system,
             self.connection.target_component,
             mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-            0b0000_1111_1100_0111,  # Ignore pos, accel, yaw. Use only velocity (Vx=0, Vy=0, Vz=0).
+            0b0000_0101_1100_0111,  # Ignore pos, accel, yaw. Use velocity + yaw_rate(0).
             0, 0, 0,       # Position (ignored)
             0, 0, 0,       # Velocity (m/s) -> hold
             0, 0, 0,       # Acceleration (ignored)
-            0, 0,          # Yaw, yaw_rate (ignored)
+            0, 0,          # Yaw (ignored), yaw_rate (0)
         )
 
     def _start_offboard_keepalive(self) -> None:
