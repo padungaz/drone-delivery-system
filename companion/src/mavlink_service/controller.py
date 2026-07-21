@@ -7,6 +7,7 @@ Baudrate:   57600 hoặc 921600 (cấu hình trong .env)
 
 import logging
 import math
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -99,6 +100,11 @@ class MavlinkController:
         self._connected = False
         self.connection_uri = config.MAVLINK_DEVICE
         self.use_baud = True
+
+        # OFFBOARD keepalive: PX4 requires continuous setpoint stream
+        # to stay in OFFBOARD mode (COM_OF_LOSS_T timeout ~1 s).
+        self._offboard_keepalive_running = False
+        self._offboard_keepalive_thread: Optional[threading.Thread] = None
 
     # ===================================================================
     # Connection
@@ -291,6 +297,9 @@ class MavlinkController:
                 logger.error("Unknown flight mode: %s", mode)
                 return False
 
+            # Switching away from OFFBOARD → stop keepalive
+            self._stop_offboard_keepalive()
+
             for attempt in range(1, retries + 1):
                 self._send_set_mode_command(custom_mode, custom_sub_mode)
                 logger.info(
@@ -319,9 +328,12 @@ class MavlinkController:
         """
         Switch to OFFBOARD mode for PX4.
 
-        PX4 requires an active setpoint stream BEFORE it will accept OFFBOARD.
-        This method pre-streams position-hold setpoints at ~50 Hz for ~2 s,
-        then sends the DO_SET_MODE command and verifies the ACK.
+        PX4 requires an active setpoint stream BEFORE it will accept OFFBOARD,
+        AND a continuous stream to STAY in OFFBOARD (COM_OF_LOSS_T ~1 s).
+        This method:
+          1. Pre-streams position-hold setpoints at ~50 Hz for ~2 s
+          2. Sends DO_SET_MODE and verifies the ACK
+          3. Starts a background keepalive thread that keeps streaming
         """
         if not self.is_connected:
             logger.error("set_mode_offboard: not connected")
@@ -337,36 +349,13 @@ class MavlinkController:
             logger.info("OFFBOARD: pre-streaming setpoints for 2 s ...")
             t_start = time.time()
             while time.time() - t_start < 2.0:
-                # type_mask: ignore velocity, accel, yaw-rate → position-hold
-                self.connection.mav.set_position_target_local_ned_send(
-                    0,  # time_boot_ms
-                    self.connection.target_system,
-                    self.connection.target_component,
-                    mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-                    0b0000_1111_1111_1000,  # position only
-                    0, 0, 0,   # x, y, z (hold current)
-                    0, 0, 0,   # vx, vy, vz
-                    0, 0, 0,   # afx, afy, afz
-                    0, 0,      # yaw, yaw_rate
-                )
-                # Drain incoming messages so heartbeat stays alive
+                self._send_offboard_position_hold()
                 self.poll_messages()
                 time.sleep(0.02)  # ~50 Hz
 
             # ── Phase 2: Send mode-change with ACK + retry ──
             for attempt in range(1, retries + 1):
-                # Keep streaming while we wait for ACK
-                self.connection.mav.set_position_target_local_ned_send(
-                    0,
-                    self.connection.target_system,
-                    self.connection.target_component,
-                    mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-                    0b0000_1111_1111_1000,
-                    0, 0, 0,
-                    0, 0, 0,
-                    0, 0, 0,
-                    0, 0,
-                )
+                self._send_offboard_position_hold()
                 self._send_set_mode_command(custom_mode, custom_sub_mode)
                 logger.info(
                     "OFFBOARD mode command sent [attempt %d/%d]",
@@ -377,6 +366,8 @@ class MavlinkController:
                     mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.0,
                 ):
                     logger.info("OFFBOARD mode confirmed by PX4 ✓")
+                    # ── Phase 3: Start keepalive so PX4 stays in OFFBOARD ──
+                    self._start_offboard_keepalive()
                     return True
 
                 logger.warning("OFFBOARD not confirmed, retrying...")
@@ -388,6 +379,68 @@ class MavlinkController:
         except Exception as exc:
             logger.error("set_mode_offboard failed: %s", exc)
             return False
+
+    # ===================================================================
+    # OFFBOARD keepalive
+    # ===================================================================
+
+    def _send_offboard_position_hold(self) -> None:
+        """Send a single position-hold setpoint (LOCAL_NED origin = hold)."""
+        self.connection.mav.set_position_target_local_ned_send(
+            0,
+            self.connection.target_system,
+            self.connection.target_component,
+            mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+            0b0000_1111_1111_1000,  # position only
+            0, 0, 0,
+            0, 0, 0,
+            0, 0, 0,
+            0, 0,
+        )
+
+    def _start_offboard_keepalive(self) -> None:
+        """Start background thread that streams setpoints to keep OFFBOARD alive."""
+        self._stop_offboard_keepalive()  # stop any existing thread first
+        self._offboard_keepalive_running = True
+        self._offboard_keepalive_thread = threading.Thread(
+            target=self._offboard_keepalive_loop, daemon=True,
+        )
+        self._offboard_keepalive_thread.start()
+        logger.info("OFFBOARD keepalive thread started")
+
+    def _stop_offboard_keepalive(self) -> None:
+        """Stop the OFFBOARD keepalive thread."""
+        if self._offboard_keepalive_running:
+            self._offboard_keepalive_running = False
+            if self._offboard_keepalive_thread and self._offboard_keepalive_thread.is_alive():
+                self._offboard_keepalive_thread.join(timeout=1.0)
+            self._offboard_keepalive_thread = None
+            logger.info("OFFBOARD keepalive thread stopped")
+
+    def _offboard_keepalive_loop(self) -> None:
+        """
+        Background loop: send position-hold setpoints at ~10 Hz.
+        PX4 COM_OF_LOSS_T default is 1.0 s; 10 Hz gives plenty of margin.
+        Stops automatically when _offboard_keepalive_running is cleared
+        or when PX4 heartbeat shows a non-OFFBOARD mode.
+        """
+        logger.info("OFFBOARD keepalive loop running")
+        while self._offboard_keepalive_running and self.is_connected:
+            try:
+                # If PX4 already exited OFFBOARD (e.g. RTL, LAND), stop keepalive
+                if self.telemetry.flight_mode != "OFFBOARD":
+                    logger.info(
+                        "OFFBOARD keepalive: PX4 mode changed to %s, stopping",
+                        self.telemetry.flight_mode,
+                    )
+                    break
+                self._send_offboard_position_hold()
+            except Exception as exc:
+                logger.error("OFFBOARD keepalive error: %s", exc)
+                break
+            time.sleep(0.1)  # 10 Hz
+        self._offboard_keepalive_running = False
+        logger.info("OFFBOARD keepalive loop exited")
 
     def arm(self) -> bool:
         if not self._can_send("arm"):
@@ -421,8 +474,8 @@ class MavlinkController:
         if not self._can_send("takeoff"):
             return False
         self.connection.mav.command_long_send(
-            config.MAVLINK_TARGET_SYSTEM,
-            config.MAVLINK_TARGET_COMPONENT,
+            self.connection.target_system,
+            self.connection.target_component,
             mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
             0,
             0, 0, 0, 0,
@@ -437,8 +490,8 @@ class MavlinkController:
             return False
         self.connection.mav.set_position_target_global_int_send(
             0,
-            config.MAVLINK_TARGET_SYSTEM,
-            config.MAVLINK_TARGET_COMPONENT,
+            self.connection.target_system,
+            self.connection.target_component,
             mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
             0b0000111111111000,
             int(lat * 1e7),

@@ -10,8 +10,8 @@ type Props = {
 const FLIGHT_MODES = [
   { label: "Offboard", value: "OFFBOARD" },
   { label: "Position", value: "POSCTL" },
-  { label: "Hold", value: "HOLD" },
-  { label: "Takeoff", value: "AUTO.TAKEOFF" },
+  { label: "Stabilized", value: "STABILIZED" },
+  { label: "Loiter", value: "AUTO.LOITER" },
   { label: "Land", value: "AUTO.LAND" },
   { label: "Return (RTL)", value: "AUTO.RTL" },
   { label: "Mission", value: "AUTO.MISSION" },
