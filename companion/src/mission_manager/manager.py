@@ -145,6 +145,12 @@ class MissionManager:
         if mode:
             logger.info("Setting flight mode to: %s", mode)
             if mode == "OFFBOARD":
+                if not self.mavlink.telemetry.armed:
+                    logger.warning(
+                        "Manual OFFBOARD requested while DISARMED. "
+                        "PX4 will not maintain OFFBOARD without armed motors. "
+                        "Arm the drone first."
+                    )
                 self.mavlink.set_mode_offboard()
             else:
                 self.mavlink.set_mode(mode)
@@ -279,20 +285,29 @@ class MissionManager:
         self._goto_sent = False
 
         if state == DroneState.ARMING:
-            # Safety: send ARM only once
+            # Safety: send ARM only once.
+            # PX4 OFFBOARD mode requires the drone to be ARMED first.
+            # Correct sequence:
+            #   1. ARM in current mode (LOITER / POSCTL / STABILIZED)
+            #   2. Wait for armed=True (confirmed from heartbeat)
+            #   3. Switch to OFFBOARD  ← done in _check_transitions after arm
+            #   4. Send TAKEOFF command ← done in _enter_state(TAKEOFF)
             self._arm_sent = False
-            # PX4 uses OFFBOARD (not ArduPilot's GUIDED).
-            # set_mode_offboard() pre-streams setpoints for ~2 s so PX4
-            # accepts the mode transition before we arm.
-            ok = self.mavlink.set_mode_offboard()
-            if not ok:
-                logger.error("Failed to enter OFFBOARD — cannot arm")
-                self.state_machine.transition_to(DroneState.ERROR)
-                return
+            self._offboard_after_arm_done = False
             self.mavlink.arm()
             self._arm_sent = True
 
         elif state == DroneState.TAKEOFF:
+            # Switch to OFFBOARD and send TAKEOFF setpoint.
+            # set_mode_offboard() was already called after arm was confirmed,
+            # but we call it here too as a safety guard.
+            if self.mavlink.telemetry.flight_mode != "OFFBOARD":
+                logger.info("TAKEOFF: entering OFFBOARD before takeoff command")
+                ok = self.mavlink.set_mode_offboard()
+                if not ok:
+                    logger.error("Failed to enter OFFBOARD before TAKEOFF")
+                    self.state_machine.transition_to(DroneState.ERROR)
+                    return
             self.mavlink.takeoff(config.TAKEOFF_ALTITUDE_M)
 
         elif state == DroneState.FLY_TO_PICKUP:
@@ -383,7 +398,19 @@ class MissionManager:
                 logger.error("ARM timeout — transitioning to ERROR")
                 self.state_machine.transition_to(DroneState.ERROR)
                 return
+
             if self.mavlink.telemetry.armed:
+                # ARM confirmed — now switch to OFFBOARD while motors are live
+                if not getattr(self, "_offboard_after_arm_done", False):
+                    logger.info("ARM confirmed — switching to OFFBOARD mode")
+                    ok = self.mavlink.set_mode_offboard()
+                    if not ok:
+                        logger.error("Failed to enter OFFBOARD after arm — ERROR")
+                        self.state_machine.transition_to(DroneState.ERROR)
+                        return
+                    self._offboard_after_arm_done = True
+                    return  # wait one more tick to confirm mode before transitioning
+
                 self.state_machine.transition_to(DroneState.TAKEOFF)
 
         # ── TAKEOFF ────────────────────────────────────────────────────────
