@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { setFlightMode, moveRelative, startCamera, stopCamera, armDrone, disarmDrone } from "../services/api";
 
 type Props = {
@@ -8,16 +8,11 @@ type Props = {
 };
 
 const FLIGHT_MODES = [
-  { label: "Offboard", value: "OFFBOARD" },
-  { label: "Position (POSCTL)", value: "POSCTL" },
-  { label: "Altitude (ALTCTL)", value: "ALTCTL" },
-  { label: "Stabilized", value: "STABILIZED" },
-  { label: "Hold / Loiter", value: "LOITER" },
-  { label: "Takeoff", value: "TAKEOFF" },
-  { label: "Land", value: "LAND" },
-  { label: "Precision Land", value: "PRECLAND" },
-  { label: "Return (RTL)", value: "RTL" },
-  { label: "Mission", value: "MISSION" },
+  { label: "⚡ Offboard", value: "OFFBOARD", desc: "Pi 5 control mode for directional movement" },
+  { label: "🟡 Hold / Loiter", value: "LOITER", desc: "Hold GPS position & altitude (Safe pause)" },
+  { label: "🛫 Takeoff", value: "TAKEOFF", desc: "Auto takeoff to safety altitude" },
+  { label: "🛬 Land", value: "LAND", desc: "Auto land at current location" },
+  { label: "🏠 Return (RTL)", value: "RTL", desc: "Return to Home/Warehouse and land" },
 ];
 
 export function ManualControlModal({ isOpen, onClose, droneStatus }: Props) {
@@ -145,6 +140,7 @@ export function ManualControlModal({ isOpen, onClose, droneStatus }: Props) {
                 key={mode.value}
                 onClick={() => handleSetMode(mode.value)}
                 className={`btn-mode ${droneStatus?.flight_mode === mode.value ? "active" : ""}`}
+                title={mode.desc}
               >
                 {mode.label}
               </button>
