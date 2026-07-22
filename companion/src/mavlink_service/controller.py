@@ -248,19 +248,37 @@ class MavlinkController:
 
     def _resolve_mode_id(self, mode: str):
         """Resolve PX4 mode string to (custom_mode, custom_sub_mode) tuple."""
-        mapping = self.connection.mode_mapping()
-        
-        # Thử tìm trực tiếp chuỗi gốc
-        mode_id = mapping.get(mode)
-        
-        # Bổ sung alias dự phòng nếu chuỗi truyền vào có dạng AUTO.XXX
-        if mode_id is None:
-            clean_mode = mode.upper().replace("AUTO.", "").replace("AUTO:", "")
-            mode_id = mapping.get(clean_mode)
+        px4_modes = {
+            "MANUAL": (1.0, 0.0),
+            "ALTCTL": (2.0, 0.0),
+            "POSCTL": (3.0, 0.0),
+            "AUTO": (4.0, 0.0),
+            "MISSION": (4.0, 1.0),
+            "AUTO.MISSION": (4.0, 1.0),
+            "TAKEOFF": (4.0, 2.0),
+            "AUTO.TAKEOFF": (4.0, 2.0),
+            "LOITER": (4.0, 3.0),
+            "HOLD": (4.0, 3.0),
+            "AUTO.LOITER": (4.0, 3.0),
+            "AUTO.HOLD": (4.0, 3.0),
+            "RTL": (4.0, 5.0),
+            "AUTO.RTL": (4.0, 5.0),
+            "LAND": (4.0, 6.0),
+            "AUTO.LAND": (4.0, 6.0),
+            "PRECLAND": (4.0, 6.0),
+            "ACRO": (5.0, 0.0),
+            "OFFBOARD": (6.0, 0.0),
+            "STABILIZED": (7.0, 0.0),
+        }
+        upper_mode = mode.upper()
+        if upper_mode in px4_modes:
+            return px4_modes[upper_mode]
 
+        # Fallback to connection mode mapping if not in explicit dictionary
+        mapping = self.connection.mode_mapping() if self.connection else {}
+        mode_id = mapping.get(mode) or mapping.get(upper_mode.replace("AUTO.", ""))
         if mode_id is None:
             return None, None
-            
         if isinstance(mode_id, tuple):
             custom_mode = float(mode_id[0])
             custom_sub_mode = float(mode_id[1]) if len(mode_id) > 1 else 0.0
