@@ -223,7 +223,12 @@ class MavlinkController:
             self.telemetry.armed = bool(
                 msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED
             )
-            self.telemetry.flight_mode = mavutil.mode_string_v10(msg)
+            mode_str = mavutil.mode_string_v10(msg)
+            # PX4 custom mode 6 is OFFBOARD (base_mode custom_mode_enabled)
+            custom_main_mode = (msg.custom_mode >> 16) & 0xFF if msg.custom_mode > 65535 else msg.custom_mode
+            if custom_main_mode == 6 or mode_str == "UNKNOWN" and (msg.base_mode & 1):
+                mode_str = "OFFBOARD"
+            self.telemetry.flight_mode = mode_str
 
         # ---- PX4 Status Text & Pre-arm Warnings ----
         elif msg_type == "STATUSTEXT":
@@ -414,18 +419,36 @@ class MavlinkController:
             return False
 
     def _send_offboard_position_hold(self) -> None:
-        """Send a single velocity setpoint (0 m/s) to hold current position."""
-        self.connection.mav.set_position_target_local_ned_send(
-            0,
-            self.connection.target_system,
-            self.connection.target_component,
-            mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-            0b0000_0101_1100_0111,  # Ignore pos, accel, yaw. Use velocity + yaw_rate(0).
-            0, 0, 0,       # Position (ignored)
-            0, 0, 0,       # Velocity (m/s) -> hold
-            0, 0, 0,       # Acceleration (ignored)
-            0, 0,          # Yaw (ignored), yaw_rate (0)
-        )
+        """Send Offboard setpoint: climb to 1.5m if on ground, hold position if airborne."""
+        if not self.is_connected:
+            return
+
+        if self.telemetry.altitude_agl < 0.3:
+            # On ground: send Takeoff position setpoint Z = -1.5m (LOCAL_NED frame: negative Z is UP)
+            self.connection.mav.set_position_target_local_ned_send(
+                0,
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                0b0000_1111_1111_1000,  # Use Position X, Y, Z
+                0.0, 0.0, -1.5,         # Target position: Z = -1.5m (climb)
+                0, 0, 0,                # Velocity (ignored)
+                0, 0, 0,                # Accel (ignored)
+                0, 0,                   # Yaw (ignored)
+            )
+        else:
+            # Airborne: send velocity 0 m/s position hold
+            self.connection.mav.set_position_target_local_ned_send(
+                0,
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                0b0000_0101_1100_0111,  # Use Velocity X=0, Y=0, Z=0
+                0, 0, 0,
+                0.0, 0.0, 0.0,          # Velocity: 0 m/s (hold)
+                0, 0, 0,
+                0, 0,
+            )
 
     def _start_offboard_keepalive(self) -> None:
         """Start background thread that streams setpoints at 20Hz to keep OFFBOARD alive."""
@@ -465,7 +488,7 @@ class MavlinkController:
                 # 2. Sau thời gian Grace period mới kiểm tra xem PX4 có bị ai đổi sang mode khác không
                 elapsed = time.time() - t_start
                 if elapsed >= STARTUP_GRACE_SEC:
-                    if self.telemetry.flight_mode != "OFFBOARD":
+                    if self.telemetry.flight_mode not in ("OFFBOARD", "UNKNOWN"):
                         logger.info(
                             "OFFBOARD keepalive: PX4 mode is %s (not OFFBOARD), stopping thread",
                             self.telemetry.flight_mode,
@@ -485,7 +508,7 @@ class MavlinkController:
     # Flight commands
     # ===================================================================
 
-    def arm(self) -> bool:
+    def arm(self, force: bool = False) -> bool:
         if not self._can_send("arm"):
             return False
         if self.telemetry.flight_mode in ("TAKEOFF", "AUTO.TAKEOFF", "LAND", "AUTO.LAND", "RTL", "AUTO.RTL"):
@@ -508,10 +531,17 @@ class MavlinkController:
             self.connection.target_component,
             mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
             0,
-            1, 0, 0, 0, 0, 0, 0,  # param1=1 → ARM
+            1,                            # param1=1 → ARM
+            21196 if force else 0,         # param2=21196 → force arm
+            0, 0, 0, 0, 0,
         )
-        logger.info("ARM command sent")
-        return True
+        logger.info("ARM command sent (force=%s)", force)
+        ack = self.wait_command_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=2.0)
+        if ack:
+            logger.info("ARM command ACCEPTED by PX4 ✓")
+        else:
+            logger.warning("ARM command REJECTED/TIMEOUT by PX4 ❌ — check PX4 STATUSTEXT log for Prearm check failure reason")
+        return ack
 
     def disarm(self, force: bool = False) -> bool:
         if not self._can_send("disarm"):
