@@ -463,6 +463,14 @@ class MavlinkController:
     def arm(self) -> bool:
         if not self._can_send("arm"):
             return False
+        if self.telemetry.flight_mode in ("TAKEOFF", "AUTO.TAKEOFF", "LAND", "AUTO.LAND", "RTL", "AUTO.RTL"):
+            logger.info(
+                "PX4 is in mode %s while DISARMED — switching to LOITER before arming",
+                self.telemetry.flight_mode,
+            )
+            self.set_mode("LOITER")
+            time.sleep(0.3)
+
         self.connection.mav.command_long_send(
             self.connection.target_system,
             self.connection.target_component,
