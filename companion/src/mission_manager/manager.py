@@ -382,7 +382,7 @@ class MissionManager:
 
         elif state == DroneState.PRECISION_LANDING:
             self._landing_status = "PRECISION_LANDING"
-            self.mavlink.set_mode("AUTO.PRECLAND")
+            self.mavlink.set_mode("PRECLAND")
 
         elif state == DroneState.WAIT_PICKUP_CONFIRM:
             self._landing_status = "WAIT_PICKUP"
@@ -599,9 +599,9 @@ class MissionManager:
                                 else:
                                     self.mavlink.send_landing_target(0.0, 0.0, self.mavlink.telemetry.altitude_agl)
 
-                                # Force switch flight mode to AUTO.LAND to ensure vertical touchdown
-                                if self.mavlink.telemetry.flight_mode != "AUTO.LAND":
-                                    logger.info("Forcing AUTO.LAND mode for final touchdown")
+                                # Force switch flight mode to LAND to ensure vertical touchdown
+                                if self.mavlink.telemetry.flight_mode != "LAND":
+                                    logger.info("Forcing LAND mode for final touchdown")
                                     self.mavlink.land()
                     else:
                         if pose.detected:

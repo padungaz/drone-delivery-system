@@ -241,9 +241,19 @@ class MavlinkController:
 
     def _resolve_mode_id(self, mode: str):
         """Resolve PX4 mode string to (custom_mode, custom_sub_mode) tuple."""
-        mode_id = self.connection.mode_mapping().get(mode)
+        mapping = self.connection.mode_mapping()
+        
+        # Thử tìm trực tiếp chuỗi gốc
+        mode_id = mapping.get(mode)
+        
+        # Bổ sung alias dự phòng nếu chuỗi truyền vào có dạng AUTO.XXX
+        if mode_id is None:
+            clean_mode = mode.upper().replace("AUTO.", "").replace("AUTO:", "")
+            mode_id = mapping.get(clean_mode)
+
         if mode_id is None:
             return None, None
+            
         if isinstance(mode_id, tuple):
             custom_mode = float(mode_id[0])
             custom_sub_mode = float(mode_id[1]) if len(mode_id) > 1 else 0.0
@@ -515,12 +525,12 @@ class MavlinkController:
     def land(self) -> bool:
         if not self._can_send("land"):
             return False
-        return self.set_mode("AUTO.LAND")
+        return self.set_mode("LAND")
 
     def rtl(self) -> bool:
         if not self._can_send("rtl"):
             return False
-        return self.set_mode("AUTO.RTL")
+        return self.set_mode("RTL")
 
     # ===================================================================
     # Precision landing

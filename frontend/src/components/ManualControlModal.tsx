@@ -12,12 +12,12 @@ const FLIGHT_MODES = [
   { label: "Position (POSCTL)", value: "POSCTL" },
   { label: "Altitude (ALTCTL)", value: "ALTCTL" },
   { label: "Stabilized", value: "STABILIZED" },
-  { label: "Hold / Loiter", value: "AUTO.LOITER" },
-  { label: "Takeoff", value: "AUTO.TAKEOFF" },
-  { label: "Land", value: "AUTO.LAND" },
-  { label: "Precision Land", value: "AUTO.PRECLAND" },
-  { label: "Return (RTL)", value: "AUTO.RTL" },
-  { label: "Mission", value: "AUTO.MISSION" },
+  { label: "Hold / Loiter", value: "LOITER" },
+  { label: "Takeoff", value: "TAKEOFF" },
+  { label: "Land", value: "LAND" },
+  { label: "Precision Land", value: "PRECLAND" },
+  { label: "Return (RTL)", value: "RTL" },
+  { label: "Mission", value: "MISSION" },
 ];
 
 export function ManualControlModal({ isOpen, onClose, droneStatus }: Props) {
