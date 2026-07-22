@@ -174,7 +174,7 @@ TAKEOFF_ALTITUDE_M = float(
 RTL_ALTITUDE_M = float(
     os.getenv(
         "RTL_ALTITUDE_M",
-        "30.0"
+        "6.0"
     )
 )
 
@@ -182,7 +182,7 @@ RTL_ALTITUDE_M = float(
 DESCEND_ALTITUDE_M = float(
     os.getenv(
         "DESCEND_ALTITUDE_M",
-        "10.0"
+        "5.0"
     )
 )
 
