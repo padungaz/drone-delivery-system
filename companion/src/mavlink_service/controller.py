@@ -586,12 +586,13 @@ class MavlinkController:
         return self.distance_to(lat, lon) <= radius_m
 
     def is_landed(self) -> bool:
-        return (
-            not self.telemetry.armed
-            and self.telemetry.rangefinder_valid
-            and self.telemetry.altitude_agl < 0.15
-            and self.telemetry.ground_speed < 0.3
-        )
+        if self.telemetry.armed:
+            return False
+        if self.telemetry.ground_speed > 0.3:
+            return False
+        if self.telemetry.rangefinder_valid:
+            return self.telemetry.altitude_agl < 0.35
+        return abs(self.telemetry.altitude_relative) < 0.5
 
     def move_relative(self, dx: float, dy: float, dz: float) -> bool:
         """

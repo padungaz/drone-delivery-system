@@ -268,11 +268,8 @@ class MissionManager:
         logger.warning("FORCE_RTL activated")
 
     def _handle_stop(self) -> None:
-        if self.state_machine.is_flying():
-            logger.warning("STOP rejected: drone is flying")
-            return
         if self.mavlink.telemetry.armed:
-            logger.warning("STOP rejected: motors armed")
+            logger.warning("STOP rejected: motors are armed. Use FORCE_RTL or DISARM first.")
             return
         self._mission_active = False
         self._stop_requested = True

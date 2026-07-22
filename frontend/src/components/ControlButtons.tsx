@@ -57,7 +57,6 @@ export function ControlButtons({ locations, telemetry, droneOnline, onOpenManual
   const canStop =
     droneOnline &&
     state != null &&
-    !FLYING_STATES.has(state) &&
     !telemetry?.armed &&
     state !== "IDLE";
 

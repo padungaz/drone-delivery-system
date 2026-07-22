@@ -69,29 +69,20 @@ class DroneService:
         )
 
     def validate_stop(self, telemetry: Optional[TelemetryPayload]) -> None:
-        """STOP is only allowed when drone is on the ground and disarmed."""
+        """STOP is allowed whenever drone motors are disarmed and state is not IDLE."""
         if telemetry is None:
             raise HTTPException(status_code=400, detail="No telemetry available")
 
-        if telemetry.drone_state in FLYING_STATES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot STOP while drone is airborne (state: {telemetry.drone_state.value})",
-            )
         if telemetry.armed:
-            raise HTTPException(status_code=400, detail="Cannot STOP while motors are armed")
-
-        # Allow STOP from IDLE, WAIT_PICKUP_CONFIRM, WAIT_DROP_CONFIRM, ERROR
-        allowed = {
-            DroneState.IDLE,
-            DroneState.WAIT_PICKUP_CONFIRM,
-            DroneState.WAIT_DROP_CONFIRM,
-            DroneState.ERROR,
-        }
-        if telemetry.drone_state not in allowed:
             raise HTTPException(
                 status_code=400,
-                detail=f"STOP not allowed in state {telemetry.drone_state.value}",
+                detail="Cannot STOP while motors are armed. Disarm or FORCE_RTL first.",
+            )
+
+        if telemetry.drone_state == DroneState.IDLE:
+            raise HTTPException(
+                status_code=400,
+                detail="Drone is already IDLE",
             )
 
     def can_start(self, telemetry: Optional[TelemetryPayload]) -> bool:

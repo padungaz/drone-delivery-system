@@ -149,7 +149,7 @@ class Repository:
 
 
 def can_stop_drone(state: str, armed: bool) -> bool:
-    return state == DroneState.LAND.value and not armed
+    return not armed and state != DroneState.IDLE.value
 
 
 # ---------------------------------------------------------------------------
