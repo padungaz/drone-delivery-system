@@ -225,6 +225,13 @@ class MavlinkController:
             )
             self.telemetry.flight_mode = mavutil.mode_string_v10(msg)
 
+        # ---- PX4 Status Text & Pre-arm Warnings ----
+        elif msg_type == "STATUSTEXT":
+            text = msg.text
+            if isinstance(text, bytes):
+                text = text.decode("utf-8", errors="ignore")
+            logger.warning("[PX4 STATUSTEXT] %s", text)
+
     # ===================================================================
     # Command control
     # ===================================================================
@@ -469,7 +476,14 @@ class MavlinkController:
                 self.telemetry.flight_mode,
             )
             self.set_mode("LOITER")
-            time.sleep(0.3)
+            # Wait for heartbeat telemetry to confirm flight_mode updated away from Auto mode
+            t0 = time.time()
+            while time.time() - t0 < 2.0:
+                self.poll_messages()
+                if self.telemetry.flight_mode not in ("TAKEOFF", "AUTO.TAKEOFF", "LAND", "AUTO.LAND", "RTL", "AUTO.RTL"):
+                    logger.info("Mode successfully updated to %s before arming", self.telemetry.flight_mode)
+                    break
+                time.sleep(0.1)
 
         self.connection.mav.command_long_send(
             self.connection.target_system,
