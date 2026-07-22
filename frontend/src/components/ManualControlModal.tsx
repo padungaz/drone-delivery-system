@@ -29,10 +29,18 @@ export function ManualControlModal({ isOpen, onClose, droneStatus }: Props) {
   const isArmed: boolean = droneStatus?.armed ?? false;
 
   const handleSetMode = async (mode: string) => {
+    if ((mode === "OFFBOARD" || mode === "TAKEOFF") && !isArmed) {
+      setArmMsg(`⚠️ Please ARM the drone before selecting ${mode}`);
+      return;
+    }
+    setArmMsg(null);
     try {
-      await setFlightMode(mode);
+      const res = await setFlightMode(mode);
+      const data = await res.json();
+      setArmMsg(res.ok ? `✅ Mode ${mode} requested` : `❌ ${data.detail ?? "Failed to set mode"}`);
     } catch (err) {
       console.error("Failed to set mode", err);
+      setArmMsg("❌ Network error setting mode");
     }
   };
 

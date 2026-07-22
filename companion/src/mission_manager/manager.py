@@ -148,18 +148,28 @@ class MissionManager:
 
     def _handle_set_mode(self, payload: dict) -> None:
         mode = payload.get("mode")
-        if mode:
-            logger.info("Setting flight mode to: %s", mode)
-            if mode == "OFFBOARD":
-                if not self.mavlink.telemetry.armed:
-                    logger.warning(
-                        "Manual OFFBOARD requested while DISARMED. "
-                        "PX4 will not maintain OFFBOARD without armed motors. "
-                        "Arm the drone first."
-                    )
-                self.mavlink.set_mode_offboard()
-            else:
-                self.mavlink.set_mode(mode)
+        if not mode:
+            return
+        logger.info("Setting flight mode to: %s", mode)
+        if mode == "TAKEOFF":
+            if not self.mavlink.telemetry.armed:
+                logger.warning(
+                    "Manual TAKEOFF requested while DISARMED. "
+                    "Arm the drone first."
+                )
+                return
+            logger.info("Manual TAKEOFF command initiated (altitude=%.1fm)", config.TAKEOFF_ALTITUDE_M)
+            self.mavlink.takeoff(config.TAKEOFF_ALTITUDE_M)
+        elif mode == "OFFBOARD":
+            if not self.mavlink.telemetry.armed:
+                logger.warning(
+                    "Manual OFFBOARD requested while DISARMED. "
+                    "PX4 will not maintain OFFBOARD without armed motors. "
+                    "Arm the drone first."
+                )
+            self.mavlink.set_mode_offboard()
+        else:
+            self.mavlink.set_mode(mode)
             
     def _handle_arm(self) -> None:
         """Manual ARM command from dashboard (outside mission FSM)."""
