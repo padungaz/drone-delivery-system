@@ -23,7 +23,6 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.repository import CustomerRepository, async_session
 from app.models.schemas import (
@@ -41,15 +40,6 @@ from app.websocket.handler import manager
 
 logger = logging.getLogger(__name__)
 customer_router = APIRouter()
-
-
-# ---------------------------------------------------------------------------
-# Dependency
-# ---------------------------------------------------------------------------
-
-async def get_customer_repo():
-    async with async_session() as session:
-        yield CustomerRepository(session)
 
 
 def _delivery_response(r) -> DeliveryRequestResponse:

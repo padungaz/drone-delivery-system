@@ -1,7 +1,6 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.repository import Repository, async_session
 from app.models.schemas import (

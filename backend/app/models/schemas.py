@@ -52,11 +52,6 @@ class MissionAction(str, Enum):
     CAMERA_STOP = "CAMERA_STOP"
 
 
-class Location(BaseModel):
-    lat: float
-    lon: float
-
-
 class MissionCommand(BaseModel):
     action: MissionAction
     home_lat: float

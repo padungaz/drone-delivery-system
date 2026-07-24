@@ -1,11 +1,9 @@
 import json
 import logging
-from typing import Optional
-
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.database.repository import Repository
-from app.models.schemas import MissionAction, MissionCommand, TelemetryPayload
+from app.models.schemas import MissionCommand, TelemetryPayload
 from app.services.drone_service import drone_service
 
 logger = logging.getLogger(__name__)

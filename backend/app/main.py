@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.customer_routes import customer_router
 from app.api.routes import router
 from app.config import settings
-from app.database.repository import init_db
+from app.database.repository import async_session, init_db
+from app.storage.routes import storage_router
+from app.storage.repository import StorageRepository
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,6 +21,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Seed 9 storage slots if not already present
+    async with async_session() as session:
+        storage_repo = StorageRepository(session)
+        await storage_repo.init_storage_slots()
     logger.info("Backend started on %s:%d", settings.host, settings.port)
     yield
     logger.info("Backend shutting down")
@@ -41,4 +47,5 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(customer_router)
+app.include_router(storage_router)
 
