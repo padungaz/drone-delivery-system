@@ -337,10 +337,8 @@ class MissionManager:
             self._arm_sent = True
 
         elif state == DroneState.TAKEOFF:
-            # Switch to OFFBOARD and send TAKEOFF setpoint.
-            # set_mode_offboard() was already called after arm was confirmed,
-            # but we call it here too as a safety guard.
-            if self.mavlink.telemetry.flight_mode != "OFFBOARD":
+            # Switch to OFFBOARD if not already done during ARMING phase
+            if not getattr(self, "_offboard_after_arm_done", False) and self.mavlink.telemetry.flight_mode != "OFFBOARD":
                 logger.info("TAKEOFF: entering OFFBOARD before takeoff command")
                 ok = self.mavlink.set_mode_offboard()
                 if not ok:

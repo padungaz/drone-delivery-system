@@ -383,6 +383,10 @@ class MavlinkController:
                 logger.error("OFFBOARD not found in mode_mapping")
                 return False
 
+            if self._offboard_keepalive_running and self.telemetry.flight_mode == "OFFBOARD":
+                logger.info("PX4 is already in OFFBOARD mode with keepalive running")
+                return True
+
             # ── Phase 1: Bật luồng Keepalive thread phát setpoint 20Hz NGAY TỪ ĐẦU ──
             logger.info("OFFBOARD: Starting continuous setpoint keepalive thread...")
             self._start_offboard_keepalive()
@@ -419,31 +423,33 @@ class MavlinkController:
             return False
 
     def _send_offboard_position_hold(self) -> None:
-        """Send Offboard setpoint: climb to 1.5m if on ground, hold position if airborne."""
+        """Send Offboard setpoint: climb to target altitude if near ground, hold position if airborne."""
         if not self.is_connected:
             return
 
-        if self.telemetry.altitude_agl < 0.3:
-            # On ground: send Takeoff position setpoint Z = -1.5m (LOCAL_NED frame: negative Z is UP)
+        target_alt = getattr(self, "_target_takeoff_alt", config.TAKEOFF_ALTITUDE_M)
+
+        if self.telemetry.altitude_relative < (target_alt * 0.85):
+            # Takeoff setpoint: climb straight UP relative to current position
             self.connection.mav.set_position_target_local_ned_send(
                 0,
                 self.connection.target_system,
                 self.connection.target_component,
-                mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-                0b0000_1111_1111_1000,  # Use Position X, Y, Z
-                0.0, 0.0, -1.5,         # Target position: Z = -1.5m (climb)
+                mavutil.mavlink.MAV_FRAME_LOCAL_OFFSET_NED,
+                0b0000_1111_1111_1000,  # Use Position X, Y, Z (X=0, Y=0 offset, Z=-target_alt)
+                0.0, 0.0, -target_alt,  # Negative Z is UP in LOCAL frame
                 0, 0, 0,                # Velocity (ignored)
                 0, 0, 0,                # Accel (ignored)
                 0, 0,                   # Yaw (ignored)
             )
         else:
-            # Airborne: send velocity 0 m/s position hold
+            # Airborne: send velocity 0 m/s position hold (Bitmask 0x0FC7 / 4039)
             self.connection.mav.set_position_target_local_ned_send(
                 0,
                 self.connection.target_system,
                 self.connection.target_component,
                 mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-                0b0000_0101_1100_0111,  # Use Velocity X=0, Y=0, Z=0
+                0b0000_1111_1100_0111,  # Use Velocity X=0, Y=0, Z=0 only (Pos/Accel/Yaw ignored)
                 0, 0, 0,
                 0.0, 0.0, 0.0,          # Velocity: 0 m/s (hold)
                 0, 0, 0,
@@ -452,9 +458,10 @@ class MavlinkController:
 
     def _start_offboard_keepalive(self) -> None:
         """Start background thread that streams setpoints at 20Hz to keep OFFBOARD alive."""
+        self._keepalive_start_time = time.time()
         if self._offboard_keepalive_running:
-            return  # Đã chạy rồi thì giữ nguyên
-        
+            return  # Thread is already running, grace period timer refreshed
+
         self._offboard_keepalive_running = True
         self._offboard_keepalive_thread = threading.Thread(
             target=self._offboard_keepalive_loop, daemon=True,
@@ -475,10 +482,8 @@ class MavlinkController:
         """
         Background loop: send position-hold setpoints at 20 Hz (0.05s).
         """
-        STARTUP_GRACE_SEC = 3.0   # Bỏ qua kiểm tra flight_mode trong 3s đầu khi vừa bật
+        STARTUP_GRACE_SEC = 5.0   # Bỏ qua kiểm tra flight_mode trong 5s đầu khi vừa bật
         logger.info("OFFBOARD keepalive loop running (grace period %.1f s)", STARTUP_GRACE_SEC)
-
-        t_start = time.time()
 
         while self._offboard_keepalive_running and self.is_connected:
             try:
@@ -486,7 +491,7 @@ class MavlinkController:
                 self._send_offboard_position_hold()
 
                 # 2. Sau thời gian Grace period mới kiểm tra xem PX4 có bị ai đổi sang mode khác không
-                elapsed = time.time() - t_start
+                elapsed = time.time() - getattr(self, "_keepalive_start_time", time.time())
                 if elapsed >= STARTUP_GRACE_SEC:
                     if self.telemetry.flight_mode not in ("OFFBOARD", "UNKNOWN"):
                         logger.info(
@@ -561,16 +566,20 @@ class MavlinkController:
     def takeoff(self, altitude_m: float) -> bool:
         if not self._can_send("takeoff"):
             return False
-        self.connection.mav.command_long_send(
-            self.connection.target_system,
-            self.connection.target_component,
-            mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-            0,
-            0, 0, 0, 0,
-            0, 0,
-            altitude_m,
-        )
-        logger.info("TAKEOFF command sent: %.1f m", altitude_m)
+        self._target_takeoff_alt = altitude_m
+        if self.telemetry.flight_mode == "OFFBOARD":
+            logger.info("TAKEOFF initiated via OFFBOARD position setpoints: %.1f m", altitude_m)
+        else:
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                0,
+                0, 0, 0, 0,
+                0, 0,
+                altitude_m,
+            )
+            logger.info("TAKEOFF command (MAV_CMD_NAV_TAKEOFF) sent: %.1f m", altitude_m)
         return True
 
     def goto_location(self, lat: float, lon: float, alt_m: float) -> bool:
