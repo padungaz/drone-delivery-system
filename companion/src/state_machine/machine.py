@@ -54,5 +54,8 @@ class StateMachine:
         return self._state in FLYING_STATES
 
     def reset(self) -> None:
+        old = self._state
         self._state = DroneState.IDLE
         logger.info("State machine reset to IDLE")
+        if self._on_transition:
+            self._on_transition(old, DroneState.IDLE)

@@ -66,7 +66,7 @@ class MissionManager:
         self.mavlink = mavlink
         self.vision = vision
         self.ws = ws_client
-        self.state_machine = StateMachine()
+        self.state_machine = StateMachine(on_transition=self._on_state_transition)
         self.locations = MissionLocations()
         self._mission_active = False
         self._force_rtl = False
@@ -625,14 +625,13 @@ class MissionManager:
     # Main loop tick (~50ms cadence)
     # -----------------------------------------------------------------------
 
+    def _on_state_transition(self, old_state: DroneState, new_state: DroneState) -> None:
+        """Invoked immediately whenever the state machine transitions."""
+        self._enter_state(new_state)
+
     def tick(self) -> None:
-        prev_state = self.state_machine.state
         self.mavlink.poll_messages()
         self._check_transitions()
-
-        if self.state_machine.state != prev_state:
-            self._enter_state(self.state_machine.state)
-
         self.process_vision()
 
     # -----------------------------------------------------------------------
