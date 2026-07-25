@@ -41,7 +41,9 @@ class ArucoLandingService:
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
         self.camera_matrix: Optional[np.ndarray] = None
         self.dist_coeffs: Optional[np.ndarray] = None
-        self._camera = None
+        self._camera = None                          # Picamera2 instance (CSI)
+        self._webcam_cap: Optional[cv2.VideoCapture] = None  # OpenCV capture (USB webcam)
+        self._camera_backend = "none"                # "csi" | "webcam" | "none"
         self._last_pose = MarkerPose()
         self._last_detected_pose = MarkerPose()
 
@@ -54,26 +56,68 @@ class ArucoLandingService:
         self.stop()
 
         initialized = False
-        if not config.IS_PI or config.CAMERA_BACKEND != "csi":
-            logger.info("Skipping Picamera2 init in simulation mode")
-        else:
+        backend = config.CAMERA_BACKEND
+
+        if backend == "csi":
+            # ── CSI camera via picamera2 (Raspberry Pi) ──
             try:
                 # pyrefly: ignore [missing-import]
                 from picamera2 import Picamera2
 
                 self._camera = Picamera2()
                 config_cam = self._camera.create_preview_configuration(
-                    main={"size": (640, 480), "format": "RGB888"}
+                    main={"size": (config.CAMERA_WIDTH, config.CAMERA_HEIGHT), "format": "RGB888"}
                 )
                 self._camera.configure(config_cam)
                 self._camera.start()
-                logger.info("CSI camera initialized")
-                self._init_camera_matrix(640, 480)
+                self._camera_backend = "csi"
+                self._init_camera_matrix(config.CAMERA_WIDTH, config.CAMERA_HEIGHT)
+                logger.info("CSI camera initialized (%dx%d)", config.CAMERA_WIDTH, config.CAMERA_HEIGHT)
                 initialized = True
             except ImportError:
-                logger.warning("picamera2 not available — using mock camera for dev")
+                logger.warning("picamera2 not available — CSI camera cannot be used")
             except Exception as exc:
-                logger.error("Camera init failed: %s", exc)
+                logger.error("CSI camera init failed: %s", exc)
+
+        elif backend == "webcam":
+            # ── USB webcam via OpenCV VideoCapture (V4L2) ──
+            camera_index = config.CAMERA_WEBCAM_INDEX
+            device_name = f"/dev/video{camera_index}"
+            logger.info("Opening USB webcam %s for ArUco landing...", device_name)
+
+            try:
+                if config.IS_WINDOWS:
+                    cap = cv2.VideoCapture(camera_index)
+                else:
+                    cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
+
+                if not cap.isOpened():
+                    logger.error("Failed to open USB webcam %s", device_name)
+                else:
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.CAMERA_WIDTH)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.CAMERA_HEIGHT)
+                    cap.set(cv2.CAP_PROP_FPS, config.CAMERA_FPS)
+
+                    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    actual_fps = cap.get(cv2.CAP_PROP_FPS)
+
+                    self._webcam_cap = cap
+                    self._camera_backend = "webcam"
+                    self._init_camera_matrix(actual_w, actual_h)
+                    logger.info(
+                        "USB webcam initialized: %dx%d @ %.0f FPS",
+                        actual_w, actual_h, actual_fps,
+                    )
+                    initialized = True
+            except Exception as exc:
+                logger.error("USB webcam init failed: %s", exc)
+
+        else:
+            logger.info(
+                "Camera backend '%s' — no physical camera for ArUco landing",
+                backend,
+            )
 
         self._running = True
         self._thread = threading.Thread(target=self._run_detection, daemon=True)
@@ -87,11 +131,19 @@ class ArucoLandingService:
         self.dist_coeffs = np.zeros(5, dtype=np.float64)
 
     def capture_frame(self) -> Optional[np.ndarray]:
-        if self._camera is None:
-            return None
         try:
-            frame = self._camera.capture_array()
-            return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            if self._camera_backend == "csi" and self._camera is not None:
+                frame = self._camera.capture_array()
+                return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+            if self._camera_backend == "webcam" and self._webcam_cap is not None:
+                ret, frame = self._webcam_cap.read()
+                if ret:
+                    return frame
+                logger.warning("USB webcam read failed (transient)")
+                return None
+
+            return None
         except Exception as exc:
             logger.error("Frame capture failed: %s", exc)
             return None
@@ -169,13 +221,25 @@ class ArucoLandingService:
         if self._thread:
             self._thread.join(timeout=1.0)
             self._thread = None
+
+        # Release CSI camera (picamera2)
         if self._camera:
             try:
                 self._camera.stop()
             except Exception as exc:
-                logger.error("Error stopping camera: %s", exc)
+                logger.error("Error stopping CSI camera: %s", exc)
             self._camera = None
+
+        # Release USB webcam (OpenCV VideoCapture)
+        if self._webcam_cap:
+            try:
+                self._webcam_cap.release()
+            except Exception as exc:
+                logger.error("Error releasing USB webcam: %s", exc)
+            self._webcam_cap = None
+
+        self._camera_backend = "none"
         with self._lock:
             self._last_pose = MarkerPose()
             self._last_detected_pose = MarkerPose()
-            logger.info("Camera stopped")
+            logger.info("ArUco landing camera stopped")
