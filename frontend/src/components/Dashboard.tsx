@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { MissionLocations } from "../types/drone";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { useIntralogisticsWS } from "../hooks/useIntralogisticsWS";
 import { CameraPanel } from "./CameraPanel";
 import { ControlButtons } from "./ControlButtons";
 import { DeliveryRequestsPanel } from "./DeliveryRequestsPanel";
@@ -8,6 +9,8 @@ import { MissionForm } from "./MissionForm";
 import { TelemetryPanel } from "./TelemetryPanel";
 import { WarehouseConfigPanel } from "./WarehouseConfigPanel";
 import { ManualControlModal } from "./ManualControlModal";
+import { MapPanel } from "./MapPanel";
+import { IntralogisticsPanel } from "./IntralogisticsPanel";
 
 const DEFAULT_LOCATIONS: MissionLocations = {
   home_lat: 0,
@@ -18,11 +21,23 @@ const DEFAULT_LOCATIONS: MissionLocations = {
   drop_lon: 0,
 };
 
+type ActiveTab = "intralogistics" | "dashboard" | "map" | "split";
+
 export function Dashboard() {
-  const { connected, telemetry, droneOnline, lastError, cameraStatus, arucoDetection } =
+  const { telemetry, droneOnline, lastError, cameraStatus, arucoDetection } =
     useWebSocket();
 
+  const {
+    connected: sysWsConnected,
+    devices,
+    plc,
+    robot,
+    storage,
+    activeMission,
+  } = useIntralogisticsWS();
+
   const [isManualModalOpen, setManualModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<ActiveTab>("intralogistics");
 
   const [locations, setLocations] = useState<MissionLocations>(() => {
     const saved = localStorage.getItem("drone_admin_locations");
@@ -39,6 +54,7 @@ export function Dashboard() {
   useEffect(() => {
     localStorage.setItem("drone_admin_locations", JSON.stringify(locations));
   }, [locations]);
+
   // Warehouse home coordinates (loaded from DB via WarehouseConfigPanel)
   const [warehouseLat, setWarehouseLat] = useState(0);
   const [warehouseLon, setWarehouseLon] = useState(0);
@@ -55,62 +71,182 @@ export function Dashboard() {
     setLocations(loc);
   };
 
+  // Quick device status checks for header badges
+  const plcDev = devices.find((d) => d.device_type === "PLC");
+  const robotDev = devices.find((d) => d.device_type === "ROBOT");
+  const camDev = devices.find((d) => d.device_type === "CAMERA");
+
   return (
     <div className="dashboard">
       <header className="header">
-        <h1>🚁 Drone Delivery — Admin</h1>
+        <div className="header-left">
+          <h1>🚁 Smart Intralogistics & Drone Delivery System</h1>
+          {/* Tab Navigation Bar */}
+          <nav className="tab-navigation">
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === "intralogistics" ? "active" : ""}`}
+              onClick={() => setActiveTab("intralogistics")}
+            >
+              🏭 Kho thông minh (Intralogistics)
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === "dashboard" ? "active" : ""}`}
+              onClick={() => setActiveTab("dashboard")}
+            >
+              📊 Bảng điều khiển Drone
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === "map" ? "active" : ""}`}
+              onClick={() => setActiveTab("map")}
+            >
+              🗺️ Bản đồ Live Map
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === "split" ? "active" : ""}`}
+              onClick={() => setActiveTab("split")}
+            >
+              🧩 Chế độ Song song
+            </button>
+          </nav>
+        </div>
+
         <div className="connection-badges">
-          <span className={`badge ${connected ? "online" : "offline"}`}>
-            WS: {connected ? "Connected" : "Disconnected"}
+          <span className={`badge ${sysWsConnected ? "online" : "offline"}`}>
+            WS System: {sysWsConnected ? "Online" : "Offline"}
           </span>
           <span className={`badge ${droneOnline ? "online" : "offline"}`}>
-            Drone: {droneOnline ? "Online" : "Offline"}
+            UAV: {droneOnline ? "Online" : "Offline"}
+          </span>
+          <span className={`badge ${plcDev?.status === "ONLINE" ? "online" : "offline"}`}>
+            PLC: {plcDev?.status ?? "Offline"}
+          </span>
+          <span className={`badge ${robotDev?.status === "ONLINE" ? "online" : "offline"}`}>
+            Robot: {robotDev?.status ?? "Offline"}
+          </span>
+          <span className={`badge ${camDev?.status === "ONLINE" ? "online" : "offline"}`}>
+            Cam: {camDev?.status ?? "Offline"}
           </span>
         </div>
       </header>
 
       {lastError && <div className="error-banner">{lastError}</div>}
 
-      {/* Row 1: Warehouse + Telemetry */}
-      <div className="main-grid">
-        <WarehouseConfigPanel onWarehouseLoaded={handleWarehouseLoaded} />
-        <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
-      </div>
+      {/* Tab: Kho thông minh (Smart Intralogistics) */}
+      {activeTab === "intralogistics" && (
+        <div className="view-container">
+          <IntralogisticsPanel
+            devices={devices}
+            plc={plc}
+            robot={robot}
+            storage={storage}
+            activeMission={activeMission}
+          />
+        </div>
+      )}
 
-      {/* Row 2: Mission Form + Controls */}
-      <div className="main-grid" style={{ marginTop: "1rem" }}>
-        <MissionForm onChange={setLocations} initialLocations={locations} />
-        <ControlButtons 
-          locations={locations} 
-          telemetry={telemetry} 
-          droneOnline={droneOnline} 
-          onOpenManual={() => setManualModalOpen(true)} 
-        />
-      </div>
 
-      {/* Row 3: Camera */}
-      <div style={{ marginTop: "1rem" }}>
-        <CameraPanel
-          cameraStatus={cameraStatus}
-          arucoDetection={arucoDetection}
-          droneOnline={droneOnline}
-        />
-      </div>
+      {/* Tab: Full Map View */}
+      {activeTab === "map" && (
+        <div className="view-container">
+          <MapPanel telemetry={telemetry} locations={locations} droneOnline={droneOnline} />
+          <div style={{ marginTop: "1rem" }}>
+            <ControlButtons
+              locations={locations}
+              telemetry={telemetry}
+              droneOnline={droneOnline}
+              onOpenManual={() => setManualModalOpen(true)}
+            />
+          </div>
+        </div>
+      )}
 
-      {/* Row 4: Delivery Requests (full width) */}
-      <div style={{ marginTop: "1rem" }}>
-        <DeliveryRequestsPanel
-          homeLat={warehouseLat}
-          homeLon={warehouseLon}
-          onLocationsSelected={handleDeliveryLocations}
-        />
-      </div>
+      {/* Tab: Split View (Map + Dashboard Panels) */}
+      {activeTab === "split" && (
+        <div className="view-container">
+          <MapPanel telemetry={telemetry} locations={locations} droneOnline={droneOnline} />
+
+          <div className="main-grid" style={{ marginTop: "1rem" }}>
+            <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
+            <ControlButtons
+              locations={locations}
+              telemetry={telemetry}
+              droneOnline={droneOnline}
+              onOpenManual={() => setManualModalOpen(true)}
+            />
+          </div>
+
+          <div className="main-grid" style={{ marginTop: "1rem" }}>
+            <WarehouseConfigPanel onWarehouseLoaded={handleWarehouseLoaded} />
+            <MissionForm onChange={setLocations} initialLocations={locations} />
+          </div>
+
+          <div style={{ marginTop: "1rem" }}>
+            <CameraPanel
+              cameraStatus={cameraStatus}
+              arucoDetection={arucoDetection}
+              droneOnline={droneOnline}
+            />
+          </div>
+
+          <div style={{ marginTop: "1rem" }}>
+            <DeliveryRequestsPanel
+              homeLat={warehouseLat}
+              homeLon={warehouseLon}
+              onLocationsSelected={handleDeliveryLocations}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Classic Dashboard View */}
+      {activeTab === "dashboard" && (
+        <div className="view-container">
+          {/* Row 1: Warehouse + Telemetry */}
+          <div className="main-grid">
+            <WarehouseConfigPanel onWarehouseLoaded={handleWarehouseLoaded} />
+            <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
+          </div>
+
+          {/* Row 2: Mission Form + Controls */}
+          <div className="main-grid" style={{ marginTop: "1rem" }}>
+            <MissionForm onChange={setLocations} initialLocations={locations} />
+            <ControlButtons
+              locations={locations}
+              telemetry={telemetry}
+              droneOnline={droneOnline}
+              onOpenManual={() => setManualModalOpen(true)}
+            />
+          </div>
+
+          {/* Row 3: Camera */}
+          <div style={{ marginTop: "1rem" }}>
+            <CameraPanel
+              cameraStatus={cameraStatus}
+              arucoDetection={arucoDetection}
+              droneOnline={droneOnline}
+            />
+          </div>
+
+          {/* Row 4: Delivery Requests */}
+          <div style={{ marginTop: "1rem" }}>
+            <DeliveryRequestsPanel
+              homeLat={warehouseLat}
+              homeLon={warehouseLon}
+              onLocationsSelected={handleDeliveryLocations}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Manual Control Modal */}
-      <ManualControlModal 
-        isOpen={isManualModalOpen} 
-        onClose={() => setManualModalOpen(false)} 
-        droneStatus={telemetry} 
+      <ManualControlModal
+        isOpen={isManualModalOpen}
+        onClose={() => setManualModalOpen(false)}
+        droneStatus={telemetry}
       />
 
       <footer className="footer">

@@ -140,3 +140,57 @@ class DeliveryRequestRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+
+# ---------------------------------------------------------------------------
+# Smart Intralogistics System Tables (UAV + PLC + FAIRINO Robot + Storage)
+# ---------------------------------------------------------------------------
+
+class DeviceRecord(Base):
+    __tablename__ = "devices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_name: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    device_type: Mapped[str] = mapped_column(String(32))  # "UAV", "PLC", "ROBOT", "CAMERA"
+    ip_address: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), default="OFFLINE")  # "ONLINE", "OFFLINE", "BUSY", "ERROR"
+    last_heartbeat: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+
+class ProductRecord(Base):
+    __tablename__ = "products"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    product_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    product_name: Mapped[str] = mapped_column(String(128))
+    qr_code: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="IN_STOCK")  # "IN_STOCK", "IN_TRANSIT", "DELIVERED"
+    current_slot: Mapped[str] = mapped_column(String(16), nullable=True)  # e.g. "B2"
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class IntralogisticsMissionRecord(Base):
+    __tablename__ = "intralogistics_missions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    mission_type: Mapped[str] = mapped_column(String(32))  # "DRONE_PICKUP" or "DRONE_DELIVERY"
+    drone_id: Mapped[str] = mapped_column(String(64), default="UAV01")
+    product_id: Mapped[str] = mapped_column(String(64))
+    target_slot: Mapped[str] = mapped_column(String(16), nullable=True)
+    state: Mapped[str] = mapped_column(String(64), default="STARTED")
+    step_details: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SystemLogRecord(Base):
+    __tablename__ = "system_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    log_type: Mapped[str] = mapped_column(String(32), index=True)  # "SYSTEM_LOG", "MISSION_LOG", "DEVICE_LOG", "ERROR_LOG"
+    source: Mapped[str] = mapped_column(String(32), index=True)    # "PLC", "ROBOT", "UAV", "SERVER", "CAMERA"
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+

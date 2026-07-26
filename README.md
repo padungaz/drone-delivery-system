@@ -1,35 +1,45 @@
-# Drone Delivery Autonomous System
+# Smart Intralogistics & Drone Delivery Autonomous System
 
-Hệ thống giao hàng tự động bằng Drone chạy hoàn toàn trên mạng LAN nội bộ, điều khiển bằng Raspberry Pi 5 và Pixhawk 6C qua giao thức MAVLink.
+Hệ thống giao hàng tự động bằng Drone kết hợp Trạm lưu kho thông minh (Smart Intralogistics Controller) chạy hoàn toàn trên mạng LAN nội bộ, điều khiển điều phối tập trung UAV, PLC Siemens S7-1200 Docking Station, Cánh tay robot FAIRINO 6-DoF, Camera QR Vision và Ô chứa hàng 3x3 (A1..C3).
 
 ---
 
-## Tổng quan Kiến trúc
+## Tổng quan Kiến trúc System v3.0
 
 ```mermaid
 graph TD
-    subgraph ClientLayer [Client Applications]
-        AdminApp["🖥️ Admin Frontend (React)<br/>Port: 5173"]
-        CustApp["📱 Customer Frontend (React)<br/>Port: 5174"]
+    subgraph ClientLayer [Client Applications & Dashboard]
+        AdminApp["🖥️ Admin Dashboard (React + TS)<br/>Port: 5173 (Kho thông minh + Live Map)"]
+        CustApp["📱 Customer Frontend (React + TS)<br/>Port: 5174"]
     end
 
-    subgraph ServerLayer [FastAPI Server]
-        API["⚡ FastAPI Web App<br/>Port: 8000"]
-        DB[(💾 SQLite Database)]
-        ConnMgr["🔌 WebSockets"]
+    subgraph ServerLayer [Centralized FastAPI Orchestration Engine]
+        API["⚡ Central FastAPI Web App (v3.0)<br/>Port: 8000"]
+        DB[(💾 SQLite Database<br/>drone_delivery.db)]
+        WSMgr["🔌 WebSocket Broadcast Hub<br/>(/ws/system & /ws/drone)"]
+        FSM["⚙️ Master Intralogistics Orchestrator<br/>(Flow 8 Pickup & Flow 9 Delivery)"]
     end
 
-    subgraph HardwareLayer [Drone]
-        RPi["🍓 Raspberry Pi 5<br/>(Companion Computer)"]
-        Pixhawk["🛸 Pixhawk 6C<br/>(PX4 Firmware)"]
+    subgraph HardwareLayer [LAN Hardware & Smart Warehouse]
+        UAV["🚁 UAV Drone (RPi 5 + Pixhawk 6C)"]
+        PLC["⚙️ PLC Siemens S7-1200<br/>(Landing Pad Sensor, Clamps X/Y, Z Lift)"]
+        ROBOT["🤖 Cánh tay Robot FAIRINO<br/>(Cobot 6-DoF, Pick/Place A1..C3)"]
+        CAM["📷 Camera QR Scanner<br/>(Auto Scan & Slot Assignment)"]
+        GRID["📦 Ô chứa hàng 3x3<br/>(Slots A1..C3 Grid)"]
     end
 
     CustApp --> API
     AdminApp --> API
-    AdminApp <--> ConnMgr
-    ConnMgr <--> RPi
+    AdminApp <--> WSMgr
+    WSMgr <--> UAV
+    WSMgr <--> PLC
+    WSMgr <--> ROBOT
     API <--> DB
-    RPi <--> Pixhawk
+    API <--> FSM
+    FSM --> PLC
+    FSM --> ROBOT
+    FSM --> GRID
+    CAM --> API
 ```
 
 ---
@@ -38,52 +48,53 @@ graph TD
 
 | Thư mục | Mô tả |
 |---------|-------|
-| `backend/` | FastAPI server, WebSocket hub, SQLite database |
-| `frontend/` | React + TypeScript Admin Control Dashboard |
-| `customer-frontend/` | React + TypeScript Customer Application |
-| `companion/` | Ứng dụng chạy trên Raspberry Pi 5 (MAVLink, ArUco vision) |
-| `docs/` | Tài liệu hệ thống chi tiết |
+| `backend/` | FastAPI server (v3.0), System WebSocket hub, Orchestrator FSM, SQLite database |
+| `frontend/` | React + TypeScript Admin Dashboard (Giao diện Kho thông minh 3x3, PLC, Robot, Live Map) |
+| `customer-frontend/` | React + TypeScript Customer Application (Đặt đơn giao/nhận hàng) |
+| `companion/` | Ứng dụng chạy trên Raspberry Pi 5 (MAVLink, ArUco vision precision landing) |
+| `docs/` | Tài liệu kiến trúc hệ thống, hướng dẫn triển khai, cấu hình PX4 và Smart Intralogistics |
 
 ---
 
 ## Tài liệu Dự án
 
-Hệ thống tài liệu đã được tổ chức lại để dễ theo dõi và bảo trì. Vui lòng tham khảo các tài liệu dưới đây theo nhu cầu của bạn:
+Hệ thống tài liệu đã được cập nhật cho phiên bản 3.0:
 
-- 📖 **[System Design (Thiết kế Hệ thống)](docs/system-design.md)**: Sơ đồ kiến trúc, luồng giao hàng, API, DB Schema và máy trạng thái FSM.
-- 🚀 **[Deployment Guide (Hướng dẫn Triển khai)](docs/deployment-guide.md)**: Hướng dẫn chi tiết thiết lập phần cứng, mạng LAN, cấu hình Raspberry Pi (headless), cài đặt và chạy ứng dụng Backend/Frontend/Companion.
+- 📖 **[System Design (Thiết kế Hệ thống)](docs/system-design.md)**: Sơ đồ kiến trúc tổng thể v3.0, FSM tự động kho thông minh (Flow 8 & 9), API v1 mới và Database ERD.
+- 🏭 **[Smart Intralogistics Guide (Hướng dẫn Kho thông minh)](docs/smart-intralogistics-guide.md)**: Tài liệu chi tiết về tích hợp PLC Siemens S7-1200, Robot FAIRINO, ma trận kho 3x3 (A1..C3) và quy trình điều khiển.
+- 🚀 **[Deployment Guide (Hướng dẫn Triển khai)](docs/deployment-guide.md)**: Hướng dẫn chi tiết thiết lập phần cứng, mạng LAN, cấu hình Raspberry Pi, PLC, Robot và các ứng dụng.
 - ⚙️ **[PX4 Configuration (Cấu hình PX4)](docs/px4-configuration.md)**: Hướng dẫn đấu nối dây UART và toàn bộ các PX4 parameters cần thiết cho Pixhawk 6C.
-- 🛠 **[RUNBOOK (Vận hành & Gỡ lỗi)](RUNBOOK.md)**: Các lệnh khởi chạy nhanh, checklist trước khi bay, hướng dẫn kiểm tra camera, MAVLink, WebSocket và khắc phục các sự cố thường gặp.
+- 🛠 **[RUNBOOK (Vận hành & Gỡ lỗi)](RUNBOOK.md)**: Các lệnh khởi chạy nhanh, test script `test_smart_intralogistics.py`, checklist trước khi bay và xử lý sự cố PLC/Robot/Drone.
 
 ---
 
 ## Chạy Nhanh (Quick Start)
 
-*(Xem chi tiết trong tài liệu Deployment Guide, đây chỉ là các lệnh tóm tắt)*
-
-**1. Backend (Port 8000)**
+**1. Backend Server & Smart Intralogistics (Port 8000)**
 ```bash
 cd backend
-source venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Khởi chạy server
+.\venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
- .\venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Chạy Integration Test cho Smart Intralogistics (PLC, Robot, 3x3 Storage, FSM Flow 8 & 9)
+.\venv\Scripts\python.exe test_smart_intralogistics.py
 ```
 
-**2. Frontend - Admin (Port 5173)**
+**2. Frontend - Admin Dashboard (Port 5173)**
 ```bash
 cd frontend
 npm run dev -- --host 0.0.0.0
 ```
 
-**3. Frontend - Customer (Port 5174)**
+**3. Frontend - Customer Application (Port 5174)**
 ```bash
 cd customer-frontend
 npm run dev -- --host 0.0.0.0 --port 5174
 ```
 
-**4. Companion (Trên Raspberry Pi)**
+**4. Companion (Trên Raspberry Pi 5)**
 ```bash
 sudo systemctl start drone-companion
 journalctl -u drone-companion -f
 ```
+

@@ -102,3 +102,76 @@ export interface ArucoDetection {
   image_height?: number;
   timestamp?: string;
 }
+
+// ── Smart Intralogistics Types ──────────────────────────────────────────────
+
+export type DeviceType = "UAV" | "PLC" | "ROBOT" | "CAMERA";
+export type DeviceStatusType = "ONLINE" | "OFFLINE" | "BUSY" | "ERROR";
+
+export interface DeviceInfo {
+  device_name: string;
+  device_type: DeviceType;
+  ip_address: string;
+  status: DeviceStatusType;
+  last_heartbeat: string;
+}
+
+export interface PLCState {
+  hatch_open: boolean;
+  drone_locked: boolean;
+  drone_landed_sensor: boolean;
+  emergency_stop: boolean;
+  auto_mode: boolean;
+}
+
+export interface RobotState {
+  status: "IDLE" | "BUSY" | "ERROR" | "OFFLINE";
+  auto_mode: boolean;
+  current_task: string | null;
+  joint_positions: number[];
+  cartesian_position: {
+    x: number;
+    y: number;
+    z: number;
+    rx: number;
+    ry: number;
+    rz: number;
+  };
+}
+
+export type StorageSlotStatus = "EMPTY" | "OCCUPIED" | "RESERVED";
+
+export interface StorageSlot {
+  id: number;
+  slot_name: string;
+  status: StorageSlotStatus;
+  product_id?: string | null;
+  qr_code?: string | null;
+  updated_time?: string | null;
+  // Legacy fields
+  is_empty?: boolean;
+  sender_name?: string | null;
+  sender_address?: string | null;
+}
+
+export interface IntralogisticsMission {
+  id: number;
+  mission_type: "DRONE_PICKUP" | "DRONE_DELIVERY";
+  drone_id: string;
+  product_id: string;
+  target_slot: string;
+  state: string;
+  step_details: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SystemBroadcastPayload {
+  timestamp: string;
+  devices: DeviceInfo[];
+  plc: PLCState;
+  robot: RobotState;
+  storage: StorageSlot[];
+  active_mission: IntralogisticsMission | null;
+}
+

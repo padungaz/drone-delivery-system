@@ -28,9 +28,53 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 
 async def init_db() -> None:
+    # Import storage models so their tables are registered with Base.metadata
+    import app.storage.models  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # Lightweight auto-migration: add missing columns to storage_slots
+        # (SQLAlchemy create_all only creates new tables, not new columns)
+        await _migrate_storage_slots(conn)
+
     logger.info("Database initialized")
+
+
+async def _migrate_storage_slots(conn) -> None:
+    """Add missing columns to storage_slots (works for both old→new and new→old schemas)."""
+
+    def _sync_migrate(sync_conn):
+        raw = sync_conn.connection.dbapi_connection
+        cursor = raw.cursor()
+        cursor.execute("PRAGMA table_info(storage_slots)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+
+        # All columns that should exist in the unified model
+        migrations = [
+            # Legacy columns (may be missing if DB was created by the new-only model)
+            ("is_empty", "BOOLEAN DEFAULT 1"),
+            ("sender_name", "VARCHAR(128)"),
+            ("sender_address", "VARCHAR(256)"),
+            ("item_created_at", "DATETIME"),
+            # Smart Intralogistics columns (may be missing if DB was created by old model)
+            ("slot_name", "VARCHAR(16)"),
+            ("status", "VARCHAR(32) DEFAULT 'EMPTY'"),
+            ("product_id", "VARCHAR(64)"),
+            ("updated_time", "DATETIME"),
+        ]
+        for col_name, col_type in migrations:
+            if col_name not in existing_cols:
+                cursor.execute(f"ALTER TABLE storage_slots ADD COLUMN {col_name} {col_type}")
+                logger.info("Migrated storage_slots: added column '%s'", col_name)
+
+    await conn.run_sync(_sync_migrate)
+
+
+async def get_session():
+    async with async_session() as session:
+        yield session
+
 
 
 class Repository:

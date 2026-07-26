@@ -1,133 +1,126 @@
-# RUNBOOK — Vận hành & Gỡ lỗi
+# RUNBOOK — Vận hành & Gỡ lỗi (Smart Intralogistics & Drone Delivery v3.0)
 
-Tài liệu này tập trung vào các thao tác vận hành hàng ngày (Operations), kiểm tra lỗi (Troubleshooting), và danh sách kiểm tra an toàn trước chuyến bay (Pre-flight checklist).
-
----
-
-## 1. Pre-Flight Checklist (Kiểm tra trước khi bay)
-
-Trước khi thực hiện bất kỳ chuyến bay tự động nào, bắt buộc phải hoàn thành các bước kiểm tra sau:
-
-- [ ] **Mạng & Máy chủ:** Backend đang chạy (`http://192.168.137.1:8000/health` OK).
-- [ ] **Kết nối Pi:** Ping `192.168.137.139` thành công, có thể SSH vào hệ thống.
-- [ ] **Companion App:** Service `drone-companion` đang chạy không báo lỗi.
-- [ ] **Pixhawk MAVLink:** Pi nhận được heartbeat của PX4 (`journalctl -u drone-companion` hiển thị OK).
-- [ ] **Telemetry WebSocket:** Admin Dashboard hiển thị thông số theo thời gian thực (update mỗi 2 giây).
-- [ ] **Định vị & Pin:** GPS báo fix ≥ 6 vệ tinh. Dung lượng pin (Battery) > 50%.
-- [ ] **Hạ cánh:** ArUco markers đặt đúng vị trí (Pickup và Drop) không bị che khuất.
-- [ ] **An toàn (Failsafe):** Nút FORCE RTL trên giao diện đã được kiểm tra và sẵn sàng. Không gian bay trống (clear).
+Tài liệu này tập trung vào các thao tác vận hành hàng ngày (Operations), kiểm tra thử nghiệm tự động, kiểm tra lỗi (Troubleshooting), và danh sách kiểm tra an toàn hệ thống Kho thông minh & Drone.
 
 ---
 
-## 2. Kiểm tra Kết nối Thủ công
+## 1. Pre-Flight & Pre-Operation Checklist
 
-Nếu bạn nghi ngờ có vấn đề về kết nối giữa các thành phần, sử dụng các tập lệnh Python (snippet) sau để kiểm tra:
+Trước khi vận hành thử nghiệm hoặc bay tự động, bắt buộc hoàn thành kiểm tra:
 
-### 2.1 Test MAVLink (Pixhawk ↔ Pi)
-Chạy trên Raspberry Pi:
+### 1.1. Hệ thống Kho thông minh (Smart Intralogistics)
+- [ ] **Backend Server:** Centralized FastAPI App đang chạy (`http://localhost:8000/docs` hiển thị v3.0 OK).
+- [ ] **Thiết bị phần cứng LAN:** Đã kết nối mạng LAN cho UAV (`192.168.1.20`), PLC S7-1200 (`192.168.1.30`), FAIRINO Robot (`192.168.1.40`), Camera (`192.168.1.50`).
+- [ ] **Trạm hạ cánh PLC:** Cảm biến chân tiếp đất nhận diện chính xác, kẹp cơ khí X/Y không bị vướng vật cản.
+- [ ] **Trục Nâng Z:** Động cơ trục Z chuyển động trơn tru giữa vị trí HOME, UP, DOWN.
+- [ ] **Cánh tay Robot FAIRINO:** Trạng thái READY, không phát sinh lỗi va chạm, tọa độ gốc HOME chính xác.
+- [ ] **Ô chứa hàng 3x3:** Ma trận ô A1..C3 hiển thị đúng trạng thái trên giao diện Admin Dashboard.
+
+### 1.2. Chuyến bay Drone (UAV)
+- [ ] **Kết nối Raspberry Pi 5:** Ping `192.168.1.20` / `192.168.137.139` thành công.
+- [ ] **Companion Service:** Tiến trình `drone-companion` hoạt động ổn định.
+- [ ] **Pixhawk MAVLink:** Nhận tín hiệu Heartbeat từ PX4 6C qua MAVLink UART.
+- [ ] **Định vị & Pin:** GPS Fix ≥ 6 vệ tinh, Pin > 50%.
+- [ ] **ArUco Landing:** Đã đặt mã ArUco tại vị trí landing pad và vị trí nhận/giao hàng.
+
+---
+
+## 2. Kiểm tra Tự động & Test Scripts (Integration Testing)
+
+Hệ thống cung cấp kịch bản kiểm thử tích hợp tự động cho toàn bộ luồng đa thiết bị (UAV + PLC + FAIRINO Robot + Storage):
+
+### 2.1. Chạy Integration Test tự động (Smart Intralogistics)
+Chạy tập lệnh kiểm thử tích hợp trên máy Backend:
+
 ```bash
-python3 -c "
-from pymavlink import mavutil
-conn = mavutil.mavlink_connection('/dev/ttyAMA0', baud=921600)
-print('Waiting for heartbeat...')
-conn.wait_heartbeat(timeout=15)
-print('PX4 connected — system:', conn.target_system)
-"
+cd backend
+.\venv\Scripts\python.exe test_smart_intralogistics.py
 ```
 
-### 2.2 Test WebSocket (Pi ↔ Backend)
-Chạy trên Laptop hoặc Pi:
-```bash
-python3 -c "
-import asyncio, websockets
-async def test():
-    url = 'ws://192.168.137.1:8000/ws/drone/drone-01'
+**Kịch bản kiểm thử tự động thực hiện 8 bước:**
+1. Khởi tạo Cơ sở Dữ liệu & Bảng lưu trữ.
+2. Đăng ký 4 thiết bị LAN: `UAV01`, `PLC01`, `ROBOT01`, `CAM01`.
+3. Khởi tạo 9 ô kho thông minh (`A1` đến `C3`).
+4. Mô phỏng quét mã QR `SP001` từ Camera -> Tự động gán ô phù hợp.
+5. Kiểm tra các lệnh PLC Docking (`LOCK_DRONE`, `Z_UP`, `UNLOCK_DRONE`).
+6. Kiểm tra các lệnh Cánh tay Robot FAIRINO (`MOVE_HOME`, `PICK`, `STORE`).
+7. Khởi chạy FSM **Flow 8: DRONE_PICKUP** (Nhập kho tự động khi Drone mang hàng về).
+8. Khởi chạy FSM **Flow 9: DRONE_DELIVERY** (Xuất kho tự động từ ô lưu trữ lên Drone).
+
+---
+
+## 3. Kiểm tra Kết nối Thủ công (Manual Verification)
+
+### 3.1. Test WebSocket System Hub (`/ws/system`)
+Chạy script kiểm tra WebSocket broadcast:
+```python
+import asyncio, websockets, json
+
+async def test_system_ws():
+    url = 'ws://localhost:8000/ws/system'
     async with websockets.connect(url) as ws:
-        print('Connected to', url)
-asyncio.run(test())
-"
+        print('Connected to System WebSocket!')
+        while True:
+            msg = await ws.recv()
+            print('Broadcast Event:', json.loads(msg))
+
+asyncio.run(test_system_ws())
 ```
 
-### 2.3 Test Camera & Nhận diện ArUco
-Yêu cầu: Backend và Companion đang chạy.
-
-**Qua giao diện Frontend (Admin):**
-1. Mở `http://192.168.137.1:5173`.
-2. Nhấn nút **📷 Test Camera** trong panel "Camera & ArUco".
-3. Trạng thái chuyển từ 🔴 Camera OFF → 🟢 Camera ON.
-4. Đưa mã ArUco (DICT_4X4_50, ID=0) ra trước camera USB, theo dõi tọa độ Offset/Center.
-5. Nhấn **⏹ Stop Camera** khi hoàn thành.
-
-**Qua API thủ công:**
+### 3.2. Test API Trạng thái Thiết bị LAN
 ```bash
-# Bật camera
-curl -X POST http://192.168.137.1:8000/camera/start?drone_id=drone-01
+# Lấy danh sách thiết bị LAN
+curl http://localhost:8000/api/v1/devices
 
-# Tắt camera
-curl -X POST http://192.168.137.1:8000/camera/stop?drone_id=drone-01
+# Kiểm tra trạng thái PLC S7-1200
+curl http://localhost:8000/api/v1/plc/status
+
+# Kiểm tra trạng thái Robot FAIRINO
+curl http://localhost:8000/api/v1/robot/status
+
+# Lấy trạng thái ô lưu trữ 3x3
+curl http://localhost:8000/api/v1/inventory/slots
 ```
 
 ---
 
-## 3. Quản lý Service trên Raspberry Pi
-
-Quản lý tiến trình `drone-companion` (dùng systemd):
+## 4. Quản lý Tiến trình trên Raspberry Pi 5
 
 ```bash
-# Bắt đầu, dừng, hoặc khởi động lại
+# Khởi động / Dừng / Khởi động lại service companion
 sudo systemctl start drone-companion
 sudo systemctl stop drone-companion
 sudo systemctl restart drone-companion
 
-# Xem trạng thái
-sudo systemctl status drone-companion
-
-# Xem log theo thời gian thực
+# Xem log thời gian thực
 journalctl -u drone-companion -f
-
-# Xem 100 dòng log gần nhất
-journalctl -u drone-companion -n 100
 ```
 
 ---
 
-## 4. Xử lý Sự cố (Troubleshooting)
+## 5. Xử lý Sự cố (Troubleshooting)
 
-### 4.1 Không nhận MAVLink / Timeout
-**Triệu chứng:**
-```
-[WARNING] MAVLink connection failed (attempt 1) — retrying in 5s
-```
-**Khắc phục:**
-- Kiểm tra dây cáp UART (chân TX của Pixhawk phải nối với chân RX của Pi và ngược lại).
-- Kiểm tra tốc độ baudrate trong QGroundControl: `SER_TEL2_BAUD = 921600`.
-- Xác minh quyền truy cập cổng Serial: chạy lệnh `groups rpi5`, nếu không có `dialout`, chạy `sudo usermod -aG dialout rpi5` rồi đăng nhập lại.
-- Xác nhận Bluetooth đã bị vô hiệu hóa (`dtoverlay=disable-bt` trong `/boot/firmware/config.txt`) để cổng `/dev/ttyAMA0` khả dụng.
+### 5.1. PLC báo trạng thái Timeout hoặc Không nhận Lệnh Kẹp
+- **Triệu chứng:** Giao diện báo `PLC: Offline` hoặc lệnh `LOCK_DRONE` bị ngưng trệ.
+- **Khắc phục:**
+  - Kiểm tra kết nối mạng LAN tới IP của PLC Siemens S7-1200 (`192.168.1.30`).
+  - Đảm bảo Backend đang chạy ở chế độ Simulator (`simulator_mode=True`) nếu chưa nối phần cứng thật.
+  - Kiểm tra công tắc hành trình cảm biến tiếp đất của sàn nâng.
 
-### 4.2 Lỗi Mất kết nối WebSocket
-**Triệu chứng:**
-```
-[WARNING] WebSocket connect failed (attempt 1): ... — retrying in 3s
-```
-**Khắc phục:**
-- Kiểm tra Backend Server trên Laptop có đang chạy hay không.
-- Xác nhận địa chỉ IP của Laptop là `192.168.137.1` và Ping từ Pi có phản hồi.
-- Đảm bảo tường lửa (Firewall) trên Windows/Linux không chặn cổng 8000 mạng LAN.
-- Kiểm tra lại biến môi trường `SERVER_IP` trong tệp `/opt/drone-delivery-system/companion/.env`.
+### 5.2. Cánh tay Robot FAIRINO dừng giữa chừng (State: ERROR)
+- **Triệu chứng:** Robot dừng chuyển động và báo trạng thái ERROR trên Dashboard.
+- **Khắc phục:**
+  - Kiểm tra xem nút Emergency Stop trên tủ điều khiển Robot có bị nhấn không.
+  - Gửi lệnh `MOVE_HOME` qua REST API hoặc nút nhấn trên Admin Dashboard để reset vị trí Robot:
+    ```bash
+    curl -X POST http://localhost:8000/api/v1/robot/command -H "Content-Type: application/json" -d "{\"command\": \"MOVE_HOME\"}"
+    ```
 
-### 4.3 Raspberry Pi không có IP mong muốn (192.168.137.139)
-**Khắc phục:**
-- Raspberry Pi 5 Bookworm sử dụng `NetworkManager` (không phải `dhcpcd`). Dùng `sudo nmcli con show` để tìm tên kết nối (ví dụ: `preconfigured`).
-- Cấu hình lại IP tĩnh:
-  ```bash
-  sudo nmcli con mod "preconfigured" ipv4.addresses 192.168.137.139/24 ipv4.method manual
-  sudo nmcli con up "preconfigured"
-  ```
+### 5.3. Ô lưu trữ hiển thị sai thông tin mặt hàng
+- **Khắc phục:** Mở tab **Kho thông minh (Intralogistics)** trên Admin Dashboard, chọn ô bị lỗi, nhấn nút "Reset / Clear Slot" để đưa ô về trạng thái `EMPTY`.
 
-### 4.4 Lỗi ghi log file bị Permission Denied
-**Khắc phục:**
-Tạo file log và cấp quyền cho user `rpi5`:
-```bash
-sudo touch /var/log/drone-companion.log
-sudo chown rpi5:rpi5 /var/log/drone-companion.log
-```
+### 5.4. Lỗi Mất kết nối MAVLink với Pixhawk 6C
+- **Khắc phục:**
+  - Kiểm tra cáp nối UART (TX ↔ RX).
+  - Kiểm tra baudrate trong PX4 parameter: `SER_TEL2_BAUD = 921600`.
+  - Kiểm tra quyền truy cập tệp cổng nối tiếp: `sudo usermod -aG dialout rpi5`.

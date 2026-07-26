@@ -216,3 +216,133 @@ class DeliveryStatusUpdate(BaseModel):
     status: DeliveryStatus
     note: Optional[str] = None
 
+
+# ---------------------------------------------------------------------------
+# Smart Intralogistics Schemas (Device, PLC, Robot, Inventory, Mission)
+# ---------------------------------------------------------------------------
+
+class DeviceType(str, Enum):
+    UAV = "UAV"
+    PLC = "PLC"
+    ROBOT = "ROBOT"
+    CAMERA = "CAMERA"
+
+
+class DeviceStatus(str, Enum):
+    ONLINE = "ONLINE"
+    OFFLINE = "OFFLINE"
+    BUSY = "BUSY"
+    ERROR = "ERROR"
+
+
+class DeviceRegisterRequest(BaseModel):
+    name: str = Field(..., description="Device name, e.g. UAV01, PLC01, ROBOT01, CAM01")
+    type: DeviceType
+    ip: str = Field(..., description="IP Address on LAN network")
+
+
+class DeviceHeartbeatRequest(BaseModel):
+    name: str
+    status: DeviceStatus = DeviceStatus.ONLINE
+
+
+class DeviceResponse(BaseModel):
+    id: int
+    device_name: str
+    device_type: str
+    ip_address: str
+    status: str
+    last_heartbeat: datetime
+    created_at: datetime
+
+
+class PLCCommand(str, Enum):
+    LOCK_DRONE = "LOCK_DRONE"
+    UNLOCK_DRONE = "UNLOCK_DRONE"
+    Z_UP = "Z_UP"
+    Z_DOWN = "Z_DOWN"
+
+
+class PLCCommandRequest(BaseModel):
+    command: PLCCommand
+
+
+class PLCStatusResponse(BaseModel):
+    drone_detected: bool = False
+    clamp_x: str = "OPEN"       # "OPEN", "LOCKING", "DONE"
+    clamp_y: str = "OPEN"       # "OPEN", "LOCKING", "DONE"
+    drone_locked: bool = False
+    z_axis: str = "HOME"        # "HOME", "UP", "DOWN"
+
+
+class RobotCommand(str, Enum):
+    MOVE_HOME = "MOVE_HOME"
+    PICK_PRODUCT = "PICK_PRODUCT"
+    PLACE_PRODUCT = "PLACE_PRODUCT"
+    REQUEST_Z_UP = "REQUEST_Z_UP"
+    REQUEST_Z_DOWN = "REQUEST_Z_DOWN"
+    PICK = "PICK"
+    STORE = "STORE"
+
+
+class RobotCommandRequest(BaseModel):
+    command: RobotCommand
+    slot: Optional[str] = None   # e.g. "B2"
+
+
+class RobotStatusResponse(BaseModel):
+    state: str = "IDLE"          # "IDLE", "READY", "MOVING", "PICKING", "PLACING", "ERROR"
+    current_slot: Optional[str] = None
+    holding_product: Optional[str] = None
+
+
+class StorageSlotStatus(str, Enum):
+    EMPTY = "EMPTY"
+    OCCUPIED = "OCCUPIED"
+    RESERVED = "RESERVED"
+
+
+class StorageSlotResponse(BaseModel):
+    id: int
+    slot_name: str
+    status: str
+    product_id: Optional[str] = None
+    qr_code: Optional[str] = None
+    updated_time: datetime
+
+
+class StorageSlotUpdateRequest(BaseModel):
+    status: StorageSlotStatus
+    product_id: Optional[str] = None
+    qr_code: Optional[str] = None
+
+
+class QRScanPayload(BaseModel):
+    camera_id: str = "CAM01"
+    qr: str
+    time: datetime = Field(default_factory=datetime.utcnow)
+
+
+class IntralogisticsMissionType(str, Enum):
+    DRONE_PICKUP = "DRONE_PICKUP"
+    DRONE_DELIVERY = "DRONE_DELIVERY"
+
+
+class IntralogisticsMissionCreate(BaseModel):
+    drone_id: str = "UAV01"
+    task: str = "PICKUP"         # "PICKUP" or "DELIVERY"
+    product_id: str
+
+
+class IntralogisticsMissionResponse(BaseModel):
+    id: int
+    mission_type: str
+    drone_id: str
+    product_id: str
+    target_slot: Optional[str] = None
+    state: str
+    step_details: str
+    created_at: datetime
+    updated_at: datetime
+
+

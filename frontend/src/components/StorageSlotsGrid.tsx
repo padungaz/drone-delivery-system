@@ -1,0 +1,189 @@
+import { useState } from "react";
+import type { StorageSlot } from "../types/drone";
+import { clearStorageSlot, scanQR } from "../services/api";
+
+interface Props {
+  slots: StorageSlot[];
+}
+
+export function StorageSlotsGrid({ slots }: Props) {
+  const [selectedSlot, setSelectedSlot] = useState<StorageSlot | null>(null);
+  const [qrInput, setQrInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  // Default 9 grid matrix A1..C3
+  const gridNames = [
+    ["A1", "A2", "A3"],
+    ["B1", "B2", "B3"],
+    ["C1", "C2", "C3"],
+  ];
+
+  const getSlotData = (name: string): StorageSlot | undefined => {
+    return slots.find((s) => s.slot_name === name || `Slot-${s.id}` === name);
+  };
+
+  const handleClear = async (slotId: number) => {
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await clearStorageSlot(slotId);
+      const data = await res.json();
+      setMsg(data.message || `Đã dọn dẹp ô kho #${slotId}`);
+      setSelectedSlot(null);
+    } catch (err) {
+      setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSimulateQR = async () => {
+    if (!qrInput.trim()) return;
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await scanQR(qrInput.trim());
+      const data = await res.json();
+      setMsg(data.message || `Đã quét QR [${qrInput}], gán vào ô thành công!`);
+      setQrInput("");
+    } catch (err) {
+      setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="panel storage-slots-panel">
+      <div className="panel-header-inline">
+        <h3>🏬 Sơ đồ 9 Vị trí Lưu kho Tạm thời (Grid A1..C3)</h3>
+        <span className="text-sm font-bold">
+          Đang sử dụng: {slots.filter((s) => s.status === "OCCUPIED" || !s.is_empty).length} / 9 ô
+        </span>
+      </div>
+
+      {/* 3x3 Visual Grid */}
+      <div className="grid-3x3">
+        {gridNames.map((row, rIdx) => (
+          <div key={`row-${rIdx}`} className="grid-row">
+            {row.map((slotName) => {
+              const slot = getSlotData(slotName);
+              const isOccupied = slot?.status === "OCCUPIED" || (slot && !slot.is_empty);
+              const isReserved = slot?.status === "RESERVED";
+              const isSelected = selectedSlot?.slot_name === slotName;
+
+              let slotClass = "slot-empty";
+              let statusLabel = "TRỐNG";
+
+              if (isOccupied) {
+                slotClass = "slot-occupied";
+                statusLabel = "CÓ HÀNG";
+              } else if (isReserved) {
+                slotClass = "slot-reserved";
+                statusLabel = "ĐANG GIỮ";
+              }
+
+              return (
+                <button
+                  type="button"
+                  key={slotName}
+                  className={`slot-card ${slotClass} ${isSelected ? "selected" : ""}`}
+                  onClick={() => setSelectedSlot(slot || null)}
+                >
+                  <div className="slot-header">
+                    <span className="slot-name">{slotName}</span>
+                    <span className="slot-badge">{statusLabel}</span>
+                  </div>
+
+                  <div className="slot-body">
+                    {isOccupied ? (
+                      <>
+                        <div className="slot-product-id">📦 {slot?.product_id || "SP-" + slot?.id}</div>
+                        <div className="slot-qr text-sm">{slot?.qr_code || slot?.sender_name || "Mã QR"}</div>
+                      </>
+                    ) : (
+                      <div className="slot-placeholder">Trống</div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* Selected Slot Details Modal/Panel */}
+      {selectedSlot && (
+        <div className="slot-details-box">
+          <h4>📌 Chi tiết Ô kho: {selectedSlot.slot_name || `Slot #${selectedSlot.id}`}</h4>
+          <div className="slot-info-list">
+            <div>
+              <strong>Trạng thái:</strong> {selectedSlot.status || (selectedSlot.is_empty ? "EMPTY" : "OCCUPIED")}
+            </div>
+            <div>
+              <strong>Mã Sản phẩm (Product ID):</strong> {selectedSlot.product_id || "N/A"}
+            </div>
+            <div>
+              <strong>Mã QR Scanned:</strong> {selectedSlot.qr_code || "N/A"}
+            </div>
+            {selectedSlot.sender_name && (
+              <div>
+                <strong>Người gửi:</strong> {selectedSlot.sender_name}
+              </div>
+            )}
+            {selectedSlot.updated_time && (
+              <div>
+                <strong>Cập nhật cuối:</strong>{" "}
+                {new Date(selectedSlot.updated_time).toLocaleString()}
+              </div>
+            )}
+          </div>
+
+          <div className="slot-actions">
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              onClick={() => handleClear(selectedSlot.id)}
+              disabled={loading}
+            >
+              🗑️ Giải phóng Ô kho
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={() => setSelectedSlot(null)}
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* QR Scanner Simulation Box */}
+      <div className="qr-sim-box">
+        <label htmlFor="qr-input" className="font-bold">📷 Quét mã QR Camera (Mô phỏng Input):</label>
+        <div className="form-group-inline mt-1">
+          <input
+            id="qr-input"
+            type="text"
+            className="form-control"
+            placeholder="Nhập mã QR (VD: PROD-9982)..."
+            value={qrInput}
+            onChange={(e) => setQrInput(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleSimulateQR}
+            disabled={loading || !qrInput.trim()}
+          >
+            Quét & Lấy ô kho
+          </button>
+        </div>
+      </div>
+
+      {msg && <div className="panel-msg">{msg}</div>}
+    </div>
+  );
+}
