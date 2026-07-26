@@ -33,7 +33,7 @@ async def main():
         dev_mgr = DeviceManager(session)
         uav = await dev_mgr.register_device(DeviceRegisterRequest(name="UAV01", type=DeviceType.UAV, ip="192.168.1.20"))
         plc = await dev_mgr.register_device(DeviceRegisterRequest(name="PLC01", type=DeviceType.PLC, ip="192.168.1.30"))
-        robot = await dev_mgr.register_device(DeviceRegisterRequest(name="ROBOT01", type=DeviceType.ROBOT, ip="192.168.1.40"))
+        robot = await dev_mgr.register_device(DeviceRegisterRequest(name="ROBOT01", type=DeviceType.ROBOT, ip="192.168.58.2"))
         cam = await dev_mgr.register_device(DeviceRegisterRequest(name="CAM01", type=DeviceType.CAMERA, ip="192.168.1.50"))
 
         devices = await dev_mgr.get_all_devices()

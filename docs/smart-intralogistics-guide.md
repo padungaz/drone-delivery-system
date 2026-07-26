@@ -23,7 +23,7 @@ Toàn bộ các thiết bị giao tiếp với Central FastAPI Backend Server th
 |----------|-------------------|-------------|-----------|-----------------|
 | **UAV01** | `UAV` | `192.168.1.20` | WebSocket / MAVLink | Máy bay không người lái giao/nhận hàng |
 | **PLC01** | `PLC` | `192.168.1.30` | Snap7 / S7 Protocol / REST | Điều khiển Kẹp X/Y, Cảm biến Landing Pad, Trục Z |
-| **ROBOT01** | `ROBOT` | `192.168.1.40` | TCP/IP Sockets / REST | Cánh tay Robot gắp/đặt sản phẩm (Slots A1..C3) |
+| **ROBOT01** | `ROBOT` | `192.168.58.2` | TCP/IP Sockets / REST | Cánh tay Robot gắp/đặt sản phẩm (Slots A1..C3) |
 | **CAM01** | `CAMERA` | `192.168.1.50` | RTSP Stream / REST API | Camera quét mã QR sản phẩm nhập kho |
 
 ---

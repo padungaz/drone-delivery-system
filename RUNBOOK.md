@@ -10,7 +10,7 @@ Trước khi vận hành thử nghiệm hoặc bay tự động, bắt buộc ho
 
 ### 1.1. Hệ thống Kho thông minh (Smart Intralogistics)
 - [ ] **Backend Server:** Centralized FastAPI App đang chạy (`http://localhost:8000/docs` hiển thị v3.0 OK).
-- [ ] **Thiết bị phần cứng LAN:** Đã kết nối mạng LAN cho UAV (`192.168.1.20`), PLC S7-1200 (`192.168.1.30`), FAIRINO Robot (`192.168.1.40`), Camera (`192.168.1.50`).
+- [ ] **Thiết bị phần cứng LAN:** Đã kết nối mạng LAN cho UAV (`192.168.1.20`), PLC S7-1200 (`192.168.1.30`), FAIRINO Robot (`192.168.58.2`), Camera (`192.168.1.50`).
 - [ ] **Trạm hạ cánh PLC:** Cảm biến chân tiếp đất nhận diện chính xác, kẹp cơ khí X/Y không bị vướng vật cản.
 - [ ] **Trục Nâng Z:** Động cơ trục Z chuyển động trơn tru giữa vị trí HOME, UP, DOWN.
 - [ ] **Cánh tay Robot FAIRINO:** Trạng thái READY, không phát sinh lỗi va chạm, tọa độ gốc HOME chính xác.
