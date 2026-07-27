@@ -430,17 +430,17 @@ class MavlinkController:
         target_alt = getattr(self, "_target_takeoff_alt", config.TAKEOFF_ALTITUDE_M)
 
         if self.telemetry.altitude_relative < (target_alt * 0.85):
-            # Takeoff setpoint: climb straight UP relative to current position
+            # Takeoff setpoint: climb straight UP relative to local NED origin (negative Z is UP)
             self.connection.mav.set_position_target_local_ned_send(
                 0,
                 self.connection.target_system,
                 self.connection.target_component,
-                mavutil.mavlink.MAV_FRAME_LOCAL_OFFSET_NED,
-                0b0000_1111_1111_1000,  # Use Position X, Y, Z (X=0, Y=0 offset, Z=-target_alt)
-                0.0, 0.0, -target_alt,  # Negative Z is UP in LOCAL frame
-                0, 0, 0,                # Velocity (ignored)
-                0, 0, 0,                # Accel (ignored)
-                0, 0,                   # Yaw (ignored)
+                mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                0b0000111111111000,  # Position control mask (X=0, Y=0, Z=-target_alt)
+                0.0, 0.0, -target_alt,
+                0, 0, 0,
+                0, 0, 0,
+                0, 0,
             )
         else:
             # Airborne: send velocity 0 m/s position hold (Bitmask 0x0FC7 / 4039)
