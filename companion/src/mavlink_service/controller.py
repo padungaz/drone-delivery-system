@@ -493,7 +493,7 @@ class MavlinkController:
                 # 2. Sau thời gian Grace period mới kiểm tra xem PX4 có bị ai đổi sang mode khác không
                 elapsed = time.time() - getattr(self, "_keepalive_start_time", time.time())
                 if elapsed >= STARTUP_GRACE_SEC:
-                    if self.telemetry.flight_mode not in ("OFFBOARD", "UNKNOWN"):
+                    if self.telemetry.flight_mode not in ("OFFBOARD", "TAKEOFF", "AUTO.TAKEOFF", "UNKNOWN"):
                         logger.info(
                             "OFFBOARD keepalive: PX4 mode is %s (not OFFBOARD), stopping thread",
                             self.telemetry.flight_mode,
@@ -563,24 +563,16 @@ class MavlinkController:
         logger.info("DISARM command sent (force=%s)", force)
         return True
 
-    def takeoff(self, altitude_m: float) -> bool:
+    def takeoff(self, altitude_m: float = 2.0) -> bool:
         if not self._can_send("takeoff"):
             return False
         self._target_takeoff_alt = altitude_m
         if self.telemetry.flight_mode == "OFFBOARD":
             logger.info("TAKEOFF initiated via OFFBOARD position setpoints: %.1f m", altitude_m)
+            return True
         else:
-            self.connection.mav.command_long_send(
-                self.connection.target_system,
-                self.connection.target_component,
-                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-                0,
-                0, 0, 0, 0,
-                0, 0,
-                altitude_m,
-            )
-            logger.info("TAKEOFF command (MAV_CMD_NAV_TAKEOFF) sent: %.1f m", altitude_m)
-        return True
+            logger.info("TAKEOFF initiated: entering OFFBOARD mode for vertical climb to %.1f m...", altitude_m)
+            return self.set_mode_offboard()
 
     def goto_location(self, lat: float, lon: float, alt_m: float) -> bool:
         if not self._can_send("goto"):
