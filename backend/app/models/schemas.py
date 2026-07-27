@@ -58,6 +58,14 @@ class MissionCommand(BaseModel):
     home_lon: float
     pickup_lat: float
     pickup_lon: float
+
+
+class StepCommandRequest(BaseModel):
+    step_action: str
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    alt: Optional[float] = None
+    drone_id: str = "drone-01"
     drop_lat: float
     drop_lon: float
     drone_id: str = "drone-01"

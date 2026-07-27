@@ -8,6 +8,7 @@ from app.models.schemas import (
     MissionAction,
     MissionCommand,
     MissionHistoryItem,
+    StepCommandRequest,
 )
 from app.services.drone_service import drone_service, mission_service
 from app.websocket.handler import forward_mission_to_drone, handle_client_websocket, handle_drone_websocket, manager
@@ -269,6 +270,30 @@ async def disarm_drone(force: bool = False, drone_id: str = "drone-01"):
 
     logger.info("DISARM (force=%s) sent to drone %s", force, drone_id)
     return {"status": "DISARM sent", "drone_id": drone_id}
+
+
+@router.post("/missions/step-command")
+async def send_step_command(request: StepCommandRequest):
+    """Send individual manual step command to drone (Step-by-Step Flight Pipeline)."""
+    drone_id = request.drone_id
+    if not manager.is_drone_connected(drone_id):
+        raise HTTPException(status_code=503, detail=f"Drone {drone_id} not connected")
+
+    sent = await manager.send_to_drone(drone_id, {
+        "type": "command",
+        "payload": {
+            "action": "STEP_COMMAND",
+            "step_action": request.step_action,
+            "lat": request.lat,
+            "lon": request.lon,
+            "alt": request.alt,
+        },
+    })
+    if not sent:
+        raise HTTPException(status_code=503, detail=f"Failed to send STEP_COMMAND ({request.step_action}) to drone")
+
+    logger.info("STEP_COMMAND (%s) sent to drone %s", request.step_action, drone_id)
+    return {"status": f"STEP_COMMAND {request.step_action} sent", "drone_id": drone_id}
 
 
 @router.websocket("/ws/drone/{drone_id}")

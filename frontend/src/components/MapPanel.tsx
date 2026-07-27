@@ -77,18 +77,34 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
     // Default center (Da Nang or configured home location)
     const initialLat = locations.home_lat || telemetry?.latitude || 16.0544;
     const initialLon = locations.home_lon || telemetry?.longitude || 108.2022;
-
+    // Dark-themed tile layer (OpenStreetMap / CartoDB Voyager / Esri Satellite)
     const map = L.map(mapContainerRef.current, {
       center: [initialLat, initialLon],
-      zoom: 16,
+      zoom: 17,
+      maxZoom: 22,
       zoomControl: true,
     });
 
-    // Dark-themed tile layer (OpenStreetMap / CartoDB Voyager)
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+    const streetLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
-      maxZoom: 19,
-    }).addTo(map);
+      maxNativeZoom: 19,
+      maxZoom: 22,
+    });
+
+    const satelliteLayer = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      {
+        attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community",
+        maxNativeZoom: 18,
+        maxZoom: 22,
+      }
+    );
+
+    streetLayer.addTo(map);
+
+    // Store layers for switching
+    (map as any)._streetLayer = streetLayer;
+    (map as any)._satelliteLayer = satelliteLayer;
 
     mapInstanceRef.current = map;
 
@@ -97,6 +113,38 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
       mapInstanceRef.current = null;
     };
   }, []);
+
+  // State for map style & container height
+  const [isSatellite, setIsSatellite] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // Toggle Satellite / Street tile layer
+  const toggleMapStyle = () => {
+    const map = mapInstanceRef.current as any;
+    if (!map) return;
+    if (isSatellite) {
+      map.removeLayer(map._satelliteLayer);
+      map._streetLayer.addTo(map);
+      setIsSatellite(false);
+    } else {
+      map.removeLayer(map._streetLayer);
+      map._satelliteLayer.addTo(map);
+      setIsSatellite(true);
+    }
+  };
+
+  // Quick zoom in to Drone position or Center at max zoom 20x
+  const handleZoomCloseIn = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (telemetry?.latitude && telemetry?.longitude && telemetry.latitude !== 0) {
+      map.setView([telemetry.latitude, telemetry.longitude], 20, { animate: true });
+    } else if (locations.home_lat && locations.home_lon) {
+      map.setView([locations.home_lat, locations.home_lon], 20, { animate: true });
+    } else {
+      map.setZoom(20, { animate: true });
+    }
+  };
 
   // Update Mission Locations (Home, Pickup, Drop Markers & Planned Path)
   useEffect(() => {
@@ -285,11 +333,27 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
         <div className="map-toolbar-actions">
           <button
             type="button"
+            className={`btn-map-action ${isSatellite ? "active" : ""}`}
+            onClick={toggleMapStyle}
+            title="Chuyển đổi Bản đồ Vệ tinh / Đô thị"
+          >
+            {isSatellite ? "🗺️ Đô thị" : "🛰️ Vệ tinh"}
+          </button>
+          <button
+            type="button"
+            className="btn-map-action"
+            onClick={handleZoomCloseIn}
+            title="Phóng to siêu cận cảnh Drone (Zoom 20x)"
+          >
+            🔬 Zoom cận cảnh (20x)
+          </button>
+          <button
+            type="button"
             className={`btn-map-action ${followDrone ? "active" : ""}`}
             onClick={() => setFollowDrone(!followDrone)}
             title="Tự động cuộn bản đồ theo vị trí Drone"
           >
-            🎯 {followDrone ? "Đang theo drone" : "Theo dõi drone"}
+            🎯 {followDrone ? "Theo dõi ON" : "Theo dõi OFF"}
           </button>
           <button
             type="button"
@@ -297,7 +361,15 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
             onClick={handleFitBounds}
             title="Zoom hiển thị toàn bộ lộ trình"
           >
-            🔍 Zoom toàn bộ
+            🌐 Zoom toàn bộ
+          </button>
+          <button
+            type="button"
+            className="btn-map-action"
+            onClick={() => setIsExpanded(!isExpanded)}
+            title="Mở rộng chiều cao bản đồ"
+          >
+            {isExpanded ? "📐 Thu nhỏ chiều cao" : "↕️ Mở rộng bản đồ"}
           </button>
           {trail.length > 0 && (
             <button
@@ -313,7 +385,15 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
       </div>
 
       {/* Main Leaflet Container */}
-      <div ref={mapContainerRef} className="map-container-box" style={{ width: "100%", height: "550px" }} />
+      <div
+        ref={mapContainerRef}
+        className="map-container-box"
+        style={{
+          width: "100%",
+          height: isExpanded ? "750px" : "550px",
+          transition: "height 0.3s ease",
+        }}
+      />
 
       {/* Floating Telemetry HUD overlay on map */}
       {droneOnline && telemetry && (

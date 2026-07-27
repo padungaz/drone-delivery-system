@@ -146,6 +146,72 @@ class MissionManager:
         elif action == "DISARM":
             self._handle_disarm(payload)
 
+        elif action == "STEP_COMMAND":
+            self._handle_step_command(payload)
+
+    def _handle_step_command(self, payload: dict) -> None:
+        """Handle individual manual step commands (Step-by-Step Flight Pipeline)."""
+        step = payload.get("step_action", "")
+        logger.info("Executing manual step command: %s", step)
+
+        if step == "RESET_IDLE":
+            self._mission_active = False
+            self.state_machine.reset()
+            logger.info("FSM state manually reset to IDLE")
+
+        elif step == "ARM":
+            self._handle_arm()
+
+        elif step == "DISARM":
+            self._handle_disarm(payload)
+
+        elif step == "TAKEOFF":
+            if not self.mavlink.telemetry.armed:
+                logger.warning("STEP TAKEOFF rejected: drone is DISARMED. Arm first.")
+                return
+            alt = payload.get("alt", config.TAKEOFF_ALTITUDE_M)
+            logger.info("STEP TAKEOFF to %.1fm initiated", alt)
+            self.mavlink.takeoff(alt)
+            self.state_machine.force_state(DroneState.TAKEOFF)
+
+        elif step == "NAV_GPS":
+            if not self.mavlink.telemetry.armed:
+                logger.warning("STEP NAV_GPS rejected: drone is DISARMED.")
+                return
+            lat = payload.get("lat")
+            lon = payload.get("lon")
+            alt = payload.get("alt", config.FLYING_ALTITUDE_M)
+            if lat and lon:
+                logger.info("STEP NAV_GPS to lat=%.6f, lon=%.6f, alt=%.1fm", lat, lon, alt)
+                self.mavlink.goto_location(lat, lon, alt)
+                self.state_machine.force_state(DroneState.FLY_TO_PICKUP)
+
+        elif step == "DESCEND":
+            if not self.mavlink.telemetry.armed:
+                logger.warning("STEP DESCEND rejected: drone is DISARMED.")
+                return
+            search_alt = payload.get("alt", config.LANDING_SEARCH_ALTITUDE_M)
+            cur_lat = self.mavlink.telemetry.latitude or payload.get("lat", 0.0)
+            cur_lon = self.mavlink.telemetry.longitude or payload.get("lon", 0.0)
+            logger.info("STEP DESCEND to search altitude %.1fm at lat=%.6f, lon=%.6f", search_alt, cur_lat, cur_lon)
+            if cur_lat and cur_lon:
+                self.mavlink.goto_location(cur_lat, cur_lon, search_alt)
+            self.state_machine.force_state(DroneState.DESCEND)
+
+        elif step == "SEARCH_ARUCO":
+            logger.info("STEP SEARCH_ARUCO initiated")
+            self._handle_camera_start()
+            self.state_machine.force_state(DroneState.SEARCH_ARUCO)
+
+        elif step == "PRECISION_LANDING":
+            logger.info("STEP PRECISION_LANDING initiated")
+            self.aruco_landing.start_landing()
+            self.state_machine.force_state(DroneState.PRECISION_LANDING)
+
+        elif step == "NORMAL_LANDING":
+            logger.info("STEP NORMAL_LANDING (Auto Land) initiated")
+            self.mavlink.land()
+
     def _handle_set_mode(self, payload: dict) -> None:
         mode = payload.get("mode")
         if not mode:

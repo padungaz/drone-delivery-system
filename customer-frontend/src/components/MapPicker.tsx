@@ -32,11 +32,14 @@ export function MapPicker({ initialLat, initialLon, onSelect, label }: Props) {
 
     const map = L.map(mapRef.current, {
       center: [defaultLat, defaultLon],
-      zoom: 15,
+      zoom: 16,
+      maxZoom: 22,
     });
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap",
+      maxNativeZoom: 19,
+      maxZoom: 22,
     }).addTo(map);
 
     if (initialLat && initialLon) {

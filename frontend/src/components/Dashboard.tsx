@@ -247,6 +247,7 @@ export function Dashboard() {
         isOpen={isManualModalOpen}
         onClose={() => setManualModalOpen(false)}
         droneStatus={telemetry}
+        locations={locations}
       />
 
       <footer className="footer">

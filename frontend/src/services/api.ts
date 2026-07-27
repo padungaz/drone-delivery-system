@@ -97,6 +97,24 @@ export async function disarmDrone(force = false): Promise<Response> {
   });
 }
 
+/** Send individual step command (Step-by-Step Flight Pipeline). */
+export async function sendStepCommand(
+  step_action: string,
+  params?: { lat?: number; lon?: number; alt?: number }
+): Promise<Response> {
+  return fetch(`${API_BASE}/missions/step-command`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      step_action,
+      lat: params?.lat,
+      lon: params?.lon,
+      alt: params?.alt,
+      drone_id: DRONE_ID,
+    }),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Admin — Delivery Requests
 // ---------------------------------------------------------------------------
