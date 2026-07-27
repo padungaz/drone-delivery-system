@@ -287,6 +287,8 @@ async def send_step_command(request: StepCommandRequest):
             "lat": request.lat,
             "lon": request.lon,
             "alt": request.alt,
+            "drop_lat": request.drop_lat,
+            "drop_lon": request.drop_lon,
         },
     })
     if not sent:

@@ -171,7 +171,7 @@ class MissionManager:
                 return
             alt = payload.get("alt", config.TAKEOFF_ALTITUDE_M)
             logger.info("STEP TAKEOFF to %.1fm initiated", alt)
-            self.mavlink.takeoff(alt)
+            self._offboard_after_arm_done = True
             self.state_machine.force_state(DroneState.TAKEOFF)
 
         elif step == "NAV_GPS":

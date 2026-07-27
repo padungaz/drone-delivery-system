@@ -65,9 +65,8 @@ class StepCommandRequest(BaseModel):
     lat: Optional[float] = None
     lon: Optional[float] = None
     alt: Optional[float] = None
-    drone_id: str = "drone-01"
-    drop_lat: float
-    drop_lon: float
+    drop_lat: Optional[float] = None
+    drop_lon: Optional[float] = None
     drone_id: str = "drone-01"
 
 
