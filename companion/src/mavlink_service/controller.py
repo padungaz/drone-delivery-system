@@ -430,17 +430,17 @@ class MavlinkController:
         target_alt = getattr(self, "_target_takeoff_alt", config.TAKEOFF_ALTITUDE_M)
 
         if self.telemetry.altitude_relative < (target_alt * 0.85):
-            # Takeoff setpoint: climb straight UP relative to local NED origin (negative Z is UP)
+            # Takeoff setpoint: climb straight UP relative to current position
             self.connection.mav.set_position_target_local_ned_send(
                 0,
                 self.connection.target_system,
                 self.connection.target_component,
-                mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-                0b0000111111111000,  # Position control mask (X=0, Y=0, Z=-target_alt)
-                0.0, 0.0, -target_alt,
-                0, 0, 0,
-                0, 0, 0,
-                0, 0,
+                mavutil.mavlink.MAV_FRAME_LOCAL_OFFSET_NED,
+                0b0000_1111_1111_1000,  # Use Position X, Y, Z (X=0, Y=0 offset, Z=-target_alt)
+                0.0, 0.0, -target_alt,  # Negative Z is UP in LOCAL frame
+                0, 0, 0,                # Velocity (ignored)
+                0, 0, 0,                # Accel (ignored)
+                0, 0,                   # Yaw (ignored)
             )
         else:
             # Airborne: send velocity 0 m/s position hold (Bitmask 0x0FC7 / 4039)
@@ -563,32 +563,23 @@ class MavlinkController:
         logger.info("DISARM command sent (force=%s)", force)
         return True
 
-    def takeoff(self, altitude_m: float = 1.5) -> bool:
+    def takeoff(self, altitude_m: float) -> bool:
         if not self._can_send("takeoff"):
             return False
         self._target_takeoff_alt = altitude_m
         if self.telemetry.flight_mode == "OFFBOARD":
             logger.info("TAKEOFF initiated via OFFBOARD position setpoints: %.1f m", altitude_m)
         else:
-            lat = self.telemetry.latitude if self.telemetry.latitude != 0.0 else float("nan")
-            lon = self.telemetry.longitude if self.telemetry.longitude != 0.0 else float("nan")
             self.connection.mav.command_long_send(
                 self.connection.target_system,
                 self.connection.target_component,
                 mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
                 0,
-                0.0,            # param1: Pitch
-                0.0,            # param2: Empty
-                0.0,            # param3: Empty
-                float("nan"),   # param4: Yaw (keep current heading)
-                lat,            # param5: Latitude (current location)
-                lon,            # param6: Longitude (current location)
-                altitude_m,     # param7: Altitude
+                0, 0, 0, 0,
+                0, 0,
+                altitude_m,
             )
-            logger.info(
-                "TAKEOFF command (MAV_CMD_NAV_TAKEOFF) sent: %.1f m at lat=%s, lon=%s",
-                altitude_m, lat, lon,
-            )
+            logger.info("TAKEOFF command (MAV_CMD_NAV_TAKEOFF) sent: %.1f m", altitude_m)
         return True
 
     def goto_location(self, lat: float, lon: float, alt_m: float) -> bool:
