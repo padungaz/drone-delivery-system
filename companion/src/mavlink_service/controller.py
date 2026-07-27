@@ -493,7 +493,7 @@ class MavlinkController:
                 # 2. Sau thời gian Grace period mới kiểm tra xem PX4 có bị ai đổi sang mode khác không
                 elapsed = time.time() - getattr(self, "_keepalive_start_time", time.time())
                 if elapsed >= STARTUP_GRACE_SEC:
-                    if self.telemetry.flight_mode not in ("OFFBOARD", "TAKEOFF", "AUTO.TAKEOFF", "UNKNOWN"):
+                    if self.telemetry.flight_mode not in ("OFFBOARD", "TAKEOFF", "AUTO.TAKEOFF", "LOITER", "HOLD", "UNKNOWN"):
                         logger.info(
                             "OFFBOARD keepalive: PX4 mode is %s (not OFFBOARD), stopping thread",
                             self.telemetry.flight_mode,
@@ -567,12 +567,23 @@ class MavlinkController:
         if not self._can_send("takeoff"):
             return False
         self._target_takeoff_alt = altitude_m
-        if self.telemetry.flight_mode == "OFFBOARD":
-            logger.info("TAKEOFF initiated via OFFBOARD position setpoints: %.1f m", altitude_m)
-            return True
-        else:
-            logger.info("TAKEOFF initiated: entering OFFBOARD mode for vertical climb to %.1f m...", altitude_m)
-            return self.set_mode_offboard()
+        logger.info("Initiating TAKEOFF to %.1f m...", altitude_m)
+        ok = self.set_mode("TAKEOFF")
+        if not ok:
+            logger.info("Set mode TAKEOFF not acknowledged, sending MAV_CMD_NAV_TAKEOFF...")
+            lat = self.telemetry.latitude if self.telemetry.latitude != 0.0 else float("nan")
+            lon = self.telemetry.longitude if self.telemetry.longitude != 0.0 else float("nan")
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                0,
+                0.0, 0.0, 0.0, float("nan"),
+                lat, lon,
+                altitude_m,
+            )
+            ok = self.wait_command_ack(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, timeout=2.0)
+        return ok
 
     def goto_location(self, lat: float, lon: float, alt_m: float) -> bool:
         if not self._can_send("goto"):
