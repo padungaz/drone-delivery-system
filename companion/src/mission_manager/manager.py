@@ -522,7 +522,7 @@ class MissionManager:
                 logger.error("TAKEOFF timeout — transitioning to ERROR")
                 self.state_machine.transition_to(DroneState.ERROR)
                 return
-            if self.mavlink.telemetry.altitude_relative >= config.TAKEOFF_ALTITUDE_M * 0.9:
+            if self._mission_active and self.mavlink.telemetry.altitude_relative >= config.TAKEOFF_ALTITUDE_M * 0.9:
                 if self._landing_phase == "pickup":
                     self.state_machine.transition_to(DroneState.FLY_TO_PICKUP)
                 elif self._landing_phase == "enroute_drop":
@@ -532,7 +532,7 @@ class MissionManager:
 
         # ── FLY_TO_PICKUP ──────────────────────────────────────────────────
         elif state == DroneState.FLY_TO_PICKUP:
-            if self.mavlink.is_at_location(
+            if self._mission_active and self.mavlink.is_at_location(
                 self.locations.pickup_lat,
                 self.locations.pickup_lon,
                 config.NAV_ACCEPTANCE_RADIUS_M,
@@ -542,7 +542,7 @@ class MissionManager:
 
         # ── FLY_TO_DROP ────────────────────────────────────────────────────
         elif state == DroneState.FLY_TO_DROP:
-            if self.mavlink.is_at_location(
+            if self._mission_active and self.mavlink.is_at_location(
                 self.locations.drop_lat,
                 self.locations.drop_lon,
                 config.NAV_ACCEPTANCE_RADIUS_M,
@@ -552,7 +552,7 @@ class MissionManager:
 
         # ── DESCEND ────────────────────────────────────────────────────────
         elif state == DroneState.DESCEND:
-            if self.mavlink.telemetry.altitude_relative <= config.DESCEND_ALTITUDE_M + 1:
+            if self._mission_active and self.mavlink.telemetry.altitude_relative <= config.DESCEND_ALTITUDE_M + 1:
                 self.state_machine.transition_to(DroneState.SEARCH_ARUCO)
 
         # ── SEARCH_ARUCO ───────────────────────────────────────────────────
@@ -561,7 +561,7 @@ class MissionManager:
                 logger.error("ArUco search timeout — transitioning to ERROR")
                 self.state_machine.transition_to(DroneState.ERROR)
                 return
-            if self._aruco_detected:
+            if self._mission_active and self._aruco_detected:
                 self.state_machine.transition_to(DroneState.PRECISION_LANDING)
 
         # ── PRECISION_LANDING ──────────────────────────────────────────────
@@ -576,10 +576,13 @@ class MissionManager:
                         self.vision.last_pose.dy,
                     )
                 )
-                if self._landing_phase == "pickup":
-                    self.state_machine.transition_to(DroneState.WAIT_PICKUP_CONFIRM)
-                elif self._landing_phase == "drop":
-                    self.state_machine.transition_to(DroneState.WAIT_DROP_CONFIRM)
+                if self._mission_active:
+                    if self._landing_phase == "pickup":
+                        self.state_machine.transition_to(DroneState.WAIT_PICKUP_CONFIRM)
+                    elif self._landing_phase == "drop":
+                        self.state_machine.transition_to(DroneState.WAIT_DROP_CONFIRM)
+                else:
+                    self.state_machine.transition_to(DroneState.IDLE)
 
         # ── WAIT_PICKUP_CONFIRM ────────────────────────────────────────────
         # No automatic transition — waits indefinitely for PICKUP_COMPLETE command
