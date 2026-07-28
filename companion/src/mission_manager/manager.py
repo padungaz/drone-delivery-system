@@ -170,10 +170,10 @@ class MissionManager:
                 logger.warning("STEP TAKEOFF rejected: drone is DISARMED. Arm first.")
                 return
             alt = payload.get("alt", config.TAKEOFF_ALTITUDE_M)
-            logger.info("STEP TAKEOFF to %.1fm initiated", alt)
-            self._offboard_after_arm_done = True
-            self._step_takeoff_offboard_sent = False
+            logger.info("STEP TAKEOFF to %.1fm via OFFBOARD mode initiated", alt)
+            self.mavlink._target_takeoff_alt = alt
             self.state_machine.force_state(DroneState.TAKEOFF)
+            self.mavlink.set_mode_offboard()
 
         elif step == "NAV_GPS":
             if not self.mavlink.telemetry.armed:
@@ -525,22 +525,13 @@ class MissionManager:
                 return
 
             target_alt = getattr(self.mavlink, "_target_takeoff_alt", config.TAKEOFF_ALTITUDE_M)
-            if self.mavlink.telemetry.altitude_relative >= target_alt * 0.85:
-                if self._mission_active:
-                    if self._landing_phase == "pickup":
-                        self.state_machine.transition_to(DroneState.FLY_TO_PICKUP)
-                    elif self._landing_phase == "enroute_drop":
-                        self.state_machine.transition_to(DroneState.FLY_TO_DROP)
-                    elif self._landing_phase == "rtl":
-                        self.state_machine.transition_to(DroneState.RETURN_HOME)
-                else:
-                    if self.mavlink.telemetry.flight_mode != "OFFBOARD" and not getattr(self, "_step_takeoff_offboard_sent", False):
-                        logger.info(
-                            "TAKEOFF altitude reached (%.2fm) in manual step mode — switching to OFFBOARD position hold (Hover)",
-                            self.mavlink.telemetry.altitude_relative,
-                        )
-                        self._step_takeoff_offboard_sent = True
-                        self.mavlink.set_mode_offboard()
+            if self._mission_active and self.mavlink.telemetry.altitude_relative >= target_alt * 0.85:
+                if self._landing_phase == "pickup":
+                    self.state_machine.transition_to(DroneState.FLY_TO_PICKUP)
+                elif self._landing_phase == "enroute_drop":
+                    self.state_machine.transition_to(DroneState.FLY_TO_DROP)
+                elif self._landing_phase == "rtl":
+                    self.state_machine.transition_to(DroneState.RETURN_HOME)
 
         # ── FLY_TO_PICKUP ──────────────────────────────────────────────────
         elif state == DroneState.FLY_TO_PICKUP:
