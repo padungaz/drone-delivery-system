@@ -54,12 +54,26 @@ export function StorageSlotsGrid({ slots }: Props) {
     }
   };
 
+  const isSlotOccupied = (slot?: StorageSlot): boolean => {
+    if (!slot) return false;
+    if (slot.status === "OCCUPIED") return true;
+    if (slot.is_empty === false) return true;
+    if (slot.product_id && slot.product_id.trim() !== "") return true;
+    return false;
+  };
+
+  const isSlotReserved = (slot?: StorageSlot): boolean => {
+    return slot?.status === "RESERVED";
+  };
+
+  const occupiedCount = slots.filter((s) => isSlotOccupied(s)).length;
+
   return (
     <div className="panel storage-slots-panel">
       <div className="panel-header-inline">
         <h3>🏬 Sơ đồ 9 Vị trí Lưu kho Tạm thời (Grid A1..C3)</h3>
         <span className="text-sm font-bold">
-          Đang sử dụng: {slots.filter((s) => s.status === "OCCUPIED" || !s.is_empty).length} / 9 ô
+          Đang sử dụng: {occupiedCount} / 9 ô
         </span>
       </div>
 
@@ -69,17 +83,17 @@ export function StorageSlotsGrid({ slots }: Props) {
           <div key={`row-${rIdx}`} className="grid-row">
             {row.map((slotName) => {
               const slot = getSlotData(slotName);
-              const isOccupied = slot?.status === "OCCUPIED" || (slot && !slot.is_empty);
-              const isReserved = slot?.status === "RESERVED";
+              const occupied = isSlotOccupied(slot);
+              const reserved = isSlotReserved(slot);
               const isSelected = selectedSlot?.slot_name === slotName;
 
               let slotClass = "slot-empty";
               let statusLabel = "TRỐNG";
 
-              if (isOccupied) {
+              if (occupied) {
                 slotClass = "slot-occupied";
                 statusLabel = "CÓ HÀNG";
-              } else if (isReserved) {
+              } else if (reserved) {
                 slotClass = "slot-reserved";
                 statusLabel = "ĐANG GIỮ";
               }
@@ -97,9 +111,9 @@ export function StorageSlotsGrid({ slots }: Props) {
                   </div>
 
                   <div className="slot-body">
-                    {isOccupied ? (
+                    {occupied ? (
                       <>
-                        <div className="slot-product-id">📦 {slot?.product_id || "SP-" + slot?.id}</div>
+                        <div className="slot-product-id">📦 {slot?.product_id || `SP-${slotName}`}</div>
                         <div className="slot-qr text-sm">{slot?.qr_code || slot?.sender_name || "Mã QR"}</div>
                       </>
                     ) : (
@@ -119,7 +133,7 @@ export function StorageSlotsGrid({ slots }: Props) {
           <h4>📌 Chi tiết Ô kho: {selectedSlot.slot_name || `Slot #${selectedSlot.id}`}</h4>
           <div className="slot-info-list">
             <div>
-              <strong>Trạng thái:</strong> {selectedSlot.status || (selectedSlot.is_empty ? "EMPTY" : "OCCUPIED")}
+              <strong>Trạng thái:</strong> {selectedSlot.status || (isSlotOccupied(selectedSlot) ? "OCCUPIED" : "EMPTY")}
             </div>
             <div>
               <strong>Mã Sản phẩm (Product ID):</strong> {selectedSlot.product_id || "N/A"}
@@ -151,7 +165,7 @@ export function StorageSlotsGrid({ slots }: Props) {
             </button>
             <button
               type="button"
-              className="btn btn-outline btn-sm"
+              className="btn btn-secondary btn-sm"
               onClick={() => setSelectedSlot(null)}
             >
               Đóng
@@ -160,15 +174,15 @@ export function StorageSlotsGrid({ slots }: Props) {
         </div>
       )}
 
-      {/* QR Scanner Simulation Box */}
-      <div className="qr-sim-box">
-        <label htmlFor="qr-input" className="font-bold">📷 Quét mã QR Camera (Mô phỏng Input):</label>
-        <div className="form-group-inline mt-1">
+      {/* Simulator: Camera QR Vision Code Input */}
+      <div className="qr-simulator">
+        <label htmlFor="qrInput">📷 Quét mã QR Camera (Mô phỏng Input):</label>
+        <div className="input-group">
           <input
-            id="qr-input"
+            id="qrInput"
             type="text"
-            className="form-control"
-            placeholder="Nhập mã QR (VD: PROD-9982)..."
+            className="input"
+            placeholder="Nhập mã QR (VD: PROD-8899)"
             value={qrInput}
             onChange={(e) => setQrInput(e.target.value)}
           />
@@ -183,7 +197,7 @@ export function StorageSlotsGrid({ slots }: Props) {
         </div>
       </div>
 
-      {msg && <div className="panel-msg">{msg}</div>}
+      {msg && <div className="action-msg text-sm mt-2">{msg}</div>}
     </div>
   );
 }

@@ -54,10 +54,13 @@ class MissionAction(str, Enum):
 
 class MissionCommand(BaseModel):
     action: MissionAction
-    home_lat: float
-    home_lon: float
-    pickup_lat: float
-    pickup_lon: float
+    home_lat: float = 0.0
+    home_lon: float = 0.0
+    pickup_lat: float = 0.0
+    pickup_lon: float = 0.0
+    drop_lat: float = 0.0
+    drop_lon: float = 0.0
+    drone_id: str = "drone-01"
 
 
 class StepCommandRequest(BaseModel):
@@ -279,7 +282,10 @@ class PLCStatusResponse(BaseModel):
     clamp_x: str = "OPEN"       # "OPEN", "LOCKING", "DONE"
     clamp_y: str = "OPEN"       # "OPEN", "LOCKING", "DONE"
     drone_locked: bool = False
-    z_axis: str = "HOME"        # "HOME", "UP", "DOWN"
+    z_axis: str = "HOME"        # "HOME", "UP", "DOWN", "MOVING"
+    emergency_stop: bool = False
+    connected: bool = True
+    simulator_mode: bool = True
 
 
 class RobotCommand(str, Enum):

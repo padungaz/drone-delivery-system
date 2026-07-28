@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -15,11 +16,15 @@ from app.api.robot import robot_router
 from app.api.routes import router
 from app.config import settings
 from app.database.repository import async_session, init_db
+from app.models.schemas import DeviceHeartbeatRequest, DeviceRegisterRequest, DeviceStatus, DeviceType
 from app.services.device_manager import DeviceManager
 from app.services.inventory_manager import InventoryManager
+from app.services.plc_manager import PLCManager
+from app.services.robot_manager import RobotManager
 from app.storage.repository import StorageRepository
 from app.storage.routes import storage_router
 from app.websocket.manager import system_ws_manager
+from app.websocket.handler import manager as drone_ws_manager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,12 +34,29 @@ logger = logging.getLogger(__name__)
 
 
 async def heartbeat_monitor_task():
-    """Background task checking device timeouts every 5 seconds."""
+    """Background task syncing device heartbeats and checking timeouts every 5 seconds."""
     while True:
         try:
             await asyncio.sleep(5)
             async with async_session() as session:
                 mgr = DeviceManager(session)
+
+                # Sync PLC01 heartbeat based on PLCManager connection/sim state
+                plc_mgr = PLCManager.get_instance()
+                plc_status = DeviceStatus.ONLINE if (plc_mgr.is_connected or plc_mgr.simulator_mode) else DeviceStatus.OFFLINE
+                await mgr.update_heartbeat(DeviceHeartbeatRequest(name="PLC01", status=plc_status))
+
+                # Sync ROBOT01 heartbeat based on RobotManager state
+                robot_mgr = RobotManager.get_instance()
+                robot_status = DeviceStatus.ONLINE if (robot_mgr.is_connected or robot_mgr.simulator_mode) else DeviceStatus.OFFLINE
+                await mgr.update_heartbeat(DeviceHeartbeatRequest(name="ROBOT01", status=robot_status))
+
+                # Sync UAV01 heartbeat based on Drone WebSocket connection or simulator mode
+                uav_sim = os.getenv("UAV_SIMULATOR_MODE", "false").lower() in ("true", "1")
+                uav_connected = drone_ws_manager.is_drone_connected("UAV01") or drone_ws_manager.is_drone_connected("drone-01") or uav_sim
+                uav_status = DeviceStatus.ONLINE if uav_connected else DeviceStatus.OFFLINE
+                await mgr.update_heartbeat(DeviceHeartbeatRequest(name="UAV01", status=uav_status))
+
                 timed_out = await mgr.check_device_timeouts()
                 for dev_name in timed_out:
                     await system_ws_manager.broadcast("DEVICE_TIMEOUT", {
@@ -50,12 +72,19 @@ async def heartbeat_monitor_task():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    # Seed 9 storage slots if not already present
+    # Seed 9 storage slots & 4 LAN devices
     async with async_session() as session:
         storage_repo = StorageRepository(session)
         await storage_repo.init_storage_slots()
         inventory_mgr = InventoryManager(session)
         await inventory_mgr.init_default_slots()
+
+        dev_mgr = DeviceManager(session)
+        plc_ip = os.getenv("PLC_IP", "192.168.58.10")
+        await dev_mgr.register_device(DeviceRegisterRequest(name="UAV01", type=DeviceType.UAV, ip="192.168.137.88"))
+        await dev_mgr.register_device(DeviceRegisterRequest(name="PLC01", type=DeviceType.PLC, ip=plc_ip))
+        await dev_mgr.register_device(DeviceRegisterRequest(name="ROBOT01", type=DeviceType.ROBOT, ip="192.168.58.2"))
+        await dev_mgr.register_device(DeviceRegisterRequest(name="CAM01", type=DeviceType.CAMERA, ip="192.168.58.50"))
 
     # Start background heartbeat monitor
     monitor = asyncio.create_task(heartbeat_monitor_task())
@@ -102,5 +131,3 @@ async def websocket_system_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         system_ws_manager.disconnect(websocket)
-
-

@@ -87,6 +87,24 @@ class InventoryManager:
         await self.session.refresh(slot)
         return slot
 
+    async def clear_slot_by_id(self, slot_id: int) -> Optional[StorageSlotRecord]:
+        """Clear/reset a storage slot by its ID."""
+        stmt = select(StorageSlotRecord).where(StorageSlotRecord.id == slot_id)
+        res = await self.session.execute(stmt)
+        slot = res.scalar_one_or_none()
+        if not slot:
+            return None
+
+        slot.status = StorageSlotStatus.EMPTY.value
+        slot.product_id = None
+        slot.qr_code = None
+        slot.updated_time = datetime.utcnow()
+
+        logger.info("Cleared slot ID %d (%s)", slot_id, slot.slot_name)
+        await self.session.commit()
+        await self.session.refresh(slot)
+        return slot
+
     async def process_qr_scan(self, payload: QRScanPayload) -> Optional[StorageSlotRecord]:
         """Process QR code scan from Camera QR system.
         Finds an available slot, registers product in DB, and assigns product to free slot.

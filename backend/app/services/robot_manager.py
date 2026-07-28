@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from typing import Optional
 
 from app.models.schemas import RobotCommand, RobotStatusResponse
@@ -17,8 +18,10 @@ class RobotManager:
 
     _instance: Optional["RobotManager"] = None
 
-    def __init__(self, simulator_mode: bool = True):
+    def __init__(self, simulator_mode: bool = False, robot_ip: str = "192.168.58.2"):
         self.simulator_mode = simulator_mode
+        self.robot_ip = robot_ip
+        self.is_connected: bool = False
         self.state: str = "IDLE"
         self.current_slot: Optional[str] = None
         self.holding_product: Optional[str] = None
@@ -26,7 +29,10 @@ class RobotManager:
     @classmethod
     def get_instance(cls) -> "RobotManager":
         if cls._instance is None:
-            cls._instance = RobotManager(simulator_mode=True)
+            env_sim = os.getenv("ROBOT_SIMULATOR_MODE", "false").lower()
+            sim_mode = env_sim in ("true", "1", "yes")
+            robot_ip = os.getenv("ROBOT_IP", "192.168.58.2")
+            cls._instance = RobotManager(simulator_mode=sim_mode, robot_ip=robot_ip)
         return cls._instance
 
     def get_status(self) -> RobotStatusResponse:

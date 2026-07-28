@@ -1,7 +1,15 @@
 import type { MissionLocations } from "../types/drone";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://192.168.2.28:8000";
-const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://192.168.2.28:8000/ws/client";
+const getHost = () => {
+  if (typeof window !== "undefined" && window.location.hostname) {
+    return window.location.hostname;
+  }
+  return "192.168.58.66";
+};
+
+const defaultHost = getHost();
+const API_BASE = import.meta.env.VITE_API_URL ?? `http://${defaultHost}:8000`;
+const WS_URL = import.meta.env.VITE_WS_URL ?? `ws://${defaultHost}:8000/ws/client`;
 const DRONE_ID = import.meta.env.VITE_DRONE_ID ?? "drone-01";
 
 export { API_BASE, WS_URL, DRONE_ID };
@@ -178,7 +186,7 @@ export async function getWarehouse(): Promise<Response> {
 export const SYSTEM_WS_URL = import.meta.env.VITE_SYSTEM_WS_URL ?? API_BASE.replace(/^http/, "ws") + "/ws/system";
 
 export async function getDevices(): Promise<Response> {
-  return fetch(`${API_BASE}/api/devices`);
+  return fetch(`${API_BASE}/api/device/list`);
 }
 
 export async function getPlcStatus(): Promise<Response> {

@@ -48,6 +48,7 @@ async def device_heartbeat(
     return device
 
 
+@device_router.get("", response_model=List[DeviceResponse])
 @device_router.get("/list", response_model=List[DeviceResponse])
 async def list_devices(
     session: AsyncSession = Depends(get_session),
