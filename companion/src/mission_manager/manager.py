@@ -170,10 +170,10 @@ class MissionManager:
                 logger.warning("STEP TAKEOFF rejected: drone is DISARMED. Arm first.")
                 return
             alt = payload.get("alt", config.TAKEOFF_ALTITUDE_M)
-            logger.info("STEP TAKEOFF to %.1fm via OFFBOARD mode initiated", alt)
+            logger.info("STEP TAKEOFF to %.1fm via PX4 TAKEOFF mode", alt)
             self.mavlink._target_takeoff_alt = alt
+            self.mavlink.takeoff(alt)
             self.state_machine.force_state(DroneState.TAKEOFF)
-            self.mavlink.set_mode_offboard()
 
         elif step == "NAV_GPS":
             if not self.mavlink.telemetry.armed:
@@ -181,9 +181,12 @@ class MissionManager:
                 return
             lat = payload.get("lat")
             lon = payload.get("lon")
-            alt = payload.get("alt", config.FLYING_ALTITUDE_M)
+            alt = payload.get("alt", config.TAKEOFF_ALTITUDE_M)
             if lat and lon:
                 logger.info("STEP NAV_GPS to lat=%.6f, lon=%.6f, alt=%.1fm", lat, lon, alt)
+                # Enter OFFBOARD mode for GPS navigation (after TAKEOFF completed)
+                if self.mavlink.telemetry.flight_mode != "OFFBOARD":
+                    self.mavlink.set_mode_offboard()
                 self.mavlink.goto_location(lat, lon, alt)
                 self.state_machine.force_state(DroneState.FLY_TO_PICKUP)
 
@@ -191,7 +194,7 @@ class MissionManager:
             if not self.mavlink.telemetry.armed:
                 logger.warning("STEP DESCEND rejected: drone is DISARMED.")
                 return
-            search_alt = payload.get("alt", config.LANDING_SEARCH_ALTITUDE_M)
+            search_alt = payload.get("alt", config.DESCEND_ALTITUDE_M)
             cur_lat = self.mavlink.telemetry.latitude or payload.get("lat", 0.0)
             cur_lon = self.mavlink.telemetry.longitude or payload.get("lon", 0.0)
             logger.info("STEP DESCEND to search altitude %.1fm at lat=%.6f, lon=%.6f", search_alt, cur_lat, cur_lon)
@@ -206,7 +209,7 @@ class MissionManager:
 
         elif step == "PRECISION_LANDING":
             logger.info("STEP PRECISION_LANDING initiated")
-            self.aruco_landing.start_landing()
+            self.vision.init_camera()
             self.state_machine.force_state(DroneState.PRECISION_LANDING)
 
         elif step == "NORMAL_LANDING":
@@ -391,30 +394,30 @@ class MissionManager:
         self._goto_sent = False
 
         if state == DroneState.ARMING:
-            # Safety: send ARM only once.
-            # PX4 OFFBOARD mode requires the drone to be ARMED first.
-            # Correct sequence:
-            #   1. ARM in current mode (LOITER / POSCTL / STABILIZED)
-            #   2. Wait for armed=True (confirmed from heartbeat)
-            #   3. Switch to OFFBOARD  ← done in _check_transitions after arm
-            #   4. Send TAKEOFF command ← done in _enter_state(TAKEOFF)
+            # Method A: ARM only — no OFFBOARD here.
+            # Sequence: ARM → wait armed=True → transition to TAKEOFF
+            # TAKEOFF is handled by PX4's native TAKEOFF mode.
+            # OFFBOARD is only engaged later for GPS navigation.
             self._arm_sent = False
-            self._offboard_after_arm_done = False
             self.mavlink.arm()
             self._arm_sent = True
 
         elif state == DroneState.TAKEOFF:
-            # Switch to OFFBOARD if not already done during ARMING phase
-            if not getattr(self, "_offboard_after_arm_done", False) and self.mavlink.telemetry.flight_mode != "OFFBOARD":
-                logger.info("TAKEOFF: entering OFFBOARD before takeoff command")
-                ok = self.mavlink.set_mode_offboard()
-                if not ok:
-                    logger.error("Failed to enter OFFBOARD before TAKEOFF")
-                    self.state_machine.transition_to(DroneState.ERROR)
-                    return
+            # Method A: Use PX4 native TAKEOFF mode.
+            # PX4 handles motor ramp-up, attitude control, and climb.
+            # No OFFBOARD setpoints during takeoff — avoids mode conflict.
             self.mavlink.takeoff(config.TAKEOFF_ALTITUDE_M)
 
         elif state == DroneState.FLY_TO_PICKUP:
+            # Method A: Transition from PX4 TAKEOFF → OFFBOARD for GPS navigation.
+            # This is the first time OFFBOARD is engaged in the mission.
+            if self.mavlink.telemetry.flight_mode != "OFFBOARD":
+                logger.info("FLY_TO_PICKUP: switching to OFFBOARD for GPS navigation")
+                ok = self.mavlink.set_mode_offboard()
+                if not ok:
+                    logger.error("Failed to enter OFFBOARD for FLY_TO_PICKUP")
+                    self.state_machine.transition_to(DroneState.ERROR)
+                    return
             self.mavlink.goto_location(
                 self.locations.pickup_lat,
                 self.locations.pickup_lon,
@@ -460,11 +463,21 @@ class MissionManager:
             self._landing_status = "WAIT_PICKUP"
             self.vision.stop()
             logger.info("Landed at pickup — waiting for PICKUP_COMPLETE command")
-            asyncio.create_task(
-                self.ws.send_status_event("waiting_pickup_confirm")
-            )
+            if self._event_loop and self._event_loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    self.ws.send_error("mission", "waiting_pickup_confirm"),
+                    self._event_loop,
+                )
 
         elif state == DroneState.FLY_TO_DROP:
+            # Enter OFFBOARD for GPS navigation to drop point.
+            if self.mavlink.telemetry.flight_mode != "OFFBOARD":
+                logger.info("FLY_TO_DROP: switching to OFFBOARD for GPS navigation")
+                ok = self.mavlink.set_mode_offboard()
+                if not ok:
+                    logger.error("Failed to enter OFFBOARD for FLY_TO_DROP")
+                    self.state_machine.transition_to(DroneState.ERROR)
+                    return
             self.mavlink.goto_location(
                 self.locations.drop_lat,
                 self.locations.drop_lon,
@@ -476,12 +489,16 @@ class MissionManager:
             self._landing_status = "WAIT_DROP"
             self.vision.stop()
             logger.info("Landed at drop — waiting for DROP_COMPLETE command")
-            asyncio.create_task(
-                self.ws.send_status_event("waiting_drop_confirm")
-            )
+            if self._event_loop and self._event_loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    self.ws.send_error("mission", "waiting_drop_confirm"),
+                    self._event_loop,
+                )
 
         elif state == DroneState.RETURN_HOME:
             self._landing_status = "RETURNING_HOME"
+            # Stop OFFBOARD keepalive before switching to RTL
+            self.mavlink._stop_offboard_keepalive()
             self.mavlink.rtl()
 
         elif state == DroneState.IDLE:
@@ -504,17 +521,9 @@ class MissionManager:
                 return
 
             if self.mavlink.telemetry.armed:
-                # ARM confirmed — now switch to OFFBOARD while motors are live
-                if not getattr(self, "_offboard_after_arm_done", False):
-                    logger.info("ARM confirmed — switching to OFFBOARD mode")
-                    ok = self.mavlink.set_mode_offboard()
-                    if not ok:
-                        logger.error("Failed to enter OFFBOARD after arm — ERROR")
-                        self.state_machine.transition_to(DroneState.ERROR)
-                        return
-                    self._offboard_after_arm_done = True
-                    return  # wait one more tick to confirm mode before transitioning
-
+                # Method A: ARM confirmed — go straight to TAKEOFF.
+                # PX4 TAKEOFF mode handles the climb. No OFFBOARD needed here.
+                logger.info("ARM confirmed — transitioning to TAKEOFF")
                 self.state_machine.transition_to(DroneState.TAKEOFF)
 
         # ── TAKEOFF ────────────────────────────────────────────────────────
@@ -571,14 +580,16 @@ class MissionManager:
         elif state == DroneState.PRECISION_LANDING:
             # Wait for PX4 to confirm: landed=True AND armed=False (auto-disarmed)
             if self.mavlink.is_landed() and not self.mavlink.telemetry.armed:
-                asyncio.create_task(
-                    self.ws.send_landing_result(
-                        self._landing_phase,
-                        True,
-                        self.vision.last_pose.dx,
-                        self.vision.last_pose.dy,
+                if self._event_loop and self._event_loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        self.ws.send_landing_result(
+                            self._landing_phase,
+                            True,
+                            self.vision.last_pose.dx,
+                            self.vision.last_pose.dy,
+                        ),
+                        self._event_loop,
                     )
-                )
                 if self._mission_active:
                     if self._landing_phase == "pickup":
                         self.state_machine.transition_to(DroneState.WAIT_PICKUP_CONFIRM)
