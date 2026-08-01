@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { adminGetWarehouse, adminUpdateWarehouse } from "../services/api";
 
 interface WarehouseConfig {
@@ -26,7 +26,7 @@ export function WarehouseConfigPanel({ onWarehouseLoaded }: Props) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
-  const fetchWarehouse = async () => {
+  const fetchWarehouse = useCallback(async () => {
     try {
       const res = await adminGetWarehouse();
       if (res.ok) {
@@ -43,11 +43,12 @@ export function WarehouseConfigPanel({ onWarehouseLoaded }: Props) {
     } catch {
       // silently fail
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     fetchWarehouse();
-  }, []);
+  }, [fetchWarehouse]);
 
   const handleSave = async () => {
     setLoading(true);

@@ -43,37 +43,16 @@ async def get_storage_state(repo: StorageRepository = Depends(get_storage_repo))
 @storage_router.post("/scan")
 async def scan_qr_and_store(
     payload: QRScanPayload,
-    repo: StorageRepository = Depends(get_storage_repo),
 ):
-    """Nhận dữ liệu QR từ camera kho, tìm ô trống đầu tiên và lưu hàng.
-
-    Trả lỗi 400 nếu kho đã đầy (9/9 ô đều có hàng).
-    """
-    # Validate QR data
-    parsed = parse_qr_data(payload.model_dump(by_alias=True))
-    if parsed is None:
-        raise HTTPException(status_code=400, detail="Dữ liệu QR không hợp lệ")
-
-    # Find first empty slot
-    slot = await repo.find_first_empty_slot()
-    if slot is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Kho đã đầy! Tất cả 9 ô kho đều đã có hàng.",
-        )
-
-    # Assign item to slot
-    updated_slot = await repo.assign_item_to_slot(slot, parsed)
-
-    # Broadcast realtime update to all frontend clients
-    await _broadcast_storage_state(repo)
-
-    logger.info("QR scanned → item stored in slot #%d", updated_slot.id)
-    return {
-        "status": "success",
-        "message": f"Hàng đã được lưu vào ô kho #{updated_slot.id}",
-        "slot_id": updated_slot.id,
-    }
+    """Nhận dữ liệu QR từ camera kho, tự động phân loại và xếp vào ô kho khả dụng."""
+    import json
+    qr_str = payload.qr_code or json.dumps(payload.model_dump(by_alias=True))
+    from app.services.qr_scanner_service import QRScannerService
+    qr_service = QRScannerService.get_instance()
+    res = await qr_service.process_qr_code(qr_str, source="STORAGE_SCAN_API")
+    if res.get("status") == "full":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
 
 
 # ── DELETE /storage/{slot_id} ────────────────────────────────────────────────

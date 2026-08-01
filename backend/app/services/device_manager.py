@@ -103,3 +103,13 @@ class DeviceManager:
         stmt = select(DeviceRecord).order_by(DeviceRecord.id)
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
+
+    async def remove_device(self, name: str) -> None:
+        """Remove a device record by name if it exists."""
+        stmt = select(DeviceRecord).where(DeviceRecord.device_name == name)
+        res = await self.session.execute(stmt)
+        device = res.scalar_one_or_none()
+        if device:
+            await self.session.delete(device)
+            await self.session.commit()
+            logger.info("Removed device record: %s", name)

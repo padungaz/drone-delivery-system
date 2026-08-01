@@ -40,12 +40,13 @@ async def create_drone_mission(
     session: AsyncSession = Depends(get_session),
 ):
     mgr = MissionManager(session)
-    if req.task.upper() == "PICKUP":
+    task_type = (req.mission_type or req.task or "PICKUP").upper()
+    if "PICKUP" in task_type:
         mission = await mgr.execute_drone_pickup(drone_id=req.drone_id, product_id=req.product_id)
-    elif req.task.upper() == "DELIVERY":
+    elif "DELIVERY" in task_type:
         mission = await mgr.execute_drone_delivery(drone_id=req.drone_id, product_id=req.product_id)
     else:
-        raise HTTPException(status_code=400, detail="Invalid task. Must be 'PICKUP' or 'DELIVERY'")
+        raise HTTPException(status_code=400, detail="Invalid mission type. Must be 'DRONE_PICKUP' or 'DRONE_DELIVERY'")
 
     # Broadcast mission update via WebSocket
     await system_ws_manager.broadcast("MISSION_PROGRESS", {

@@ -41,6 +41,11 @@ export function IntralogisticsPanel({
     setMsg(null);
     try {
       const res = await startIntralogisticsMission(missionType, productId.trim(), targetSlot);
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
       const data = await res.json();
       setMsg(data.message || `Khởi tạo nhiệm vụ FSM ${missionType} thành công!`);
     } catch (err) {
@@ -50,14 +55,30 @@ export function IntralogisticsPanel({
     }
   };
 
-  // Steps definition for FSM progress stepper
-  const steps = [
-    { key: "STARTED", label: "1. UAV Hạ cánh" },
-    { key: "DOCK_LOCKED", label: "2. PLC Khóa Dock & Mở nắp" },
-    { key: "ROBOT_PICKING", label: "3. Robot gắp hàng" },
-    { key: "STORAGE_PLACED", label: "4. Lưu vị trí ô kho" },
-    { key: "COMPLETED", label: "5. PLC Đóng nắp & Hoàn thành" },
+  // Dynamic steps definition for DRONE_PICKUP (Nhập kho) vs DRONE_DELIVERY (Xuất kho)
+  const currentType = activeMission?.mission_type ?? missionType;
+
+  const pickupSteps = [
+    { key: "STARTED", label: "1. UAV Đáp Pad (Camera OFF)" },
+    { key: "DOCK_LOCKED", label: "2. PLC Khóa Drone & Nâng Z" },
+    { key: "ROBOT_PICKING", label: "3. Robot gắp SP từ UAV & Hạ Z" },
+    { key: "STORAGE_PLACED", label: "4. Quét QR & Cất vào ô kho" },
+    { key: "COMPLETED", label: "5. PLC Mở khóa Drone" },
   ];
+
+  const deliverySteps = [
+    { key: "STARTED", label: "1. Yêu cầu xuất kho & PLC Khóa" },
+    { key: "DOCK_LOCKED", label: "2. Robot lấy hàng từ ô kho" },
+    { key: "ROBOT_PICKING", label: "3. Quét QR & PLC Nâng Z" },
+    { key: "STORAGE_PLACED", label: "4. Robot đặt SP lên UAV & Hạ Z" },
+    { key: "COMPLETED", label: "5. PLC Mở khóa Drone" },
+  ];
+
+  const steps = currentType === "DRONE_DELIVERY" ? deliverySteps : pickupSteps;
+
+  // Check for error/cancelled states not in the normal step flow
+  const missionState = activeMission?.state ?? "";
+  const isErrorState = missionState === "ERROR" || missionState === "CANCELLED" || missionState === "FAILED" || missionState === "REJECTED_LOCATION" || missionState.startsWith("ERROR_");
 
   return (
     <div className="intralogistics-container">
@@ -66,28 +87,36 @@ export function IntralogisticsPanel({
         <div className="panel-header-inline">
           <h3>🎮 Bộ điều phối Tự động Smart Intralogistics (FSM Orchestrator)</h3>
           {activeMission ? (
-            <span className="badge online animate-pulse">
-              Đang chạy Nhiệm vụ #{activeMission.id} [{activeMission.mission_type}]
+            <span className={`badge ${isErrorState ? "error" : "online"} animate-pulse`}>
+              {isErrorState ? "🛑" : "🔄"} Nhiệm vụ #{activeMission.id} [{activeMission.mission_type}] — {missionState}
             </span>
           ) : (
             <span className="badge offline">Hệ thống Rảnh (IDLE)</span>
           )}
         </div>
 
+        {/* Error/Cancelled State Banner */}
+        {isErrorState && activeMission && (
+          <div className="error-banner" style={{ margin: "0.5rem 0", padding: "0.5rem 1rem", borderRadius: "6px", background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.4)" }}>
+            🛡️ Khóa An Toàn / Dừng Nhiệm vụ #{activeMission.id} ở trạng thái <strong>{missionState}</strong>.
+            <br />
+            <span>Chi tiết: {activeMission.step_details || "Không rõ nguyên nhân"}</span>
+          </div>
+        )}
+
         {/* FSM Stepper Progress Bar */}
         <div className="fsm-stepper">
           {steps.map((s, idx) => {
             const isActive = activeMission?.state === s.key;
-            const isPassed =
-              activeMission &&
-              steps.findIndex((st) => st.key === activeMission.state) > idx;
+            const stepIdx = steps.findIndex((st) => st.key === activeMission?.state);
+            const isPassed = activeMission && stepIdx > idx;
 
             return (
               <div
                 key={s.key}
                 className={`step-item ${isActive ? "active" : ""} ${
                   isPassed ? "completed" : ""
-                }`}
+                } ${isErrorState && activeMission ? "error-state" : ""}`}
               >
                 <div className="step-number">{idx + 1}</div>
                 <div className="step-label">{s.label}</div>
@@ -95,6 +124,13 @@ export function IntralogisticsPanel({
             );
           })}
         </div>
+
+        {/* Active step details readout */}
+        {activeMission && activeMission.step_details && !isErrorState && (
+          <div className="step-details-box mt-1" style={{ fontSize: "0.9rem", color: "var(--text-secondary, #94a3b8)", background: "rgba(0,0,0,0.2)", padding: "6px 12px", borderRadius: "4px" }}>
+            📍 Tiến trình chi tiết: <strong style={{ color: "#38bdf8" }}>{activeMission.step_details}</strong>
+          </div>
+        )}
 
         {/* Create Mission Trigger Form */}
         <div className="create-mission-box mt-2">

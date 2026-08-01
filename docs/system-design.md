@@ -148,41 +148,24 @@ sequenceDiagram
     Admin->>Backend: PATCH /admin/delivery-requests/{id}/status (APPROVED)
     
     Admin->>Admin: Nhấn "Chọn & START"
-    Admin->>Backend: POST /missions/start (Home, Pickup, Drop)
-    Backend->>Drone: Gửi Payload bay (MAVLink Commands)
     
-    loop Realtime Telemetry
-        Drone-->>Backend: Telemetry (GPS, Pin, ArUco detection)
-        Backend-->>Admin: WebSocket Push Telemetry
-    end
-
-    Drone->>Drone: Auto Landing bằng ArUco Precision Landing
-    Drone-->>Backend: Báo cáo hoàn thành nhiệm vụ
-    Backend->>Backend: Cập nhật status đơn hàng: DELIVERED
-```
-
----
-
-### 2.2. Sơ đồ Trình tự Bắt tay Tín hiệu (Handshake Sequence) giữa PLC & Robot FAIRINO
-
-#### A. Trình tự Bắt tay Nhập kho (Flow 8: DRONE_PICKUP)
+#### A. Trình tự Bắt tay Nhập kho (Flow DRONE_PICKUP)
 ```mermaid
 sequenceDiagram
     autonumber
-    participant UAV as 🚁 UAV Drone
+    participant Cam as 📷 Camera Vision
     participant Backend as ⚡ FastAPI (MissionManager)
-    participant PLC as ⚙️ PLC S7-1200
-    participant Robot as 🤖 Robot FAIRINO
     participant Grid as 📦 Ô chứa 3x3
+    participant Robot as 🤖 Robot FAIRINO
+    participant UAV as 🚁 UAV Drone
+    participant PLC as ⚙️ PLC S7-1200
 
-    UAV->>PLC: Touchdown sàn hạ cánh
+    Note over Cam: Camera OFF khi Drone đến
+    UAV->>PLC: Đáp xuống sàn hạ cánh
     PLC->>Backend: drone_detected = True
     Backend->>PLC: Command: LOCK_DRONE
     PLC->>PLC: Đóng kẹp X & Y (LOCKING -> DONE)
     PLC-->>Backend: Status: drone_locked = True
-    
-    Backend->>Robot: Command: MOVE_HOME
-    Robot-->>Backend: Status: READY (At HOME)
 
     Backend->>Robot: Command: REQUEST_Z_UP
     Backend->>PLC: Command: Z_UP
@@ -199,27 +182,39 @@ sequenceDiagram
     PLC->>PLC: Hạ bàn nâng Z về vị trí an toàn
     PLC-->>Backend: Status: z_axis = "DOWN"
 
+    Backend->>Cam: Turn ON Camera Scanner
+    Cam->>Cam: Quét mã QR sản phẩm trên tay Robot
+    Cam-->>Backend: Xáp nhận ID ("SP001")
     Backend->>Grid: find_available_slot()
     Grid-->>Backend: Return slot = "B2"
+
     Backend->>Robot: Command: STORE (slot="B2")
     Robot->>Grid: Đặt sản phẩm vào ô B2
     Grid->>Grid: Cập nhật slot B2 -> OCCUPIED
     Robot-->>Backend: Status: holding_product = None
 
+    Backend->>Cam: Turn OFF Camera Scanner
     Backend->>PLC: Command: UNLOCK_DRONE
     PLC->>PLC: Mở kẹp X & Y
     PLC-->>Backend: Status: drone_locked = False
 ```
 
-#### B. Trình tự Bắt tay Xuất kho (Flow 9: DRONE_DELIVERY)
+#### B. Trình tự Bắt tay Xuất kho (Flow DRONE_DELIVERY)
 ```mermaid
 sequenceDiagram
     autonumber
+    participant Cam as 📷 Camera Vision
     participant Backend as ⚡ FastAPI (MissionManager)
     participant Grid as 📦 Ô chứa 3x3
     participant Robot as 🤖 Robot FAIRINO
     participant UAV as 🚁 UAV Drone
     participant PLC as ⚙️ PLC S7-1200
+
+    Note over Cam: Camera OFF ban đầu
+    UAV->>PLC: Đáp lên sàn hạ cánh
+    PLC->>Backend: drone_detected = True
+    Backend->>PLC: Command: LOCK_DRONE
+    PLC-->>Backend: Status: drone_locked = True
 
     Backend->>Grid: find_slot_by_product_id("SP001")
     Grid-->>Backend: Return slot = "A3"
@@ -228,14 +223,9 @@ sequenceDiagram
     Robot->>Grid: Gắp sản phẩm từ ô A3
     Grid->>Grid: Cập nhật slot A3 -> EMPTY
     Robot-->>Backend: Status: holding_product = "SP001"
-    
-    Backend->>Robot: Command: MOVE_HOME
-    Robot-->>Backend: Status: READY (At HOME holding product)
 
-    UAV->>PLC: Tiếp đất sàn hạ cánh
-    PLC->>Backend: drone_detected = True
-    Backend->>PLC: Command: LOCK_DRONE
-    PLC-->>Backend: Status: drone_locked = True
+    Backend->>Cam: Turn ON Camera Scanner (holding_product = "SP001")
+    Cam->>Cam: Quét & Xác nhận sản phẩm đang mang ("SP001")
 
     Backend->>Robot: Command: REQUEST_Z_UP
     Backend->>PLC: Command: Z_UP

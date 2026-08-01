@@ -74,7 +74,8 @@ export function Dashboard() {
   // Quick device status checks for header badges
   const plcDev = devices.find((d) => d.device_type === "PLC");
   const robotDev = devices.find((d) => d.device_type === "ROBOT");
-  const camDev = devices.find((d) => d.device_type === "CAMERA");
+  const isPlcOnline = plcDev?.status === "ONLINE" || Boolean(plc?.connected) || Boolean(plc?.simulator_mode);
+  const isRobotOnline = robotDev?.status === "ONLINE" && (Boolean(robot?.connected) || Boolean(robot?.simulator_mode));
 
   return (
     <div className="dashboard">
@@ -121,14 +122,11 @@ export function Dashboard() {
           <span className={`badge ${droneOnline ? "online" : "offline"}`}>
             UAV: {droneOnline ? "Online" : "Offline"}
           </span>
-          <span className={`badge ${plcDev?.status === "ONLINE" ? "online" : "offline"}`}>
-            PLC: {plcDev?.status ?? "Offline"}
+          <span className={`badge ${isPlcOnline ? "online" : "offline"}`}>
+            PLC: {isPlcOnline ? "Online" : "Offline"}
           </span>
-          <span className={`badge ${robotDev?.status === "ONLINE" ? "online" : "offline"}`}>
-            Robot: {robotDev?.status ?? "Offline"}
-          </span>
-          <span className={`badge ${camDev?.status === "ONLINE" ? "online" : "offline"}`}>
-            Cam: {camDev?.status ?? "Offline"}
+          <span className={`badge ${isRobotOnline ? "online" : "offline"}`}>
+            Robot: {isRobotOnline ? "Online" : "Offline"}
           </span>
         </div>
       </header>

@@ -94,13 +94,29 @@ async def handle_drone_websocket(
                     )
                 elif msg_type == "landing_result":
                     p = payload.get("payload", {})
+                    loc_type = str(p.get("location_type", "WAREHOUSE_PAD")).upper()
                     await repo.log_landing_result(
                         drone_id=drone_id,
-                        location_type=p.get("location_type", "unknown"),
+                        location_type=loc_type,
                         success=p.get("success", False),
                         offset_x=p.get("offset_x", 0.0),
                         offset_y=p.get("offset_y", 0.0),
                         mission_id=p.get("mission_id"),
+                    )
+                    # Broadcast landing result event to frontend dashboard
+                    await manager.broadcast_to_clients({
+                        "type": "landing_result",
+                        "payload": {
+                            "drone_id": drone_id,
+                            "location_type": loc_type,
+                            "success": p.get("success", False),
+                            "offset_x": p.get("offset_x", 0.0),
+                            "offset_y": p.get("offset_y", 0.0),
+                        }
+                    })
+                    logger.info(
+                        "Landing result from %s at %s: success=%s (PLC/Robot Gated)",
+                        drone_id, loc_type, p.get("success", False)
                     )
                 elif msg_type == "error":
                     p = payload.get("payload", {})

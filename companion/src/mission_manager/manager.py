@@ -581,9 +581,14 @@ class MissionManager:
             # Wait for PX4 to confirm: landed=True AND armed=False (auto-disarmed)
             if self.mavlink.is_landed() and not self.mavlink.telemetry.armed:
                 if self._event_loop and self._event_loop.is_running():
+                    loc_type_map = {
+                        "pickup": "CUSTOMER_PICKUP",
+                        "drop": "CUSTOMER_DROP",
+                    }
+                    loc_type = loc_type_map.get(self._landing_phase, "WAREHOUSE_PAD")
                     asyncio.run_coroutine_threadsafe(
                         self.ws.send_landing_result(
-                            self._landing_phase,
+                            loc_type,
                             True,
                             self.vision.last_pose.dx,
                             self.vision.last_pose.dy,

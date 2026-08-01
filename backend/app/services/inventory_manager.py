@@ -19,15 +19,16 @@ class InventoryManager:
         self.session = session
 
     async def init_default_slots(self) -> None:
-        """Seed 9 storage slots (A1..C3) if table is empty."""
-        stmt = select(StorageSlotRecord)
+        """Seed 9 storage slots (A1..C3) if table is empty or missing slot_names."""
+        stmt = select(StorageSlotRecord).order_by(StorageSlotRecord.id)
         res = await self.session.execute(stmt)
-        existing = res.scalars().all()
+        existing = list(res.scalars().all())
 
         if not existing:
             now = datetime.utcnow()
-            for name in SLOT_NAMES:
+            for idx, name in enumerate(SLOT_NAMES, start=1):
                 slot = StorageSlotRecord(
+                    id=idx,
                     slot_name=name,
                     status=StorageSlotStatus.EMPTY.value,
                     product_id=None,
@@ -37,6 +38,13 @@ class InventoryManager:
                 self.session.add(slot)
             await self.session.commit()
             logger.info("Initialized 9 default storage slots (A1..C3)")
+        else:
+            now = datetime.utcnow()
+            for idx, slot in enumerate(existing):
+                if not slot.slot_name and idx < len(SLOT_NAMES):
+                    slot.slot_name = SLOT_NAMES[idx]
+                    slot.status = slot.status or StorageSlotStatus.EMPTY.value
+            await self.session.commit()
 
     async def get_all_slots(self) -> List[StorageSlotRecord]:
         """Fetch all 9 storage slots."""
@@ -109,8 +117,27 @@ class InventoryManager:
         """Process QR code scan from Camera QR system.
         Finds an available slot, registers product in DB, and assigns product to free slot.
         """
-        qr_code = payload.qr
-        product_id = qr_code.strip()
+        qr_code = payload.qr.strip()
+        product_id = qr_code
+        sender_name = payload.sender_name or "Khách hàng"
+        address = payload.address or "Kho trung tâm"
+
+        if payload.product_id:
+            product_id = payload.product_id
+
+        # If qr_code is JSON string, extract fields
+        if qr_code.startswith("{") and qr_code.endswith("}"):
+            try:
+                import json
+                data = json.loads(qr_code)
+                if isinstance(data, dict):
+                    product_id = str(data.get("productId") or data.get("product_id") or product_id)
+                    sender_name = str(data.get("senderName") or data.get("sender_name") or sender_name)
+                    address = str(data.get("address") or data.get("sender_address") or address)
+            except Exception:
+                pass
+
+        now = datetime.utcnow()
 
         # Find or create product record
         stmt_p = select(ProductRecord).where(ProductRecord.qr_code == qr_code)
@@ -123,7 +150,7 @@ class InventoryManager:
                 product_name=f"Sản phẩm {product_id}",
                 qr_code=qr_code,
                 status="IN_STOCK",
-                created_at=datetime.utcnow(),
+                created_at=now,
             )
             self.session.add(product)
 
@@ -142,16 +169,23 @@ class InventoryManager:
                     log_type="ERROR_LOG",
                     source="CAMERA",
                     message=f"No free slot for scanned product {product_id}",
-                    created_at=datetime.utcnow(),
+                    created_at=now,
                 )
             )
             await self.session.commit()
             return None
 
+        # Smart Intralogistics fields
         free_slot.status = StorageSlotStatus.OCCUPIED.value
         free_slot.product_id = product_id
         free_slot.qr_code = qr_code
-        free_slot.updated_time = datetime.utcnow()
+        free_slot.updated_time = now
+
+        # Legacy fields for backward compatibility
+        free_slot.is_empty = False
+        free_slot.sender_name = sender_name
+        free_slot.sender_address = address
+        free_slot.item_created_at = now
 
         product.current_slot = free_slot.slot_name
 
@@ -160,7 +194,7 @@ class InventoryManager:
                 log_type="SYSTEM_LOG",
                 source="CAMERA",
                 message=f"QR scanned product {product_id} assigned to slot {free_slot.slot_name}",
-                created_at=datetime.utcnow(),
+                created_at=now,
             )
         )
         await self.session.commit()

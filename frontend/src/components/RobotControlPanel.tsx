@@ -16,6 +16,11 @@ export function RobotControlPanel({ robot }: Props) {
     setMsg(null);
     try {
       const res = await executeRobotPick(targetSlot);
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
       const data = await res.json();
       setMsg(data.message || `Đã phát lệnh Robot Pick -> Ô ${targetSlot}`);
     } catch (err) {
@@ -30,6 +35,11 @@ export function RobotControlPanel({ robot }: Props) {
     setMsg(null);
     try {
       const res = await executeRobotPlace(targetSlot);
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
       const data = await res.json();
       setMsg(data.message || `Đã phát lệnh Robot Place từ Ô ${targetSlot} -> Docking`);
     } catch (err) {
@@ -44,6 +54,11 @@ export function RobotControlPanel({ robot }: Props) {
     setMsg(null);
     try {
       const res = await robotEmergencyStop();
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
       const data = await res.json();
       setMsg(data.message || "ĐÃ KÍCH HOẠT DỪNG KHẨN CẤP ROBOT!");
     } catch (err) {
@@ -95,7 +110,7 @@ export function RobotControlPanel({ robot }: Props) {
 
       {/* Joint Monitor */}
       <div className="pos-monitor">
-        <h4>Góc Các Khớp Joint ($J_1 \dots J_6$)</h4>
+        <h4>Góc Các Khớp Joint (J₁ … J₆)</h4>
         <div className="joint-coords">
           {robot?.joint_positions?.map((j, idx) => (
             <span key={`j-${idx + 1}`}>
@@ -130,7 +145,7 @@ export function RobotControlPanel({ robot }: Props) {
             onClick={handlePick}
             disabled={loading || robot?.status === "BUSY"}
           >
-            📦 Gắp từ Docking $\rightarrow$ Ô {targetSlot}
+            📦 Gắp từ Docking → Ô {targetSlot}
           </button>
           <button
             type="button"
@@ -138,7 +153,7 @@ export function RobotControlPanel({ robot }: Props) {
             onClick={handlePlace}
             disabled={loading || robot?.status === "BUSY"}
           >
-            📤 Lấy từ Ô {targetSlot} $\rightarrow$ Docking
+            📤 Lấy từ Ô {targetSlot} → Docking
           </button>
           <button
             type="button"

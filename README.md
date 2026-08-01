@@ -97,4 +97,42 @@ npm run dev -- --host 0.0.0.0 --port 5174
 sudo systemctl start drone-companion
 journalctl -u drone-companion -f
 ```
+------------------------------
 
+### 📄 3 Cách Sử dụng File `generate_qr_pdf.py`
+
+#### Cách 1: Nhập dữ liệu trực tiếp bằng bàn phím (Interactive Mode)
+Chạy lệnh bên dưới và gõ thông tin theo hướng dẫn màn hình:
+```bash
+python generate_qr_pdf.py
+```
+* **Mã sản phẩm (ID)**: Nhập `SP001` hoặc `PROD-8899`.
+* **Tên người gửi**: Nhập `Nguyen Van A` (hoặc bấm Enter để chọn mặc định).
+* **Địa chỉ giao**: Nhập `Da Nang` (hoặc bấm Enter để chọn mặc định).
+* $\rightarrow$ Đơn hàng sẽ tự động được đóng gói thành file PDF: **`QR_SP001.pdf`**.
+
+---
+
+#### Cách 2: Tạo nhanh bằng Dòng lệnh (CLI Command)
+Chạy trực tiếp với các tham số mong muốn:
+```bash
+python generate_qr_pdf.py --id SP008 --sender "Tran Van B" --address "Ha Noi"
+```
+
+---
+
+#### Cách 3: Tạo hàng loạt bộ 5 mã QR mẫu (Batch Mode)
+Tạo sẵn 5 file PDF tem nhãn QR mẫu từ `SP001` đến `SP005` chỉ với 1 lệnh:
+```bash
+python generate_qr_pdf.py --batch
+```
+
+---
+
+### 🌐 Tích hợp Endpoint API trên Backend (Web API)
+Backend cũng đã được bổ sung đường dẫn **`POST /api/inventory/generate-qr-pdf`**. Bạn có thể gửi yêu cầu tạo và tải file PDF nhãn QR trực tiếp từ giao diện Web.
+
+### 🖨️ Tính năng File PDF Tem Nhãn
+- File PDF định dạng A4 chuẩn in ấn.
+- Chứa mã QR hình ảnh sắc nét (chuẩn mã hóa JSON / String), USB Camera có thể quét trực tiếp từ màn hình máy tính hoặc giấy in.
+- Bảng chi tiết: Mã sản phẩm, Người gửi, Địa chỉ, Ngày giờ tạo, Khung viền màu xanh công nghiệp nổi bật.

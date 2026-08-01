@@ -38,6 +38,10 @@ class TelemetryPublisher:
             t.flight_mode,
             t.armed,
         )
+        phase = self._landing_status() if hasattr(self, "_landing_status") else "none"
+        loc_map = {"pickup": "CUSTOMER_PICKUP", "drop": "CUSTOMER_DROP"}
+        loc_type = loc_map.get(str(phase).lower(), "WAREHOUSE_PAD")
+
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "drone_id": __import__("config").DRONE_ID,
@@ -54,5 +58,7 @@ class TelemetryPublisher:
             "flight_mode": t.flight_mode,
             "aruco_detected": self._aruco_detected(),
             "landing_status": self._landing_status(),
+            "landing_phase": str(phase),
+            "landing_location": loc_type,
             "armed": t.armed,
         }

@@ -57,7 +57,7 @@ async def main():
         # 5. Test PLC Docking Station Controls
         plc_mgr = PLCManager.get_instance()
         status_lock = await plc_mgr.execute_command(PLCCommand.LOCK_DRONE)
-        logger.info("✓ PLC LOCK_DRONE executed. Drone Locked: %s, Clamps X/Y: %s/%s", status_lock.drone_locked, status_lock.clamp_x, status_lock.clamp_y)
+        logger.info("✓ PLC LOCK_DRONE executed. Drone Locked: %s, PLC Busy: %s, PLC Error: %s", status_lock.drone_locked, status_lock.plc_busy, status_lock.plc_error)
         status_z = await plc_mgr.execute_command(PLCCommand.Z_UP)
         logger.info("✓ PLC Z_UP executed. Z Axis: %s", status_z.z_axis)
 
@@ -68,14 +68,19 @@ async def main():
         r_pick = await robot_mgr.execute_command(RobotCommand.PICK, slot="A1")
         logger.info("✓ FAIRINO Robot PICK executed for slot A1. State: %s, Holding: %s", r_pick.state, r_pick.holding_product)
 
-        # 7. Test Master Orchestrator FSM: DRONE_PICKUP (Flow 8)
+        # 7. Test Master Orchestrator FSM: DRONE_PICKUP at CUSTOMER_PICKUP (Should be REJECTED)
         mission_mgr = MissionManager(session)
-        pickup_mission = await mission_mgr.execute_drone_pickup(drone_id="UAV01", product_id="SP002")
+        rejected_mission = await mission_mgr.execute_drone_pickup(drone_id="UAV01", product_id="SP002", location_type="CUSTOMER_PICKUP")
+        logger.info("✓ Safety Check Test: DRONE_PICKUP at CUSTOMER_PICKUP correctly REJECTED! State: %s", rejected_mission.state)
+        logger.info("   -> Details: %s", rejected_mission.step_details)
+
+        # 8. Test Master Orchestrator FSM: DRONE_PICKUP (Flow 8) at WAREHOUSE_PAD
+        pickup_mission = await mission_mgr.execute_drone_pickup(drone_id="UAV01", product_id="SP002", location_type="WAREHOUSE_PAD")
         logger.info("✓ DRONE_PICKUP Mission #%d completed! State: %s, Target Slot: %s", pickup_mission.id, pickup_mission.state, pickup_mission.target_slot)
         logger.info("   -> Details: %s", pickup_mission.step_details)
 
-        # 8. Test Master Orchestrator FSM: DRONE_DELIVERY (Flow 9)
-        delivery_mission = await mission_mgr.execute_drone_delivery(drone_id="UAV01", product_id="SP002")
+        # 9. Test Master Orchestrator FSM: DRONE_DELIVERY (Flow 9) at WAREHOUSE_PAD
+        delivery_mission = await mission_mgr.execute_drone_delivery(drone_id="UAV01", product_id="SP002", location_type="WAREHOUSE_PAD")
         logger.info("✓ DRONE_DELIVERY Mission #%d completed! State: %s, Picked Slot: %s", delivery_mission.id, delivery_mission.state, delivery_mission.target_slot)
         logger.info("   -> Details: %s", delivery_mission.step_details)
 

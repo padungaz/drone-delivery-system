@@ -15,13 +15,20 @@ from app.models.schemas import (
 from app.services.plc_manager import PLCManager
 from app.services.robot_manager import RobotManager
 from app.services.inventory_manager import InventoryManager
+from app.services.qr_scanner_service import QRScannerService
 
 logger = logging.getLogger(__name__)
 
 
 class MissionManager:
-    """Master Intralogistics Mission Orchestrator.
-    Executes automated coordination between UAV, PLC S7-1200, FAIRINO Robot, and Inventory.
+    """Master Intralogistics Mission Orchestrator — Handshake Signal Protocol.
+
+    Architecture: Sequential Command/Done Handshake with Safety Interlocks
+    =======================================================================
+    Backend acts as the Master Orchestrator. It sends commands to PLC and Robot
+    one at a time, waiting for each device to complete before proceeding to the
+    next step. If any device reports an ERROR or TIMEOUT, the sequence is
+    IMMEDIATELY ABORTED to prevent mechanical collisions.
     """
 
     def __init__(self, session: AsyncSession):
@@ -29,6 +36,7 @@ class MissionManager:
         self.plc_mgr = PLCManager.get_instance()
         self.robot_mgr = RobotManager.get_instance()
         self.inventory_mgr = InventoryManager(session)
+        self.qr_svc = QRScannerService.get_instance()
 
     async def log_event(self, source: str, message: str, log_type: str = "MISSION_LOG") -> None:
         logger.info("[%s] %s", source, message)
@@ -41,106 +49,226 @@ class MissionManager:
         self.session.add(log_entry)
         await self.session.commit()
 
-    async def execute_drone_pickup(self, drone_id: str, product_id: str) -> IntralogisticsMissionRecord:
-        """Flow 8: DRONE_PICKUP (Drone brings product to warehouse for storage)"""
+    async def validate_docking_eligibility(self, location_type: str = "WAREHOUSE_PAD") -> tuple[bool, str]:
+        """Dual Safety Check for Intralogistics Execution:
+        1. Location must be WAREHOUSE_PAD (not CUSTOMER_PICKUP or CUSTOMER_DROP).
+        2. PLC must confirm drone presence (drone_detected == True or simulator_mode == True).
+        """
+        loc_str = str(location_type).upper()
+        if loc_str not in ("WAREHOUSE_PAD", "HOME", "WAREHOUSE", "LANDINGLOCATION.WAREHOUSE_PAD"):
+            return False, f"Vị trí hạ cánh ({location_type}) không phải Trạm Docking Kho (WAREHOUSE_PAD). Từ chối chạy PLC/Robot."
+
+        plc_status = self.plc_mgr.get_status()
+        if not (plc_status.drone_detected or plc_status.simulator_mode):
+            return False, "Cảm biến PLC chưa phát hiện Drone trên Pad kho (drone_detected = False). Từ chối chạy PLC/Robot."
+
+        return True, "Xác thực thành công UAV hạ cánh đúng Trạm Docking Kho."
+
+    async def execute_drone_pickup(
+        self, drone_id: str, product_id: str, location_type: str = "WAREHOUSE_PAD"
+    ) -> IntralogisticsMissionRecord:
+        """Flow Nhập Kho (DRONE_PICKUP) — Safety Interlocked Sequential Handshake:
+
+        1. Check Docking Safety Interlock (Location MUST be WAREHOUSE_PAD & PLC drone_detected)
+        2. PLC LOCK_DRONE -> Check success
+        3. ROBOT MOVE_HOME -> Check success
+        4. PLC Z_UP -> Check success (Must be UP before robot enters pad area)
+        5. ROBOT PICK_PRODUCT (from UAV) -> Check success
+        6. ROBOT MOVE_HOME -> Check success (Robot retracts before closing hatch)
+        7. PLC Z_DOWN -> Check success
+        8. Camera ON -> Scan QR -> Find available storage slot
+        9. ROBOT STORE (place into storage slot A1..C3) -> Check success
+        10. Camera OFF
+        11. PLC UNLOCK_DRONE -> Complete
+        """
+        # Ensure camera is initially OFF
+        self.qr_svc.stop_camera_scanner()
+
         mission = IntralogisticsMissionRecord(
             mission_type="DRONE_PICKUP",
             drone_id=drone_id,
             product_id=product_id,
             state="STARTED",
-            step_details="1. Mission sent to UAV",
+            step_details="1. UAV arrived on pad. Camera OFF.",
             created_at=datetime.utcnow(),
         )
         self.session.add(mission)
         await self.session.commit()
         await self.session.refresh(mission)
 
+        # Dual Safety Check: Ensure UAV is at Warehouse Pad and PLC detects drone
+        eligible, reason = await self.validate_docking_eligibility(location_type)
+        if not eligible:
+            mission.state = "REJECTED_LOCATION"
+            mission.step_details = f"🛑 TỪ CHỐI THỰC THI: {reason}"
+            await self.log_event("SERVER", f"Mission #{mission.id} REJECTED: {reason}", log_type="ERROR_LOG")
+            await self.session.commit()
+            return mission
+
         await self.log_event("SERVER", f"Started DRONE_PICKUP mission #{mission.id} for product {product_id}")
 
-        # Step 2: Drone landing simulation / pad arrival
-        mission.state = "TAKEOFF_AND_FLYING"
-        mission.step_details = "2. Drone flying to warehouse pad"
+        # Step 1: PLC LOCK_DRONE
+        plc_res = await self.plc_mgr.execute_command(PLCCommand.LOCK_DRONE)
+        if plc_res.plc_error:
+            return await self._abort_mission(mission, "Step 1: PLC LOCK_DRONE failed or E-Stop triggered!")
+
+        mission.state = "DOCK_LOCKED"
+        mission.step_details = "2. PLC đã khóa cố định Drone trên pad (PLC_LOCK_DONE)."
+        await self.log_event("PLC", "Drone locked on pad (PLC_LOCK_DONE)")
+        await self.session.commit()
+
+        # Step 2: ROBOT MOVE_HOME
+        robot_res = await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
+        if robot_res.status == "ERROR":
+            return await self._abort_mission(mission, "Step 2: Robot MOVE_HOME failed!")
+
+        mission.step_details = "3. Robot đã về vị trí HOME (ROBOT_DONE)."
+        await self.log_event("ROBOT", "Robot returned to HOME position (ROBOT_DONE)")
+        await self.session.commit()
+
+        # Step 3: PLC Z_UP (Safety Interlock: Must succeed before robot enters pad)
+        plc_res = await self.plc_mgr.execute_command(PLCCommand.Z_UP)
+        if plc_res.plc_error or plc_res.z_axis != "UP":
+            return await self._abort_mission(mission, "Step 3: PLC Z_UP failed! Hatch not open. Aborting for collision safety.")
+
+        mission.step_details = "4. PLC đã nâng trục Z lên vị trí trên (PLC_Z_UP_DONE)."
+        await self.log_event("PLC", "Z_UP completed (PLC_Z_UP_DONE)")
+        await self.session.commit()
+
+        # Step 4: ROBOT PICK_PRODUCT from UAV
+        robot_res = await self.robot_mgr.execute_command(RobotCommand.PICK_PRODUCT)
+        if robot_res.status == "ERROR":
+            return await self._abort_mission(mission, "Step 4: Robot PICK_PRODUCT from UAV failed!")
+
+        mission.state = "ROBOT_PICKING"
+        mission.step_details = f"5. Robot đã gắp sản phẩm {product_id} từ UAV (ROBOT_DONE)."
+        await self.log_event("ROBOT", f"Picked product {product_id} from UAV (ROBOT_DONE)")
+        await self.session.commit()
+
+        # Step 5: ROBOT MOVE_HOME (Retract from pad before closing hatch)
+        robot_res = await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
+        if robot_res.status == "ERROR":
+            return await self._abort_mission(mission, "Step 5: Robot MOVE_HOME failed while carrying product!")
+
+        mission.step_details = f"6. Robot mang {product_id} rút về vị trí HOME an toàn (ROBOT_DONE)."
+        await self.log_event("ROBOT", f"Robot carrying {product_id} returned to HOME (ROBOT_DONE)")
+        await self.session.commit()
+
+        # Step 6: PLC Z_DOWN (Close hatch after robot retracts)
+        plc_res = await self.plc_mgr.execute_command(PLCCommand.Z_DOWN)
+        if plc_res.plc_error:
+            return await self._abort_mission(mission, "Step 6: PLC Z_DOWN failed!")
+
+        mission.step_details = "7. PLC đã hạ trục Z xuống vị trí dưới (PLC_Z_DOWN_DONE)."
+        await self.log_event("PLC", "Z_DOWN completed (PLC_Z_DOWN_DONE)")
+        await self.session.commit()
+
+        # Step 7: Camera ON -> QR Scan -> Find available storage slot
+        self.qr_svc.start_camera_scanner()
+        await self.log_event("CAMERA", "Backend Camera TURNED ON to scan product QR code")
+        mission.step_details = "8. Camera ON -> Đang quét mã QR sản phẩm."
         await self.session.commit()
         await asyncio.sleep(0.5)
 
-        # Step 3 & 4: Touchdown & PLC Sensor detect
-        self.plc_mgr.set_drone_detected(True)
-        mission.state = "TOUCHDOWN"
-        mission.step_details = "3-5. Drone touched down on pad. Sensor detected."
-        await self.log_event("PLC", "Drone detected on landing pad")
-        await self.session.commit()
-
-        # Step 6 & 7: PLC Lock Drone
-        await self.plc_mgr.execute_command(PLCCommand.LOCK_DRONE)
-        mission.state = "DRONE_LOCKED"
-        mission.step_details = "6-7. PLC locked drone clamps (X & Y)."
-        await self.log_event("PLC", "DRONE_LOCKED confirmed by PLC")
-        await self.session.commit()
-
-        # Step 8 & 9: Robot to Home
-        await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
-        mission.step_details = "8-9. FAIRINO Robot initialized at HOME position."
-        await self.log_event("ROBOT", "Robot moved to HOME position")
-
-        # Step 10 & 11: Request Z_UP & PLC Z axis UP
-        await self.robot_mgr.execute_command(RobotCommand.REQUEST_Z_UP)
-        await self.plc_mgr.execute_command(PLCCommand.Z_UP)
-        mission.step_details = "10-11. Lift Z-axis raised to UP position."
-        await self.log_event("PLC", "Z_UP completed")
-
-        # Step 12: Robot pick product from Drone
-        await self.robot_mgr.execute_command(RobotCommand.PICK_PRODUCT)
-        mission.step_details = "12. Robot picked product from Drone."
-        await self.log_event("ROBOT", f"Pick completed for product {product_id}")
-
-        # Step 13 & 14 & 15: Robot Home & Z_DOWN
-        await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
-        await self.robot_mgr.execute_command(RobotCommand.REQUEST_Z_DOWN)
-        await self.plc_mgr.execute_command(PLCCommand.Z_DOWN)
-        mission.step_details = "13-15. Robot returned HOME and Z-axis lowered."
-        await self.log_event("SERVER", "DRONE_PICKUP_COMPLETE")
-
-        # Step 16-20: Find free slot and store in warehouse
+        scan_res = await self.qr_svc.process_qr_code(product_id, source="FSM_PICKUP_SCAN")
         free_slot = await self.inventory_mgr.find_available_slot()
-        if free_slot:
-            target_slot = free_slot.slot_name
+
+        if free_slot or scan_res.get("slot_name"):
+            target_slot = scan_res.get("slot_name") or (free_slot.slot_name if free_slot else "A1")
             mission.target_slot = target_slot
-            await self.robot_mgr.execute_command(RobotCommand.STORE, slot=target_slot)
+
+            # Step 8: ROBOT STORE (cất vào ô kho)
+            robot_res = await self.robot_mgr.execute_command(RobotCommand.STORE, slot=target_slot)
+            if robot_res.status == "ERROR":
+                self.qr_svc.stop_camera_scanner()
+                return await self._abort_mission(mission, f"Step 8: Robot STORE into slot {target_slot} failed!")
+
             await self.inventory_mgr.update_slot(
                 slot_name=target_slot,
                 status=StorageSlotStatus.OCCUPIED,
                 product_id=product_id,
                 qr_code=product_id,
             )
-            mission.state = "MISSION_COMPLETE"
-            mission.step_details = f"16-20. Product stored into slot {target_slot} successfully."
-            await self.log_event("ROBOT", f"STORE_PRODUCT({target_slot}) completed")
+            mission.state = "STORAGE_PLACED"
+            mission.step_details = f"9. Robot đã cất sản phẩm vào ô {target_slot} (ROBOT_DONE)."
+            await self.log_event("ROBOT", f"Stored product into slot {target_slot} (ROBOT_DONE)")
+            await self.session.commit()
+
+            # Step 9: Camera OFF
+            self.qr_svc.stop_camera_scanner()
+            await self.log_event("CAMERA", "Backend Camera TURNED OFF after placement.")
+
+            # Step 10: PLC UNLOCK_DRONE -> Complete
+            plc_res = await self.plc_mgr.execute_command(PLCCommand.UNLOCK_DRONE)
+            if plc_res.plc_error:
+                return await self._abort_mission(mission, "Step 10: PLC UNLOCK_DRONE failed!")
+
+            mission.state = "COMPLETED"
+            mission.step_details = "10. PLC đã mở khóa Drone (PLC_UNLOCK_DONE). Nhiệm vụ Nhập Kho HOÀN THÀNH!"
+            await self.log_event("SERVER", f"DRONE_PICKUP Mission #{mission.id} COMPLETED")
         else:
+            self.qr_svc.stop_camera_scanner()
             mission.state = "ERROR_NO_FREE_SLOT"
             mission.step_details = "Warehouse full! No free slot available."
             await self.log_event("SERVER", "No free slot available for storage", log_type="ERROR_LOG")
 
-        # Step 21: Unlock Drone for return flight
-        await self.plc_mgr.execute_command(PLCCommand.UNLOCK_DRONE)
         await self.session.commit()
         await self.session.refresh(mission)
         return mission
 
-    async def execute_drone_delivery(self, drone_id: str, product_id: str) -> IntralogisticsMissionRecord:
-        """Flow 9: DRONE_DELIVERY (Robot picks product from slot & loads onto Drone for delivery)"""
+    async def execute_drone_delivery(
+        self, drone_id: str, product_id: str, location_type: str = "WAREHOUSE_PAD"
+    ) -> IntralogisticsMissionRecord:
+        """Flow Xuất Kho (DRONE_DELIVERY) — Safety Interlocked Sequential Handshake:
+
+        1. Check Docking Safety Interlock (Location MUST be WAREHOUSE_PAD & PLC drone_detected)
+        2. PLC LOCK_DRONE -> Check success
+        3. Find product location in storage
+        4. ROBOT PICK (from storage slot A1..C3) -> Check success
+        5. ROBOT MOVE_HOME -> Check success
+        6. Camera ON -> Verify product
+        7. PLC Z_UP -> Check success (Safety Interlock: Must be UP before robot places on UAV)
+        8. ROBOT PLACE_PRODUCT (onto UAV) -> Check success
+        9. ROBOT MOVE_HOME -> Check success (Robot retracts before closing hatch)
+        10. Camera OFF -> Turn off camera immediately after placement
+        11. PLC Z_DOWN -> Check success
+        12. PLC UNLOCK_DRONE -> Complete
+        """
+        # Ensure camera is initially OFF
+        self.qr_svc.stop_camera_scanner()
+
         mission = IntralogisticsMissionRecord(
             mission_type="DRONE_DELIVERY",
             drone_id=drone_id,
             product_id=product_id,
             state="STARTED",
-            step_details="1. Received delivery request",
+            step_details="1. Delivery request started. Camera OFF.",
             created_at=datetime.utcnow(),
         )
         self.session.add(mission)
         await self.session.commit()
         await self.session.refresh(mission)
 
+        # Dual Safety Check: Ensure UAV is at Warehouse Pad and PLC detects drone
+        eligible, reason = await self.validate_docking_eligibility(location_type)
+        if not eligible:
+            mission.state = "REJECTED_LOCATION"
+            mission.step_details = f"🛑 TỪ CHỐI THỰC THI: {reason}"
+            await self.log_event("SERVER", f"Mission #{mission.id} REJECTED: {reason}", log_type="ERROR_LOG")
+            await self.session.commit()
+            return mission
+
         await self.log_event("SERVER", f"Started DRONE_DELIVERY mission #{mission.id} for product {product_id}")
+
+        # Step 1: PLC LOCK_DRONE
+        plc_res = await self.plc_mgr.execute_command(PLCCommand.LOCK_DRONE)
+        if plc_res.plc_error:
+            return await self._abort_mission(mission, "Step 1: PLC LOCK_DRONE failed!")
+
+        mission.state = "DOCK_LOCKED"
+        mission.step_details = "2. PLC đã khóa cố định Drone trên pad (PLC_LOCK_DONE)."
+        await self.log_event("PLC", "Drone locked on pad (PLC_LOCK_DONE)")
+        await self.session.commit()
 
         # Step 2: Find product location in storage
         slot_record = await self.inventory_mgr.find_slot_by_product_id(product_id)
@@ -154,38 +282,107 @@ class MissionManager:
         target_slot = slot_record.slot_name
         mission.target_slot = target_slot
 
-        # Step 3, 4, 5: Robot pick product from slot & Home
-        await self.robot_mgr.execute_command(RobotCommand.PICK, slot=target_slot)
+        # Step 3: ROBOT PICK from storage slot
+        robot_res = await self.robot_mgr.execute_command(RobotCommand.PICK, slot=target_slot)
+        if robot_res.status == "ERROR":
+            return await self._abort_mission(mission, f"Step 3: Robot PICK from slot {target_slot} failed!")
+
         await self.inventory_mgr.update_slot(slot_name=target_slot, status=StorageSlotStatus.EMPTY)
-        await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
-        mission.step_details = f"3-5. Robot picked product {product_id} from slot {target_slot}."
-        await self.log_event("ROBOT", f"GET_PRODUCT({target_slot}) completed")
+        mission.state = "ROBOT_PICKING"
+        mission.step_details = f"3. Robot đã lấy sản phẩm {product_id} từ ô {target_slot} (ROBOT_DONE)."
+        await self.log_event("ROBOT", f"Picked product {product_id} from slot {target_slot} (ROBOT_DONE)")
+        await self.session.commit()
 
-        # Step 6 & 7 & 8: Drone landing & PLC LOCK_DRONE
-        self.plc_mgr.set_drone_detected(True)
-        await self.plc_mgr.execute_command(PLCCommand.LOCK_DRONE)
-        mission.step_details = "6-8. Drone landed and locked by PLC clamps."
-        await self.log_event("PLC", "Drone locked for loading")
+        # Step 4: ROBOT MOVE_HOME
+        robot_res = await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
+        if robot_res.status == "ERROR":
+            return await self._abort_mission(mission, "Step 4: Robot MOVE_HOME failed!")
 
-        # Step 9 & 10 & 11: Request Z_UP & Robot place product on Drone
-        await self.robot_mgr.execute_command(RobotCommand.REQUEST_Z_UP)
-        await self.plc_mgr.execute_command(PLCCommand.Z_UP)
-        await self.robot_mgr.execute_command(RobotCommand.PLACE_PRODUCT)
-        mission.step_details = f"9-11. Robot placed product {product_id} onto Drone."
-        await self.log_event("ROBOT", f"Placed product {product_id} on Drone")
+        mission.step_details = f"4. Robot mang {product_id} về vị trí HOME (ROBOT_DONE)."
+        await self.log_event("ROBOT", f"Robot holding {product_id} returned to HOME (ROBOT_DONE)")
+        await self.session.commit()
 
-        # Step 12 & 13 & 14 & 15: Robot Home, Z_DOWN, PLC DRONE_LOADED_SUCCESS
-        await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
-        await self.robot_mgr.execute_command(RobotCommand.REQUEST_Z_DOWN)
-        await self.plc_mgr.execute_command(PLCCommand.Z_DOWN)
-        await self.log_event("PLC", "DRONE_LOADED_SUCCESS")
+        # Step 5: Camera ON -> Verify product
+        self.qr_svc.start_camera_scanner()
+        await self.log_event("CAMERA", f"Backend Camera TURNED ON -> Verified robot carrying product {product_id}")
+        mission.step_details = f"5. Camera ON -> Đã xác nhận robot đang mang sản phẩm {product_id}."
+        await self.session.commit()
+        await asyncio.sleep(0.5)
 
-        # Step 16: Unlock Drone & grant takeoff
-        await self.plc_mgr.execute_command(PLCCommand.UNLOCK_DRONE)
-        mission.state = "MISSION_COMPLETE"
-        mission.step_details = "16. Drone unlocked and cleared for delivery takeoff!"
-        await self.log_event("SERVER", "DRONE_DELIVERY mission complete — UAV cleared for takeoff")
+        # Step 6: PLC Z_UP (Safety Interlock: Must succeed before robot enters pad)
+        plc_res = await self.plc_mgr.execute_command(PLCCommand.Z_UP)
+        if plc_res.plc_error or plc_res.z_axis != "UP":
+            self.qr_svc.stop_camera_scanner()
+            return await self._abort_mission(mission, "Step 6: PLC Z_UP failed! Hatch not open. Aborting for collision safety.")
+
+        mission.step_details = "6. PLC đã nâng trục Z lên (PLC_Z_UP_DONE)."
+        await self.log_event("PLC", "Z_UP completed (PLC_Z_UP_DONE)")
+        await self.session.commit()
+
+        # Step 7: ROBOT PLACE_PRODUCT onto UAV
+        robot_res = await self.robot_mgr.execute_command(RobotCommand.PLACE_PRODUCT)
+        if robot_res.status == "ERROR":
+            self.qr_svc.stop_camera_scanner()
+            return await self._abort_mission(mission, "Step 7: Robot PLACE_PRODUCT onto UAV failed!")
+
+        mission.step_details = f"7. Robot đã đặt sản phẩm {product_id} lên UAV (ROBOT_DONE)."
+        await self.log_event("ROBOT", f"Placed product {product_id} onto UAV (ROBOT_DONE)")
+        await self.session.commit()
+
+        # Step 8: ROBOT MOVE_HOME (Retract from pad before closing hatch)
+        robot_res = await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
+        if robot_res.status == "ERROR":
+            self.qr_svc.stop_camera_scanner()
+            return await self._abort_mission(mission, "Step 8: Robot MOVE_HOME failed after placing product!")
+
+        mission.step_details = "8. Robot đã rút về vị trí HOME an toàn (ROBOT_DONE)."
+        await self.log_event("ROBOT", "Robot returned to HOME after placing product (ROBOT_DONE)")
+        await self.session.commit()
+
+        # Step 9: Camera OFF (Turn off camera immediately after placement complete)
+        self.qr_svc.stop_camera_scanner()
+        await self.log_event("CAMERA", "Backend Camera TURNED OFF after placement.")
+
+        # Step 10: PLC Z_DOWN
+        plc_res = await self.plc_mgr.execute_command(PLCCommand.Z_DOWN)
+        if plc_res.plc_error:
+            return await self._abort_mission(mission, "Step 10: PLC Z_DOWN failed!")
+
+        mission.step_details = "9. PLC đã hạ trục Z xuống (PLC_Z_DOWN_DONE)."
+        await self.log_event("PLC", "Z_DOWN completed (PLC_Z_DOWN_DONE)")
+        await self.session.commit()
+
+        # Step 11: PLC UNLOCK_DRONE -> Complete
+        plc_res = await self.plc_mgr.execute_command(PLCCommand.UNLOCK_DRONE)
+        if plc_res.plc_error:
+            return await self._abort_mission(mission, "Step 11: PLC UNLOCK_DRONE failed!")
+
+        mission.state = "COMPLETED"
+        mission.step_details = "10-11. PLC đã mở khóa Drone. Camera OFF. Nhiệm vụ Xuất Kho HOÀN THÀNH!"
+        await self.log_event("SERVER", f"DRONE_DELIVERY Mission #{mission.id} COMPLETED")
 
         await self.session.commit()
         await self.session.refresh(mission)
         return mission
+
+    async def _abort_mission(self, mission: IntralogisticsMissionRecord, reason: str) -> IntralogisticsMissionRecord:
+        """Helper to safely abort mission on hardware failure or timeout."""
+        logger.error("🛑 ABORTING MISSION #%d: %s", mission.id, reason)
+        mission.state = "FAILED"
+        mission.step_details = f"🛑 DỪNG KHẨN CẤP: {reason}"
+        await self.log_event("SERVER", f"Mission #{mission.id} ABORTED: {reason}", log_type="ERROR_LOG")
+        await self.session.commit()
+        await self.session.refresh(mission)
+        return mission
+
+    async def get_all_missions(self) -> List[IntralogisticsMissionRecord]:
+        stmt = select(IntralogisticsMissionRecord).order_by(IntralogisticsMissionRecord.id.desc())
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
+    async def get_active_mission(self) -> Optional[IntralogisticsMissionRecord]:
+        stmt = select(IntralogisticsMissionRecord).where(
+            IntralogisticsMissionRecord.state.notin_(["COMPLETED", "FAILED", "ERROR_NO_FREE_SLOT", "ERROR_PRODUCT_NOT_FOUND"])
+        ).order_by(IntralogisticsMissionRecord.id.desc())
+        res = await self.session.execute(stmt)
+        return res.scalars().first()

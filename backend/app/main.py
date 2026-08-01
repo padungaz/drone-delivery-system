@@ -41,8 +41,9 @@ async def heartbeat_monitor_task():
             async with async_session() as session:
                 mgr = DeviceManager(session)
 
-                # Sync PLC01 heartbeat based on PLCManager connection/sim state
+                # Sync PLC01 heartbeat — ping PLC to check if TCP connection is still alive
                 plc_mgr = PLCManager.get_instance()
+                await plc_mgr.check_connection()
                 plc_status = DeviceStatus.ONLINE if (plc_mgr.is_connected or plc_mgr.simulator_mode) else DeviceStatus.OFFLINE
                 await mgr.update_heartbeat(DeviceHeartbeatRequest(name="PLC01", status=plc_status))
 
@@ -56,6 +57,18 @@ async def heartbeat_monitor_task():
                 uav_connected = drone_ws_manager.is_drone_connected("UAV01") or drone_ws_manager.is_drone_connected("drone-01") or uav_sim
                 uav_status = DeviceStatus.ONLINE if uav_connected else DeviceStatus.OFFLINE
                 await mgr.update_heartbeat(DeviceHeartbeatRequest(name="UAV01", status=uav_status))
+
+                # Broadcast realtime heartbeat & status via WebSocket
+                await system_ws_manager.broadcast("DEVICE_HEARTBEAT", {
+                    "device_name": "PLC01",
+                    "status": plc_status.value,
+                })
+                await system_ws_manager.broadcast("DEVICE_HEARTBEAT", {
+                    "device_name": "ROBOT01",
+                    "status": robot_status.value,
+                })
+                await system_ws_manager.broadcast("PLC_STATUS", plc_mgr.get_status().model_dump())
+                await system_ws_manager.broadcast("ROBOT_STATUS", robot_mgr.get_status().model_dump())
 
                 timed_out = await mgr.check_device_timeouts()
                 for dev_name in timed_out:
@@ -72,7 +85,7 @@ async def heartbeat_monitor_task():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    # Seed 9 storage slots & 4 LAN devices
+    # Seed 9 storage slots & 3 LAN devices (UAV01, PLC01, ROBOT01)
     async with async_session() as session:
         storage_repo = StorageRepository(session)
         await storage_repo.init_storage_slots()
@@ -84,7 +97,7 @@ async def lifespan(app: FastAPI):
         await dev_mgr.register_device(DeviceRegisterRequest(name="UAV01", type=DeviceType.UAV, ip="192.168.137.88"))
         await dev_mgr.register_device(DeviceRegisterRequest(name="PLC01", type=DeviceType.PLC, ip=plc_ip))
         await dev_mgr.register_device(DeviceRegisterRequest(name="ROBOT01", type=DeviceType.ROBOT, ip="192.168.58.2"))
-        await dev_mgr.register_device(DeviceRegisterRequest(name="CAM01", type=DeviceType.CAMERA, ip="192.168.58.50"))
+        await dev_mgr.remove_device("CAM01")
 
     # Start background heartbeat monitor
     monitor = asyncio.create_task(heartbeat_monitor_task())

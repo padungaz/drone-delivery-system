@@ -9,6 +9,7 @@ from app.models.schemas import (
     QRScanPayload,
 )
 from app.services.inventory_manager import InventoryManager
+from app.services.qr_scanner_service import QRScannerService
 from app.websocket.manager import system_ws_manager
 
 inventory_router = APIRouter(prefix="/api/inventory", tags=["Warehouse Inventory Management"])
@@ -66,20 +67,90 @@ async def clear_inventory_slot(
     return cleared
 
 
-@inventory_router.post("/qr-scan", response_model=StorageSlotResponse)
+@inventory_router.post("/qr-scan")
 async def qr_scan_product(
     payload: QRScanPayload,
-    session: AsyncSession = Depends(get_session),
 ):
-    mgr = InventoryManager(session)
-    assigned_slot = await mgr.process_qr_scan(payload)
-    if not assigned_slot:
-        raise HTTPException(status_code=400, detail="Failed to process QR scan. Warehouse full or invalid product.")
+    """Scan QR code manually or via API, automatically allocating an available storage slot."""
+    qr_service = QRScannerService.get_instance()
+    res = await qr_service.process_qr_code(payload.qr, source="API_SCAN")
+    if res.get("status") == "full":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
 
-    await system_ws_manager.broadcast("INVENTORY_STATUS", {
-        "slot_name": assigned_slot.slot_name,
-        "status": assigned_slot.status,
-        "product_id": assigned_slot.product_id,
-    })
 
-    return assigned_slot
+@inventory_router.get("/camera-scan/status")
+async def get_camera_scan_status():
+    """Get status and statistics of the integrated backend camera QR scanner."""
+    qr_service = QRScannerService.get_instance()
+    return qr_service.get_status()
+
+
+@inventory_router.post("/camera-scan/start")
+async def start_camera_scanner():
+    """Start integrated USB camera QR code scanner loop in backend."""
+    qr_service = QRScannerService.get_instance()
+    qr_service.start_camera_scanner()
+    status = qr_service.get_status()
+    mode_text = "Real USB Camera" if not status.get("simulator_mode") else "Simulator Mode"
+    return {
+        "message": f"Đã khởi chạy Backend Camera QR Scanner ({mode_text})",
+        "status": status,
+    }
+
+
+@inventory_router.post("/camera-scan/stop")
+async def stop_camera_scanner():
+    """Stop integrated USB camera QR code scanner loop in backend."""
+    qr_service = QRScannerService.get_instance()
+    qr_service.stop_camera_scanner()
+    return {"message": "Đã dừng Backend Camera QR Scanner", "status": qr_service.get_status()}
+
+
+@inventory_router.get("/camera-scan/video-feed")
+async def get_camera_video_feed():
+    """Live MJPEG video stream from USB Camera for Web UI preview."""
+    import asyncio
+    from fastapi.responses import StreamingResponse
+
+    qr_service = QRScannerService.get_instance()
+
+    async def generate_mjpeg_frames():
+        while True:
+            if not qr_service.is_active:
+                await asyncio.sleep(0.2)
+                continue
+
+            frame_bytes = qr_service.get_latest_frame_bytes()
+            if frame_bytes:
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+                )
+            await asyncio.sleep(0.04)
+
+    return StreamingResponse(
+        generate_mjpeg_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@inventory_router.post("/generate-qr-pdf")
+async def generate_qr_pdf_endpoint(payload: QRScanPayload):
+    """Generate a printable PDF label file for a product QR code."""
+    import os
+    import sys
+    from fastapi.responses import FileResponse
+
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
+    try:
+        from generate_qr_pdf import generate_qr_pdf
+        p_id = payload.product_id or payload.qr.strip()
+        pdf_file = generate_qr_pdf(
+            product_id=p_id,
+            sender_name=payload.sender_name or "Nguyen Van A",
+            address=payload.address or "Da Nang",
+        )
+        return FileResponse(pdf_file, filename=os.path.basename(pdf_file), media_type="application/pdf")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate QR PDF: {exc}")

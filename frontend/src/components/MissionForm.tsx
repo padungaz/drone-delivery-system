@@ -21,11 +21,10 @@ export function MissionForm({ onChange, initialLocations }: Props) {
   );
   const [mode, setMode] = useState<"manual" | "auto">("auto");
 
-  // When parent passes new locations (from DeliveryRequestsPanel), sync them
+  // When parent passes new locations (from DeliveryRequestsPanel), sync local form state
   useEffect(() => {
     if (initialLocations) {
       setLocations(initialLocations);
-      onChange(initialLocations);
     }
   }, [initialLocations]);
 

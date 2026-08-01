@@ -73,6 +73,13 @@ class StepCommandRequest(BaseModel):
     drone_id: str = "drone-01"
 
 
+class LandingLocation(str, Enum):
+    WAREHOUSE_PAD = "WAREHOUSE_PAD"
+    CUSTOMER_PICKUP = "CUSTOMER_PICKUP"
+    CUSTOMER_DROP = "CUSTOMER_DROP"
+    UNKNOWN = "UNKNOWN"
+
+
 class TelemetryPayload(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     drone_id: str = "drone-01"
@@ -89,7 +96,18 @@ class TelemetryPayload(BaseModel):
     aruco_detected: bool = False
     landing_status: str = "NONE"
     landing_phase: str = "none"   # "pickup" | "drop" | "rtl" | "none"
+    landing_location: LandingLocation = LandingLocation.WAREHOUSE_PAD
     armed: bool = False
+
+
+class LandingResultPayload(BaseModel):
+    drone_id: str = "drone-01"
+    location_type: LandingLocation = LandingLocation.WAREHOUSE_PAD
+    success: bool = True
+    offset_x: float = 0.0
+    offset_y: float = 0.0
+    mission_id: Optional[int] = None
+
 
 
 class DroneStatusResponse(BaseModel):
@@ -279,13 +297,13 @@ class PLCCommandRequest(BaseModel):
 
 class PLCStatusResponse(BaseModel):
     drone_detected: bool = False
-    clamp_x: str = "OPEN"       # "OPEN", "LOCKING", "DONE"
-    clamp_y: str = "OPEN"       # "OPEN", "LOCKING", "DONE"
     drone_locked: bool = False
     z_axis: str = "HOME"        # "HOME", "UP", "DOWN", "MOVING"
     emergency_stop: bool = False
     connected: bool = True
     simulator_mode: bool = True
+    plc_busy: bool = False
+    plc_error: bool = False
 
 
 class RobotCommand(str, Enum):
@@ -304,9 +322,11 @@ class RobotCommandRequest(BaseModel):
 
 
 class RobotStatusResponse(BaseModel):
-    state: str = "IDLE"          # "IDLE", "READY", "MOVING", "PICKING", "PLACING", "ERROR"
+    state: str = "OFFLINE"          # "IDLE", "READY", "MOVING", "PICKING", "PLACING", "ERROR", "OFFLINE"
     current_slot: Optional[str] = None
     holding_product: Optional[str] = None
+    connected: bool = False
+    simulator_mode: bool = False
 
 
 class StorageSlotStatus(str, Enum):
@@ -333,6 +353,9 @@ class StorageSlotUpdateRequest(BaseModel):
 class QRScanPayload(BaseModel):
     camera_id: str = "CAM01"
     qr: str
+    sender_name: Optional[str] = None
+    address: Optional[str] = None
+    product_id: Optional[str] = None
     time: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -343,8 +366,10 @@ class IntralogisticsMissionType(str, Enum):
 
 class IntralogisticsMissionCreate(BaseModel):
     drone_id: str = "UAV01"
-    task: str = "PICKUP"         # "PICKUP" or "DELIVERY"
+    mission_type: Optional[str] = "DRONE_PICKUP"
+    task: Optional[str] = "PICKUP"         # "PICKUP" or "DELIVERY"
     product_id: str
+    target_slot: Optional[str] = None
 
 
 class IntralogisticsMissionResponse(BaseModel):

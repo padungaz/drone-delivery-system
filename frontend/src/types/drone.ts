@@ -29,6 +29,8 @@ export interface MissionLocations {
   drop_lon: number;
 }
 
+export type LandingLocation = "WAREHOUSE_PAD" | "CUSTOMER_PICKUP" | "CUSTOMER_DROP" | "UNKNOWN";
+
 export interface Telemetry {
   timestamp: string;
   drone_id: string;
@@ -45,6 +47,7 @@ export interface Telemetry {
   aruco_detected: boolean;
   landing_status: string;
   landing_phase: string;  // "pickup" | "drop" | "rtl" | "none"
+  landing_location?: LandingLocation;
   armed: boolean;
 }
 
@@ -117,11 +120,18 @@ export interface DeviceInfo {
 }
 
 export interface PLCState {
-  hatch_open: boolean;
+  // Backend native fields (from PLCStatusResponse — Handshake Protocol)
+  drone_detected: boolean;
   drone_locked: boolean;
-  drone_landed_sensor: boolean;
+  z_axis: string;            // "HOME" | "UP" | "DOWN" | "MOVING"
   emergency_stop: boolean;
-  auto_mode: boolean;
+  connected: boolean;
+  simulator_mode: boolean;
+  plc_busy: boolean;
+  plc_error: boolean;
+  // Derived convenience fields (computed on frontend)
+  hatch_open: boolean;
+  drone_landed_sensor: boolean;
 }
 
 export interface RobotState {
@@ -137,6 +147,8 @@ export interface RobotState {
     ry: number;
     rz: number;
   };
+  connected?: boolean;
+  simulator_mode?: boolean;
 }
 
 export type StorageSlotStatus = "EMPTY" | "OCCUPIED" | "RESERVED";

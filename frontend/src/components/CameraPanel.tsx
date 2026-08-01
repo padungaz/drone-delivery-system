@@ -14,7 +14,7 @@ const STATUS_CONFIG: Record<CameraStatus, { label: string; cls: string; icon: st
   ERROR: { label: "Camera ERROR", cls: "cam-error", icon: "🟡" },
 };
 
-export function CameraPanel({ cameraStatus, arucoDetection, droneOnline }: Props) {
+export function CameraPanel({ cameraStatus, arucoDetection, droneOnline: _droneOnline }: Props) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -51,17 +51,15 @@ export function CameraPanel({ cameraStatus, arucoDetection, droneOnline }: Props
         <button
           id="btn-test-camera"
           className={`btn ${isOn ? "btn-stop" : "btn-camera"}`}
-          disabled={!droneOnline || loading}
+          disabled={loading}
           onClick={handleToggle}
           title={
-            !droneOnline
-              ? "Drone must be online to test camera"
-              : isOn
-              ? "Stop camera and ArUco detection"
-              : "Open USB camera and start ArUco detection"
+            isOn
+              ? "Tắt camera và dừng rà tìm ArUco / QR"
+              : "Mở USB camera và bắt đầu rà tìm ArUco / QR"
           }
         >
-          {loading ? "Sending…" : isOn ? "⏹ Stop Camera" : "📷 Test Camera"}
+          {loading ? "Sending…" : isOn ? "⏹ Tắt Camera" : "📷 Test Camera"}
         </button>
       </div>
 

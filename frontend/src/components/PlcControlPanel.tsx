@@ -15,6 +15,11 @@ export function PlcControlPanel({ plc }: Props) {
     setMsg(null);
     try {
       const res = await controlPlcHatch(open);
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
       const data = await res.json();
       setMsg(data.message || `Lệnh ${open ? "Mở" : "Đóng"} nắp thành công!`);
     } catch (err) {
@@ -29,6 +34,11 @@ export function PlcControlPanel({ plc }: Props) {
     setMsg(null);
     try {
       const res = await controlPlcLock(lock);
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
       const data = await res.json();
       setMsg(data.message || `Lệnh ${lock ? "Khóa" : "Mở khóa"} thành công!`);
     } catch (err) {
@@ -40,9 +50,21 @@ export function PlcControlPanel({ plc }: Props) {
 
   return (
     <div className="panel plc-panel">
-      <h3>⚡ Điều khiển Docking PLC S7-1200</h3>
+      <div className="panel-header-inline">
+        <h3>⚡ Điều khiển Docking PLC S7-1200</h3>
+        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+          <span className={`status-badge ${plc?.connected ? "status-online" : "status-offline"}`}>
+            {plc?.connected ? "KẾT NỐI" : "MẤT KẾT NỐI"}
+          </span>
+          {plc?.simulator_mode && (
+            <span className="status-badge status-busy" title="Đang chạy chế độ mô phỏng, không kết nối PLC thật">
+              SIM
+            </span>
+          )}
+        </div>
+      </div>
 
-      {/* Sensor Indicators */}
+      {/* Sensor Indicators — 2x3 grid */}
       <div className="sensor-grid">
         <div className={`sensor-item ${plc?.hatch_open ? "active-green" : "inactive"}`}>
           <span className="sensor-icon">📂</span>
@@ -67,6 +89,34 @@ export function PlcControlPanel({ plc }: Props) {
           <span className="sensor-label">Dừng khẩn cấp</span>
           <span className="sensor-value">{plc?.emergency_stop ? "TRIGGERED" : "NORMAL"}</span>
         </div>
+
+        <div className={`sensor-item ${plc?.plc_busy ? "active-orange" : "inactive"}`}>
+          <span className="sensor-icon">⏳</span>
+          <span className="sensor-label">PLC Busy</span>
+          <span className="sensor-value">{plc?.plc_busy ? "ĐANG XỬ LÝ" : "SẴN SÀNG"}</span>
+        </div>
+
+        <div className={`sensor-item ${plc?.plc_error ? "active-red" : "inactive"}`}>
+          <span className="sensor-icon">❌</span>
+          <span className="sensor-label">PLC Error</span>
+          <span className="sensor-value">{plc?.plc_error ? "LỖI" : "BÌNH THƯỜNG"}</span>
+        </div>
+      </div>
+
+      {/* Z-Axis status indicator */}
+      <div className="plc-z-axis-status">
+        <span className="font-bold">Trục Z:</span>{" "}
+        <span className={`status-badge ${
+          plc?.z_axis === "UP" ? "status-online" :
+          plc?.z_axis === "DOWN" ? "status-busy" :
+          plc?.z_axis === "MOVING" ? "status-busy" :
+          "status-offline"
+        }`}>
+          {plc?.z_axis === "UP" ? "⬆️ UP" :
+           plc?.z_axis === "DOWN" ? "⬇️ DOWN" :
+           plc?.z_axis === "MOVING" ? "🔄 MOVING" :
+           "🏠 HOME"}
+        </span>
       </div>
 
       {/* Manual Controls */}
@@ -75,7 +125,7 @@ export function PlcControlPanel({ plc }: Props) {
           type="button"
           className="btn btn-secondary"
           onClick={() => handleHatch(true)}
-          disabled={loading}
+          disabled={loading || plc?.plc_busy || !plc?.connected}
         >
           📂 Mở nắp Docking
         </button>
@@ -83,7 +133,7 @@ export function PlcControlPanel({ plc }: Props) {
           type="button"
           className="btn btn-secondary"
           onClick={() => handleHatch(false)}
-          disabled={loading}
+          disabled={loading || plc?.plc_busy || !plc?.connected}
         >
           📁 Đóng nắp Docking
         </button>
@@ -91,7 +141,7 @@ export function PlcControlPanel({ plc }: Props) {
           type="button"
           className="btn btn-primary"
           onClick={() => handleLock(true)}
-          disabled={loading}
+          disabled={loading || plc?.plc_busy || !plc?.connected}
         >
           🔒 Khóa Cố định Drone
         </button>
@@ -99,7 +149,7 @@ export function PlcControlPanel({ plc }: Props) {
           type="button"
           className="btn btn-outline"
           onClick={() => handleLock(false)}
-          disabled={loading}
+          disabled={loading || plc?.plc_busy || !plc?.connected}
         >
           🔓 Mở khóa Drone
         </button>

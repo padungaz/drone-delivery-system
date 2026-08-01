@@ -125,7 +125,7 @@ export function DeliveryRequestsPanel({ onLocationsSelected, homeLat, homeLon }:
     }
     // Update status to FLYING
     await adminUpdateDeliveryStatus(req.id, "FLYING");
-    fetchRequests();
+    await fetchRequests();
     setMessage({ id: req.id, text: "🚁 Đã tải địa chỉ vào form mission", ok: true });
   };
 

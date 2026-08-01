@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { StorageSlot } from "../types/drone";
-import { clearStorageSlot, scanQR } from "../services/api";
+import { API_BASE, clearStorageSlot, scanQR, startBackendCamera, stopBackendCamera } from "../services/api";
 
 interface Props {
   slots: StorageSlot[];
@@ -10,7 +10,28 @@ export function StorageSlotsGrid({ slots }: Props) {
   const [selectedSlot, setSelectedSlot] = useState<StorageSlot | null>(null);
   const [qrInput, setQrInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  const handleToggleBackendCamera = async () => {
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = cameraActive ? await stopBackendCamera() : await startBackendCamera();
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
+      const data = await res.json();
+      setCameraActive(!cameraActive);
+      setMsg(data.message || `Đã ${!cameraActive ? "BẬT" : "TẮT"} Backend Camera QR Scanner thành công!`);
+    } catch (err) {
+      setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Default 9 grid matrix A1..C3
   const gridNames = [
@@ -28,6 +49,11 @@ export function StorageSlotsGrid({ slots }: Props) {
     setMsg(null);
     try {
       const res = await clearStorageSlot(slotId);
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
       const data = await res.json();
       setMsg(data.message || `Đã dọn dẹp ô kho #${slotId}`);
       setSelectedSlot(null);
@@ -44,6 +70,11 @@ export function StorageSlotsGrid({ slots }: Props) {
     setMsg(null);
     try {
       const res = await scanQR(qrInput.trim());
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
       const data = await res.json();
       setMsg(data.message || `Đã quét QR [${qrInput}], gán vào ô thành công!`);
       setQrInput("");
@@ -174,15 +205,29 @@ export function StorageSlotsGrid({ slots }: Props) {
         </div>
       )}
 
-      {/* Simulator: Camera QR Vision Code Input */}
+      {/* Backend USB Camera QR Scanner Test Controls */}
       <div className="qr-simulator">
-        <label htmlFor="qrInput">📷 Quét mã QR Camera (Mô phỏng Input):</label>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+          <label htmlFor="qrInput" className="font-bold">📷 Quét mã QR Sản phẩm Kho:</label>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              type="button"
+              className={`btn btn-sm ${cameraActive ? "btn-danger" : "btn-secondary"}`}
+              onClick={handleToggleBackendCamera}
+              disabled={loading}
+              title="Bật/Tắt luồng quét USB Camera trực tiếp từ Backend"
+            >
+              {cameraActive ? "⏹ Tắt USB Camera" : "📷 Test USB Camera"}
+            </button>
+          </div>
+        </div>
+
         <div className="input-group">
           <input
             id="qrInput"
             type="text"
             className="input"
-            placeholder="Nhập mã QR (VD: PROD-8899)"
+            placeholder="Nhập mã QR thủ công (VD: PROD-8899)"
             value={qrInput}
             onChange={(e) => setQrInput(e.target.value)}
           />
@@ -195,6 +240,24 @@ export function StorageSlotsGrid({ slots }: Props) {
             Quét & Lấy ô kho
           </button>
         </div>
+
+        {/* Live USB Camera Stream Preview */}
+        {cameraActive && (
+          <div style={{ marginTop: "10px", textAlign: "center", background: "#0f172a", padding: "10px", borderRadius: "8px", border: "1px solid #334155" }}>
+            <div style={{ color: "#38bdf8", fontSize: "0.85rem", marginBottom: "8px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+              <span className="animate-pulse" style={{ color: "#ef4444" }}>🔴</span> LIVE Video Stream từ USB Camera (OpenCV Vision):
+            </div>
+            <img
+              src={`${API_BASE}/api/inventory/camera-scan/video-feed`}
+              alt="USB Camera Live Stream"
+              style={{ maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", border: "1px solid #475569", background: "#000" }}
+              onError={(e) => {
+                // If stream is loading or not available yet
+                (e.target as HTMLElement).style.display = "none";
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {msg && <div className="action-msg text-sm mt-2">{msg}</div>}

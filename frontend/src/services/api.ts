@@ -270,4 +270,16 @@ export async function startIntralogisticsMission(
   });
 }
 
+export async function startBackendCamera(): Promise<Response> {
+  return fetch(`${API_BASE}/api/inventory/camera-scan/start`, { method: "POST" });
+}
+
+export async function stopBackendCamera(): Promise<Response> {
+  return fetch(`${API_BASE}/api/inventory/camera-scan/stop`, { method: "POST" });
+}
+
+export async function getBackendCameraStatus(): Promise<Response> {
+  return fetch(`${API_BASE}/api/inventory/camera-scan/status`);
+}
+
 
