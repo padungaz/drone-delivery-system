@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { RobotState } from "../types/drone";
-import { executeRobotPick, executeRobotPlace, robotEmergencyStop } from "../services/api";
+import { executeRobotPick, executeRobotPlace, robotEmergencyStop, sendRobotDoneSignal } from "../services/api";
 
 interface Props {
   robot: RobotState | null;
@@ -68,6 +68,25 @@ export function RobotControlPanel({ robot }: Props) {
     }
   };
 
+  const handleDoneSignal = async () => {
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await sendRobotDoneSignal();
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
+      const data = await res.json();
+      setMsg(data.message || "✅ Đã giả lập gửi tín hiệu ROBOT_DONE về Backend thành công!");
+    } catch (err) {
+      setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const statusClass =
     robot?.status === "IDLE"
       ? "status-online"
@@ -95,35 +114,10 @@ export function RobotControlPanel({ robot }: Props) {
         </div>
       </div>
 
-      {/* Position Monitor */}
-      <div className="pos-monitor">
-        <h4>Tọa độ Cartesian (mm / deg)</h4>
-        <div className="pos-coords">
-          <span>X: {robot?.cartesian_position?.x?.toFixed(1) ?? "0.0"}</span>
-          <span>Y: {robot?.cartesian_position?.y?.toFixed(1) ?? "0.0"}</span>
-          <span>Z: {robot?.cartesian_position?.z?.toFixed(1) ?? "0.0"}</span>
-          <span>Rx: {robot?.cartesian_position?.rx?.toFixed(1) ?? "0.0"}°</span>
-          <span>Ry: {robot?.cartesian_position?.ry?.toFixed(1) ?? "0.0"}°</span>
-          <span>Rz: {robot?.cartesian_position?.rz?.toFixed(1) ?? "0.0"}°</span>
-        </div>
-      </div>
-
-      {/* Joint Monitor */}
-      <div className="pos-monitor">
-        <h4>Góc Các Khớp Joint (J₁ … J₆)</h4>
-        <div className="joint-coords">
-          {robot?.joint_positions?.map((j, idx) => (
-            <span key={`j-${idx + 1}`}>
-              J{idx + 1}: {j.toFixed(1)}°
-            </span>
-          )) ?? <span>Chưa có dữ liệu joint</span>}
-        </div>
-      </div>
-
       {/* Robot Manual Actions */}
-      <div className="robot-action-box">
+      <div className="robot-action-box mt-2">
         <div className="form-group-inline">
-          <label htmlFor="slot-select" className="font-bold">Chọn Ô Kho:</label>
+          <label htmlFor="slot-select" className="font-bold">Chọn Ô Kho Chỉ Định:</label>
           <select
             id="slot-select"
             className="form-control"
@@ -138,7 +132,7 @@ export function RobotControlPanel({ robot }: Props) {
           </select>
         </div>
 
-        <div className="robot-btn-group">
+        <div className="robot-btn-group mt-1">
           <button
             type="button"
             className="btn btn-primary"
@@ -157,6 +151,15 @@ export function RobotControlPanel({ robot }: Props) {
           </button>
           <button
             type="button"
+            className="btn btn-success"
+            onClick={handleDoneSignal}
+            disabled={loading}
+            title="Gửi tín hiệu báo Robot đã hoàn thành tác vụ (ROBOT_DONE) về Backend"
+          >
+            ✅ Giả lập: Tín Hiệu DONE
+          </button>
+          <button
+            type="button"
             className="btn btn-danger"
             onClick={handleEStop}
             disabled={loading}
@@ -166,7 +169,7 @@ export function RobotControlPanel({ robot }: Props) {
         </div>
       </div>
 
-      {msg && <div className="panel-msg">{msg}</div>}
+      {msg && <div className="panel-msg mt-1">{msg}</div>}
     </div>
   );
 }

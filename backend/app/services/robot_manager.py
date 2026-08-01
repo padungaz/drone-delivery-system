@@ -65,7 +65,16 @@ class RobotManager:
         Can be triggered by a robot callback endpoint or polling loop.
         """
         self._done_event.set()
-        logger.info("FAIRINO Robot: DONE signal received")
+        if self.state in ("MOVING", "PICKING", "PLACING"):
+            self.state = "READY"
+        logger.info("FAIRINO Robot: DONE signal received (State set to READY)")
+
+    def emergency_stop(self) -> RobotStatusResponse:
+        """Triggers Emergency Stop for FAIRINO Robot Arm."""
+        self.state = "ERROR"
+        self._done_event.set()
+        logger.error("FAIRINO Robot: EMERGENCY STOP TRIGGERED!")
+        return self.get_status()
 
     async def _wait_for_done(self, timeout: float = 30.0) -> bool:
         """Wait for robot DONE signal. In simulator mode, returns immediately.

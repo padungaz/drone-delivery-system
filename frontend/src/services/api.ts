@@ -241,6 +241,10 @@ export async function robotEmergencyStop(): Promise<Response> {
   return fetch(`${API_BASE}/api/robot/emergency-stop`, { method: "POST" });
 }
 
+export async function sendRobotDoneSignal(): Promise<Response> {
+  return fetch(`${API_BASE}/api/robot/done`, { method: "POST" });
+}
+
 export async function getInventorySlots(): Promise<Response> {
   return fetch(`${API_BASE}/api/inventory/slots`);
 }

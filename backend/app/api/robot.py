@@ -59,6 +59,43 @@ async def robot_home():
     }
 
 
+@robot_router.post("/place")
+async def robot_place(req: RobotSlotRequest):
+    mgr = RobotManager.get_instance()
+    status = await mgr.execute_command(RobotCommand.PLACE_PRODUCT, slot=req.slot)
+
+    await system_ws_manager.broadcast("ROBOT_STATUS", status.model_dump())
+    return {
+        "message": f"Lệnh Robot đặt hàng từ ô {req.slot or 'N/A'} ra Docking thành công!",
+        "status": status.model_dump(),
+    }
+
+
+@robot_router.post("/emergency-stop")
+async def robot_emergency_stop():
+    mgr = RobotManager.get_instance()
+    status = mgr.emergency_stop()
+
+    await system_ws_manager.broadcast("ROBOT_STATUS", status.model_dump())
+    return {
+        "message": "🛑 ĐÃ KÍCH HOẠT DỪNG KHẨN CẤP ROBOT FAIRINO!",
+        "status": status.model_dump(),
+    }
+
+
+@robot_router.post("/done")
+async def robot_signal_done():
+    mgr = RobotManager.get_instance()
+    mgr.signal_done()
+    status = mgr.get_status()
+
+    await system_ws_manager.broadcast("ROBOT_STATUS", status.model_dump())
+    return {
+        "message": "✅ Đã nhận tín hiệu ROBOT_DONE thành công!",
+        "status": status.model_dump(),
+    }
+
+
 @robot_router.get("/status", response_model=RobotStatusResponse)
 async def get_robot_status():
     mgr = RobotManager.get_instance()
