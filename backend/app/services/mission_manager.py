@@ -16,6 +16,7 @@ from app.services.plc_manager import PLCManager
 from app.services.robot_manager import RobotManager
 from app.services.inventory_manager import InventoryManager
 from app.services.qr_scanner_service import QRScannerService
+from app.websocket.manager import system_ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,23 @@ class MissionManager:
         self.inventory_mgr = InventoryManager(session)
         self.qr_svc = QRScannerService.get_instance()
 
+    async def _notify_mission_progress(self, mission: IntralogisticsMissionRecord) -> None:
+        """Broadcast mission progress state to frontend WebSockets."""
+        try:
+            await system_ws_manager.broadcast("MISSION_PROGRESS", {
+                "mission": {
+                    "id": mission.id,
+                    "mission_type": mission.mission_type,
+                    "drone_id": mission.drone_id,
+                    "product_id": mission.product_id,
+                    "target_slot": mission.target_slot,
+                    "state": mission.state,
+                    "step_details": mission.step_details,
+                }
+            })
+        except Exception:
+            pass
+
     async def log_event(self, source: str, message: str, log_type: str = "MISSION_LOG") -> None:
         logger.info("[%s] %s", source, message)
         log_entry = SystemLogRecord(
@@ -58,6 +76,7 @@ class MissionManager:
         if loc_str not in ("WAREHOUSE_PAD", "HOME", "WAREHOUSE", "LANDINGLOCATION.WAREHOUSE_PAD"):
             return False, f"Vị trí hạ cánh ({location_type}) không phải Trạm Docking Kho (WAREHOUSE_PAD). Từ chối chạy PLC/Robot."
 
+        await self.plc_mgr.read_plc_status()
         plc_status = self.plc_mgr.get_status()
         if not (plc_status.drone_detected or plc_status.simulator_mode):
             return False, "Cảm biến PLC chưa phát hiện Drone trên Pad kho (drone_detected = False). Từ chối chạy PLC/Robot."
@@ -116,15 +135,17 @@ class MissionManager:
         mission.step_details = "2. PLC đã khóa cố định Drone trên pad (PLC_LOCK_DONE)."
         await self.log_event("PLC", "Drone locked on pad (PLC_LOCK_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 2: ROBOT MOVE_HOME
         robot_res = await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
-        if robot_res.status == "ERROR":
+        if robot_res.state == "ERROR":
             return await self._abort_mission(mission, "Step 2: Robot MOVE_HOME failed!")
 
         mission.step_details = "3. Robot đã về vị trí HOME (ROBOT_DONE)."
         await self.log_event("ROBOT", "Robot returned to HOME position (ROBOT_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 3: PLC Z_UP (Safety Interlock: Must succeed before robot enters pad)
         plc_res = await self.plc_mgr.execute_command(PLCCommand.Z_UP)
@@ -134,25 +155,28 @@ class MissionManager:
         mission.step_details = "4. PLC đã nâng trục Z lên vị trí trên (PLC_Z_UP_DONE)."
         await self.log_event("PLC", "Z_UP completed (PLC_Z_UP_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 4: ROBOT PICK_PRODUCT from UAV
         robot_res = await self.robot_mgr.execute_command(RobotCommand.PICK_PRODUCT)
-        if robot_res.status == "ERROR":
+        if robot_res.state == "ERROR":
             return await self._abort_mission(mission, "Step 4: Robot PICK_PRODUCT from UAV failed!")
 
         mission.state = "ROBOT_PICKING"
         mission.step_details = f"5. Robot đã gắp sản phẩm {product_id} từ UAV (ROBOT_DONE)."
         await self.log_event("ROBOT", f"Picked product {product_id} from UAV (ROBOT_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 5: ROBOT MOVE_HOME (Retract from pad before closing hatch)
         robot_res = await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
-        if robot_res.status == "ERROR":
+        if robot_res.state == "ERROR":
             return await self._abort_mission(mission, "Step 5: Robot MOVE_HOME failed while carrying product!")
 
         mission.step_details = f"6. Robot mang {product_id} rút về vị trí HOME an toàn (ROBOT_DONE)."
         await self.log_event("ROBOT", f"Robot carrying {product_id} returned to HOME (ROBOT_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 6: PLC Z_DOWN (Close hatch after robot retracts)
         plc_res = await self.plc_mgr.execute_command(PLCCommand.Z_DOWN)
@@ -162,13 +186,16 @@ class MissionManager:
         mission.step_details = "7. PLC đã hạ trục Z xuống vị trí dưới (PLC_Z_DOWN_DONE)."
         await self.log_event("PLC", "Z_DOWN completed (PLC_Z_DOWN_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 7: Camera ON -> QR Scan -> Find available storage slot
         self.qr_svc.start_camera_scanner()
+        await self.qr_svc.notify_status_ws()
         await self.log_event("CAMERA", "Backend Camera TURNED ON to scan product QR code")
         mission.step_details = "8. Camera ON -> Đang quét mã QR sản phẩm."
         await self.session.commit()
-        await asyncio.sleep(0.5)
+        await self._notify_mission_progress(mission)
+        await asyncio.sleep(2.0)  # Pause for frontend live camera video stream preview
 
         scan_res = await self.qr_svc.process_qr_code(product_id, source="FSM_PICKUP_SCAN")
         free_slot = await self.inventory_mgr.find_available_slot()
@@ -179,8 +206,9 @@ class MissionManager:
 
             # Step 8: ROBOT STORE (cất vào ô kho)
             robot_res = await self.robot_mgr.execute_command(RobotCommand.STORE, slot=target_slot)
-            if robot_res.status == "ERROR":
+            if robot_res.state == "ERROR":
                 self.qr_svc.stop_camera_scanner()
+                await self.qr_svc.notify_status_ws()
                 return await self._abort_mission(mission, f"Step 8: Robot STORE into slot {target_slot} failed!")
 
             await self.inventory_mgr.update_slot(
@@ -193,9 +221,11 @@ class MissionManager:
             mission.step_details = f"9. Robot đã cất sản phẩm vào ô {target_slot} (ROBOT_DONE)."
             await self.log_event("ROBOT", f"Stored product into slot {target_slot} (ROBOT_DONE)")
             await self.session.commit()
+            await self._notify_mission_progress(mission)
 
             # Step 9: Camera OFF
             self.qr_svc.stop_camera_scanner()
+            await self.qr_svc.notify_status_ws()
             await self.log_event("CAMERA", "Backend Camera TURNED OFF after placement.")
 
             # Step 10: PLC UNLOCK_DRONE -> Complete
@@ -206,6 +236,8 @@ class MissionManager:
             mission.state = "COMPLETED"
             mission.step_details = "10. PLC đã mở khóa Drone (PLC_UNLOCK_DONE). Nhiệm vụ Nhập Kho HOÀN THÀNH!"
             await self.log_event("SERVER", f"DRONE_PICKUP Mission #{mission.id} COMPLETED")
+            await self.session.commit()
+            await self._notify_mission_progress(mission)
         else:
             self.qr_svc.stop_camera_scanner()
             mission.state = "ERROR_NO_FREE_SLOT"
@@ -269,6 +301,7 @@ class MissionManager:
         mission.step_details = "2. PLC đã khóa cố định Drone trên pad (PLC_LOCK_DONE)."
         await self.log_event("PLC", "Drone locked on pad (PLC_LOCK_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 2: Find product location in storage
         slot_record = await self.inventory_mgr.find_slot_by_product_id(product_id)
@@ -277,6 +310,7 @@ class MissionManager:
             mission.step_details = f"Product {product_id} not found in warehouse storage slots!"
             await self.log_event("SERVER", f"Product {product_id} not found in inventory", log_type="ERROR_LOG")
             await self.session.commit()
+            await self._notify_mission_progress(mission)
             return mission
 
         target_slot = slot_record.slot_name
@@ -284,7 +318,7 @@ class MissionManager:
 
         # Step 3: ROBOT PICK from storage slot
         robot_res = await self.robot_mgr.execute_command(RobotCommand.PICK, slot=target_slot)
-        if robot_res.status == "ERROR":
+        if robot_res.state == "ERROR":
             return await self._abort_mission(mission, f"Step 3: Robot PICK from slot {target_slot} failed!")
 
         await self.inventory_mgr.update_slot(slot_name=target_slot, status=StorageSlotStatus.EMPTY)
@@ -292,55 +326,66 @@ class MissionManager:
         mission.step_details = f"3. Robot đã lấy sản phẩm {product_id} từ ô {target_slot} (ROBOT_DONE)."
         await self.log_event("ROBOT", f"Picked product {product_id} from slot {target_slot} (ROBOT_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 4: ROBOT MOVE_HOME
         robot_res = await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
-        if robot_res.status == "ERROR":
+        if robot_res.state == "ERROR":
             return await self._abort_mission(mission, "Step 4: Robot MOVE_HOME failed!")
 
         mission.step_details = f"4. Robot mang {product_id} về vị trí HOME (ROBOT_DONE)."
         await self.log_event("ROBOT", f"Robot holding {product_id} returned to HOME (ROBOT_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 5: Camera ON -> Verify product
         self.qr_svc.start_camera_scanner()
+        await self.qr_svc.notify_status_ws()
         await self.log_event("CAMERA", f"Backend Camera TURNED ON -> Verified robot carrying product {product_id}")
         mission.step_details = f"5. Camera ON -> Đã xác nhận robot đang mang sản phẩm {product_id}."
         await self.session.commit()
-        await asyncio.sleep(0.5)
+        await self._notify_mission_progress(mission)
+        await asyncio.sleep(2.0)
 
         # Step 6: PLC Z_UP (Safety Interlock: Must succeed before robot enters pad)
         plc_res = await self.plc_mgr.execute_command(PLCCommand.Z_UP)
         if plc_res.plc_error or plc_res.z_axis != "UP":
             self.qr_svc.stop_camera_scanner()
+            await self.qr_svc.notify_status_ws()
             return await self._abort_mission(mission, "Step 6: PLC Z_UP failed! Hatch not open. Aborting for collision safety.")
 
         mission.step_details = "6. PLC đã nâng trục Z lên (PLC_Z_UP_DONE)."
         await self.log_event("PLC", "Z_UP completed (PLC_Z_UP_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 7: ROBOT PLACE_PRODUCT onto UAV
         robot_res = await self.robot_mgr.execute_command(RobotCommand.PLACE_PRODUCT)
-        if robot_res.status == "ERROR":
+        if robot_res.state == "ERROR":
             self.qr_svc.stop_camera_scanner()
+            await self.qr_svc.notify_status_ws()
             return await self._abort_mission(mission, "Step 7: Robot PLACE_PRODUCT onto UAV failed!")
 
         mission.step_details = f"7. Robot đã đặt sản phẩm {product_id} lên UAV (ROBOT_DONE)."
         await self.log_event("ROBOT", f"Placed product {product_id} onto UAV (ROBOT_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 8: ROBOT MOVE_HOME (Retract from pad before closing hatch)
         robot_res = await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
-        if robot_res.status == "ERROR":
+        if robot_res.state == "ERROR":
             self.qr_svc.stop_camera_scanner()
+            await self.qr_svc.notify_status_ws()
             return await self._abort_mission(mission, "Step 8: Robot MOVE_HOME failed after placing product!")
 
         mission.step_details = "8. Robot đã rút về vị trí HOME an toàn (ROBOT_DONE)."
         await self.log_event("ROBOT", "Robot returned to HOME after placing product (ROBOT_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 9: Camera OFF (Turn off camera immediately after placement complete)
         self.qr_svc.stop_camera_scanner()
+        await self.qr_svc.notify_status_ws()
         await self.log_event("CAMERA", "Backend Camera TURNED OFF after placement.")
 
         # Step 10: PLC Z_DOWN
@@ -348,9 +393,11 @@ class MissionManager:
         if plc_res.plc_error:
             return await self._abort_mission(mission, "Step 10: PLC Z_DOWN failed!")
 
+        mission.state = "STORAGE_PLACED"
         mission.step_details = "9. PLC đã hạ trục Z xuống (PLC_Z_DOWN_DONE)."
         await self.log_event("PLC", "Z_DOWN completed (PLC_Z_DOWN_DONE)")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
 
         # Step 11: PLC UNLOCK_DRONE -> Complete
         plc_res = await self.plc_mgr.execute_command(PLCCommand.UNLOCK_DRONE)
@@ -362,6 +409,7 @@ class MissionManager:
         await self.log_event("SERVER", f"DRONE_DELIVERY Mission #{mission.id} COMPLETED")
 
         await self.session.commit()
+        await self._notify_mission_progress(mission)
         await self.session.refresh(mission)
         return mission
 
@@ -372,6 +420,7 @@ class MissionManager:
         mission.step_details = f"🛑 DỪNG KHẨN CẤP: {reason}"
         await self.log_event("SERVER", f"Mission #{mission.id} ABORTED: {reason}", log_type="ERROR_LOG")
         await self.session.commit()
+        await self._notify_mission_progress(mission)
         await self.session.refresh(mission)
         return mission
 

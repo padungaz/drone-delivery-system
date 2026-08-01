@@ -18,6 +18,7 @@ interface Props {
   robot: RobotState | null;
   storage: StorageSlot[];
   activeMission: IntralogisticsMission | null;
+  cameraActive?: boolean;
 }
 
 export function IntralogisticsPanel({
@@ -26,6 +27,7 @@ export function IntralogisticsPanel({
   robot,
   storage,
   activeMission,
+  cameraActive,
 }: Props) {
   const [missionType, setMissionType] = useState<"DRONE_PICKUP" | "DRONE_DELIVERY">(
     "DRONE_PICKUP"
@@ -107,9 +109,10 @@ export function IntralogisticsPanel({
         {/* FSM Stepper Progress Bar */}
         <div className="fsm-stepper">
           {steps.map((s, idx) => {
-            const isActive = activeMission?.state === s.key;
+            const isCompletedMission = activeMission?.state === "COMPLETED";
             const stepIdx = steps.findIndex((st) => st.key === activeMission?.state);
-            const isPassed = activeMission && stepIdx > idx;
+            const isPassed = isCompletedMission || (Boolean(activeMission) && stepIdx > idx);
+            const isActive = !isCompletedMission && activeMission?.state === s.key;
 
             return (
               <div
@@ -204,7 +207,7 @@ export function IntralogisticsPanel({
 
         {/* Right Column: 3x3 Storage slots grid */}
         <div className="grid-column">
-          <StorageSlotsGrid slots={storage} />
+          <StorageSlotsGrid slots={storage} externalCameraActive={cameraActive} />
         </div>
       </div>
     </div>

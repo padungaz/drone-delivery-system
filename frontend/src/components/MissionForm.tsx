@@ -77,8 +77,17 @@ export function MissionForm({ onChange, initialLocations }: Props) {
         </div>
       ) : (
         <div className="form-grid">
+          {/* Mission Type Detector Helper Banner */}
+          <div style={{ gridColumn: "1 / -1", background: "rgba(56, 189, 248, 0.1)", border: "1px solid rgba(56, 189, 248, 0.3)", padding: "8px 12px", borderRadius: "6px", fontSize: "0.88rem" }}>
+            💡 <strong>Quy ước Phân biệt Đơn hàng khi nhập thủ công:</strong>
+            <ul style={{ margin: "4px 0 0 18px", padding: 0, color: "var(--text-secondary, #94a3b8)" }}>
+              <li><strong>📦 Kho GIAO HÀNG đi (Kho → Khách)</strong>: <code>Pickup</code> = Tọa độ Kho (Home), <code>Drop</code> = Tọa độ Khách.</li>
+              <li><strong>📥 Kho NHẬN HÀNG về (Khách → Kho)</strong>: <code>Pickup</code> = Tọa độ Khách, <code>Drop</code> = Tọa độ Kho (Home).</li>
+            </ul>
+          </div>
+
           <fieldset>
-            <legend>Home</legend>
+            <legend>🏠 Home (Trạm Docking / Kho)</legend>
             <label>
               Lat
               <input
@@ -99,7 +108,10 @@ export function MissionForm({ onChange, initialLocations }: Props) {
             </label>
           </fieldset>
           <fieldset>
-            <legend>Pickup</legend>
+            <legend>🛫 Pickup (Điểm Lấy Hàng)</legend>
+            <p style={{ fontSize: "0.75rem", color: "#94a3b8", margin: "2px 0 6px" }}>
+              Nơi UAV cất hàng (Nhà khách nếu khách gửi về kho; Tọa độ Kho nếu kho giao đi)
+            </p>
             <label>
               Lat
               <input
@@ -120,7 +132,10 @@ export function MissionForm({ onChange, initialLocations }: Props) {
             </label>
           </fieldset>
           <fieldset>
-            <legend>Drop</legend>
+            <legend>🛬 Drop (Điểm Hạ / Giao Hàng)</legend>
+            <p style={{ fontSize: "0.75rem", color: "#94a3b8", margin: "2px 0 6px" }}>
+              Nơi UAV đặt hàng (Nhà khách nếu kho giao đi; Tọa độ Kho nếu khách gửi về kho)
+            </p>
             <label>
               Lat
               <input

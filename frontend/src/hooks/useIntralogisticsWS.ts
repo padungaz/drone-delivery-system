@@ -54,6 +54,7 @@ export function useIntralogisticsWS() {
   const [robot, setRobot] = useState<RobotState | null>(null);
   const [storage, setStorage] = useState<StorageSlot[]>([]);
   const [activeMission, setActiveMission] = useState<IntralogisticsMission | null>(null);
+  const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -112,6 +113,9 @@ export function useIntralogisticsWS() {
                 break;
               case "ROBOT_STATUS":
                 setRobot(mapRobotResponse(msg.data));
+                break;
+              case "CAMERA_STATUS":
+                setCameraActive(Boolean(msg.data.is_active));
                 break;
               case "DEVICE_STATUS":
               case "DEVICE_HEARTBEAT":
@@ -186,5 +190,6 @@ export function useIntralogisticsWS() {
     robot,
     storage,
     activeMission,
+    cameraActive,
   };
 }

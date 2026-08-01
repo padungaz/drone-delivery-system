@@ -34,6 +34,7 @@ export function Dashboard() {
     robot,
     storage,
     activeMission,
+    cameraActive,
   } = useIntralogisticsWS();
 
   const [isManualModalOpen, setManualModalOpen] = useState(false);
@@ -142,6 +143,7 @@ export function Dashboard() {
             robot={robot}
             storage={storage}
             activeMission={activeMission}
+            cameraActive={cameraActive}
           />
         </div>
       )}

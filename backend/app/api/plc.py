@@ -72,4 +72,5 @@ async def set_simulated_drone_sensor(req: PLCSensorRequest):
 @plc_router.get("/status", response_model=PLCStatusResponse)
 async def get_plc_status():
     mgr = PLCManager.get_instance()
+    await mgr.read_plc_status()
     return mgr.get_status()

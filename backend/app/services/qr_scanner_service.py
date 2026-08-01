@@ -26,7 +26,7 @@ from app.storage.repository import StorageRepository
 from app.websocket.manager import system_ws_manager
 from app.websocket.handler import manager as drone_ws_manager
 
-DEFAULT_CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
+DEFAULT_CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "1"))
 SCAN_DEBOUNCE_SEC = float(os.getenv("SCAN_DEBOUNCE_SEC", "5.0"))
 
 
@@ -278,8 +278,11 @@ class QRScannerService:
             self.is_active = True
             return
 
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        try:
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        except Exception as set_err:
+            logger.warning("Could not set camera frame resolution: %s", set_err)
         self.is_active = True
         self.simulator_mode = False
         self.show_preview = True
@@ -355,6 +358,12 @@ class QRScannerService:
         """Return latest JPEG encoded frame bytes for web streaming."""
         return getattr(self, "latest_jpeg_bytes", None)
 
+    async def notify_status_ws(self) -> None:
+        """Broadcast camera active state to System WS & Drone WS clients."""
+        status = self.get_status()
+        await system_ws_manager.broadcast("CAMERA_STATUS", status)
+        await drone_ws_manager.broadcast_to_clients({"type": "camera_status", "payload": status})
+
     def start_camera_scanner(self) -> bool:
         """Start the background camera QR scanning thread."""
         if self.is_active:
@@ -380,6 +389,13 @@ class QRScannerService:
         self.simulator_mode = False
         self.camera_thread = threading.Thread(target=self._camera_loop, daemon=True)
         self.camera_thread.start()
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.notify_status_ws())
+        except RuntimeError:
+            pass
+
         return True
 
     def stop_camera_scanner(self) -> bool:
@@ -393,6 +409,13 @@ class QRScannerService:
                 pass
             self.cap = None
         logger.info("Stop command sent to Backend Camera QR Scanner.")
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.notify_status_ws())
+        except RuntimeError:
+            pass
+
         return True
 
     def get_status(self) -> Dict[str, Any]:

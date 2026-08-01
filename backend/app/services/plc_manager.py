@@ -4,6 +4,7 @@ import os
 from typing import Optional
 
 from app.models.schemas import PLCCommand, PLCStatusResponse
+from app.websocket.manager import system_ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ OFFSET_E_STOP            = (1, 3)  # emergency_stop: Bool 1.3
 OFFSET_PLC_HEARTBEAT     = (1, 4)  # plc_heartbeat: Bool 1.4
 
 # Handshake timing defaults
-DEFAULT_HANDSHAKE_TIMEOUT = 10.0   # Seconds to wait for PLC DONE signal
+DEFAULT_HANDSHAKE_TIMEOUT = 25.0   # Seconds to wait for PLC DONE / Limit Flag signal (allows mechanical stroke time)
 DEFAULT_POLL_INTERVAL     = 0.15   # Seconds between DB reads during wait
 
 
@@ -112,6 +113,7 @@ class PLCManager:
 
         self.client = None
         self.is_connected = False
+        self._lock: Optional[asyncio.Lock] = None
 
         # Cached states (updated from PLC status bits or simulator)
         self.drone_detected: bool = False
@@ -177,8 +179,13 @@ class PLCManager:
         return self.is_connected
 
     # ----------------------------------------------------------------
-    # DB15 Read/Write helpers (wrapped in asyncio.to_thread for safety)
+    # DB15 Read/Write helpers (wrapped in asyncio.to_thread + lock for safety)
     # ----------------------------------------------------------------
+
+    def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     def _sync_db_read(self, start: int, size: int) -> bytes:
         """Synchronous DB read — runs in thread pool via asyncio.to_thread."""
@@ -189,12 +196,14 @@ class PLCManager:
         self.client.db_write(self.db_number, start, data)
 
     async def _async_db_read(self, start: int, size: int) -> bytes:
-        """Non-blocking DB read using thread pool."""
-        return await asyncio.to_thread(self._sync_db_read, start, size)
+        """Non-blocking DB read using thread pool with async lock to prevent concurrent socket access."""
+        async with self._get_lock():
+            return await asyncio.to_thread(self._sync_db_read, start, size)
 
     async def _async_db_write(self, start: int, data: bytearray) -> None:
-        """Non-blocking DB write using thread pool."""
-        await asyncio.to_thread(self._sync_db_write, start, data)
+        """Non-blocking DB write using thread pool with async lock to prevent concurrent socket access."""
+        async with self._get_lock():
+            await asyncio.to_thread(self._sync_db_write, start, data)
 
     # ----------------------------------------------------------------
     # Read PLC status bits (Byte 1 only — no raw sensor reading)
@@ -222,13 +231,18 @@ class PLCManager:
             self.drone_locked = plc_locked
             if plc_z_up:
                 self.z_axis = "UP"
+                self.plc_busy = False
             elif plc_z_down:
                 self.z_axis = "DOWN"
+                self.plc_busy = False
             else:
-                self.z_axis = "MOVING"
+                # Neither limit switch is active: mark MOVING only if a command is currently active
+                if self.plc_busy:
+                    self.z_axis = "MOVING"
+                else:
+                    self.z_axis = "DOWN"
+                    self.plc_busy = False
 
-            # Derive plc_busy status automatically
-            self.plc_busy = self.z_axis == "MOVING"
             self.plc_error = False
 
         except Exception as e:
@@ -370,8 +384,8 @@ class PLCManager:
                 logger.info("✅ PLC S7-1200 auto-reconnected successfully (%s)", self.plc_ip)
 
         try:
-            # Test connection with a 1-byte read
-            await self._async_db_read(0, 1)
+            # Test connection & refresh cached status from DB15
+            await self.read_plc_status()
             self.is_connected = True
             return True
         except Exception as e:
@@ -448,21 +462,21 @@ class PLCManager:
             self.plc_busy = False
             self.plc_error = False
         else:
-            # Handshake failed (timeout or error) — force state for safety
-            logger.warning("PLC Handshake failed for %s — forcing state update", cmd.value)
-            if cmd == PLCCommand.LOCK_DRONE:
-                self.drone_locked = True
-            elif cmd == PLCCommand.UNLOCK_DRONE:
-                self.drone_locked = False
-                self.drone_detected = False
-            elif cmd == PLCCommand.Z_UP:
-                self.z_axis = "UP"
-            elif cmd == PLCCommand.Z_DOWN:
-                self.z_axis = "DOWN"
+            # Handshake failed (timeout or error) — keep actual DB15 state & set error flag
+            logger.warning("PLC Handshake failed for %s — limit switch target not reached or timeout", cmd.value)
             self.plc_busy = False
             self.plc_error = True
+            # Refresh actual status from PLC DB15
+            await self.read_plc_status()
 
-        return self.get_status()
+        status_res = self.get_status()
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(system_ws_manager.broadcast("PLC_STATUS", status_res.model_dump()))
+        except RuntimeError:
+            pass
+
+        return status_res
 
     async def _execute_simulator_command(self, cmd: PLCCommand) -> PLCStatusResponse:
         """Fallback / simulator command execution logic."""
@@ -494,7 +508,14 @@ class PLCManager:
             self.plc_busy = False
             logger.info("PLC [Sim]: Lift Z-axis moved to DOWN position")
 
-        return self.get_status()
+        status_res = self.get_status()
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(system_ws_manager.broadcast("PLC_STATUS", status_res.model_dump()))
+        except RuntimeError:
+            pass
+
+        return status_res
 
     def set_drone_detected(self, detected: bool) -> None:
         self.drone_detected = detected

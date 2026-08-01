@@ -4,6 +4,7 @@ import os
 from typing import Optional
 
 from app.models.schemas import RobotCommand, RobotStatusResponse
+from app.websocket.manager import system_ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,10 @@ class RobotManager:
 
     _instance: Optional["RobotManager"] = None
 
-    def __init__(self, simulator_mode: bool = False, robot_ip: str = "192.168.58.2"):
+    def __init__(self, simulator_mode: bool = False, robot_ip: str = "192.168.58.2", robot_port: int = 8080):
         self.simulator_mode = simulator_mode
         self.robot_ip = robot_ip
+        self.robot_port = robot_port
         self.is_connected: bool = False
         self.state: str = "IDLE"
         self.current_slot: Optional[str] = None
@@ -46,7 +48,8 @@ class RobotManager:
             env_sim = os.getenv("ROBOT_SIMULATOR_MODE", "false").lower()
             sim_mode = env_sim in ("true", "1", "yes")
             robot_ip = os.getenv("ROBOT_IP", "192.168.58.2")
-            cls._instance = RobotManager(simulator_mode=sim_mode, robot_ip=robot_ip)
+            robot_port = int(os.getenv("ROBOT_PORT", "8080"))
+            cls._instance = RobotManager(simulator_mode=sim_mode, robot_ip=robot_ip, robot_port=robot_port)
         return cls._instance
 
     def get_status(self) -> RobotStatusResponse:
@@ -56,7 +59,7 @@ class RobotManager:
             state=current_state,
             current_slot=self.current_slot,
             holding_product=self.holding_product,
-            connected=self.is_connected,
+            connected=is_online,
             simulator_mode=self.simulator_mode,
         )
 
@@ -73,8 +76,48 @@ class RobotManager:
         """Triggers Emergency Stop for FAIRINO Robot Arm."""
         self.state = "ERROR"
         self._done_event.set()
+        if not self.simulator_mode:
+            asyncio.create_task(self._send_socket_command("EMERGENCY_STOP", timeout=5.0))
         logger.error("FAIRINO Robot: EMERGENCY STOP TRIGGERED!")
         return self.get_status()
+
+    async def _send_socket_command(self, payload: str, timeout: float = 30.0) -> bool:
+        """Sends Socket TCP string command to FAIRINO Robot and awaits reply line.
+        Format example: 'PICK A1\\n' or 'STORE B2\\n' or 'MOVE_HOME\\n'.
+        The Lua script running on FAIRINO parses the command + slot and executes the motion trajectory.
+        """
+        if self.simulator_mode:
+            logger.info("FAIRINO Robot [SIMULATOR]: Sent payload '%s' over Socket TCP", payload)
+            return True
+
+        msg = f"{payload}\n"
+        logger.info("FAIRINO Robot: Connecting to %s:%d to send '%s'...", self.robot_ip, self.robot_port, payload)
+
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.robot_ip, self.robot_port),
+                timeout=5.0
+            )
+            self.is_connected = True
+            writer.write(msg.encode("utf-8"))
+            await writer.drain()
+            logger.info("FAIRINO Robot: Payload '%s' sent. Waiting for response/DONE...", payload)
+
+            response_bytes = await asyncio.wait_for(reader.readline(), timeout=timeout)
+            response_str = response_bytes.decode("utf-8").strip()
+            logger.info("FAIRINO Robot: Response received: '%s'", response_str)
+
+            writer.close()
+            await writer.wait_closed()
+
+            if "DONE" in response_str.upper() or "OK" in response_str.upper():
+                self.signal_done()
+                return True
+            return True
+        except (asyncio.TimeoutError, Exception) as err:
+            logger.warning("FAIRINO Robot Socket error or timeout for '%s': %s. Waiting for HTTP callback signal...", payload, err)
+            # Fallback to waiting for external HTTP signal_done() callback
+            return await self._wait_for_done(timeout=timeout)
 
     async def _wait_for_done(self, timeout: float = 30.0) -> bool:
         """Wait for robot DONE signal. In simulator mode, returns immediately.
@@ -94,52 +137,66 @@ class RobotManager:
     async def execute_command(self, cmd: RobotCommand, slot: Optional[str] = None) -> RobotStatusResponse:
         """Execute a robot command and wait for DONE signal (Handshake Protocol).
 
+        Backend sends command + location target (e.g. 'PICK A1', 'STORE B2', 'MOVE_HOME') over Socket TCP.
+        The motion trajectory calculation and robot axis motion execution run in the LUA script on the robot.
+
         Flow:
-          1. Set state to action state (MOVING, PICKING, PLACING)
-          2. In simulator mode: simulate delay then mark done
-          3. In real mode: send command to robot, wait for DONE signal
-          4. Update state to READY on success
-          5. Return status
+          1. Format TCP Socket payload (Command + Slot/Target)
+          2. Set state to action state (MOVING, PICKING, PLACING)
+          3. In simulator mode: simulate delay then mark DONE
+          4. In real mode: send TCP Socket payload to robot Lua listener & wait for DONE signal
+          5. Update state to READY on success
+          6. Return status
         """
+        target = slot or "PAD"
         logger.info("Executing FAIRINO Robot command: %s (slot: %s, simulator: %s)", cmd.value, slot, self.simulator_mode)
 
         if cmd in (RobotCommand.MOVE_HOME, RobotCommand.REQUEST_Z_DOWN):
             self.state = "MOVING"
+            payload = "MOVE_HOME" if cmd == RobotCommand.MOVE_HOME else "REQUEST_Z_DOWN"
             if self.simulator_mode:
                 await asyncio.sleep(0.4)
             else:
-                # TODO: Send real command to FAIRINO robot via SDK/API
-                await self._wait_for_done(timeout=15.0)
+                await self._send_socket_command(payload, timeout=15.0)
             self.state = "READY"
             self.current_slot = None
             logger.info("FAIRINO Robot: Returned to HOME position (DONE)")
 
         elif cmd == RobotCommand.REQUEST_Z_UP:
             self.state = "READY"
+            if not self.simulator_mode:
+                await self._send_socket_command("REQUEST_Z_UP", timeout=10.0)
             logger.info("FAIRINO Robot: Ready for Z_UP operation (DONE)")
 
         elif cmd in (RobotCommand.PICK_PRODUCT, RobotCommand.PICK):
             self.state = "PICKING"
             self.current_slot = slot
+            payload = f"PICK {target}" if cmd == RobotCommand.PICK else f"PICK_PRODUCT {target}"
             if self.simulator_mode:
                 await asyncio.sleep(0.6)
             else:
-                # TODO: Send real pick command to FAIRINO robot via SDK/API
-                await self._wait_for_done(timeout=30.0)
+                await self._send_socket_command(payload, timeout=30.0)
             self.holding_product = f"PROD_{slot}" if slot else "SP001"
             self.state = "READY"
-            logger.info("FAIRINO Robot: Successfully picked product from slot %s (DONE)", slot)
+            logger.info("FAIRINO Robot: Successfully picked product from %s (DONE)", target)
 
         elif cmd in (RobotCommand.PLACE_PRODUCT, RobotCommand.STORE):
             self.state = "PLACING"
             self.current_slot = slot
+            payload = f"STORE {target}" if cmd == RobotCommand.STORE else f"PLACE_PRODUCT {target}"
             if self.simulator_mode:
                 await asyncio.sleep(0.6)
             else:
-                # TODO: Send real place command to FAIRINO robot via SDK/API
-                await self._wait_for_done(timeout=30.0)
+                await self._send_socket_command(payload, timeout=30.0)
             self.holding_product = None
             self.state = "READY"
-            logger.info("FAIRINO Robot: Successfully placed product into slot %s (DONE)", slot)
+            logger.info("FAIRINO Robot: Successfully placed product into %s (DONE)", target)
 
-        return self.get_status()
+        status_res = self.get_status()
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(system_ws_manager.broadcast("ROBOT_STATUS", status_res.model_dump()))
+        except RuntimeError:
+            pass
+
+        return status_res

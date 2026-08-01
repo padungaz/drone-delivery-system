@@ -1,17 +1,24 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { StorageSlot } from "../types/drone";
 import { API_BASE, clearStorageSlot, scanQR, startBackendCamera, stopBackendCamera } from "../services/api";
 
 interface Props {
   slots: StorageSlot[];
+  externalCameraActive?: boolean;
 }
 
-export function StorageSlotsGrid({ slots }: Props) {
+export function StorageSlotsGrid({ slots, externalCameraActive }: Props) {
   const [selectedSlot, setSelectedSlot] = useState<StorageSlot | null>(null);
   const [qrInput, setQrInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (externalCameraActive !== undefined) {
+      setCameraActive(externalCameraActive);
+    }
+  }, [externalCameraActive]);
 
   const handleToggleBackendCamera = async () => {
     setLoading(true);

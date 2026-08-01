@@ -56,6 +56,7 @@ async def main():
 
         # 5. Test PLC Docking Station Controls
         plc_mgr = PLCManager.get_instance()
+        plc_mgr.simulator_mode = True
         status_lock = await plc_mgr.execute_command(PLCCommand.LOCK_DRONE)
         logger.info("✓ PLC LOCK_DRONE executed. Drone Locked: %s, PLC Busy: %s, PLC Error: %s", status_lock.drone_locked, status_lock.plc_busy, status_lock.plc_error)
         status_z = await plc_mgr.execute_command(PLCCommand.Z_UP)
@@ -63,6 +64,7 @@ async def main():
 
         # 6. Test FAIRINO Robot Commands
         robot_mgr = RobotManager.get_instance()
+        robot_mgr.simulator_mode = True
         r_home = await robot_mgr.execute_command(RobotCommand.MOVE_HOME)
         logger.info("✓ FAIRINO Robot MOVE_HOME executed. State: %s", r_home.state)
         r_pick = await robot_mgr.execute_command(RobotCommand.PICK, slot="A1")
