@@ -53,6 +53,22 @@ async def control_plc_lock(req: PLCLockRequest):
     }
 
 
+class PLCSensorRequest(BaseModel):
+    detected: bool
+
+
+@plc_router.post("/sensor/drone-detected")
+async def set_simulated_drone_sensor(req: PLCSensorRequest):
+    mgr = PLCManager.get_instance()
+    mgr.set_drone_detected(req.detected)
+    status = mgr.get_status()
+    await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
+    return {
+        "message": f"Cảm biến Drone Landing đã đặt thành: {'CÓ DRONE (DETECTED)' if req.detected else 'TRỐNG (NOT DETECTED)'}",
+        "status": status.model_dump(),
+    }
+
+
 @plc_router.get("/status", response_model=PLCStatusResponse)
 async def get_plc_status():
     mgr = PLCManager.get_instance()

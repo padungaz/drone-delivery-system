@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { PLCState } from "../types/drone";
-import { controlPlcHatch, controlPlcLock } from "../services/api";
+import { controlPlcHatch, controlPlcLock, setSimulatedDroneSensor } from "../services/api";
 
 interface Props {
   plc: PLCState | null;
@@ -48,6 +48,25 @@ export function PlcControlPanel({ plc }: Props) {
     }
   };
 
+  const handleToggleSensor = async (detected: boolean) => {
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await setSimulatedDroneSensor(detected);
+      if (!res.ok) {
+        const errText = await res.text();
+        setMsg(`Lỗi ${res.status}: ${errText}`);
+        return;
+      }
+      const data = await res.json();
+      setMsg(data.message || `Cảm biến đã đặt: ${detected ? "CÓ DRONE" : "TRỐNG"}`);
+    } catch (err) {
+      setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="panel plc-panel">
       <div className="panel-header-inline">
@@ -80,7 +99,7 @@ export function PlcControlPanel({ plc }: Props) {
 
         <div className={`sensor-item ${plc?.drone_landed_sensor ? "active-orange" : "inactive"}`}>
           <span className="sensor-icon">🛬</span>
-          <span className="sensor-label">Cảm biến Chạm sàn</span>
+          <span className="sensor-label">Cảm biến Chạm sàn (Bit 0.5)</span>
           <span className="sensor-value">{plc?.drone_landed_sensor ? "CÓ DRONE" : "TRỐNG"}</span>
         </div>
 
@@ -152,6 +171,15 @@ export function PlcControlPanel({ plc }: Props) {
           disabled={loading || plc?.plc_busy || !plc?.connected}
         >
           🔓 Mở khóa Drone
+        </button>
+        <button
+          type="button"
+          className={`btn ${plc?.drone_landed_sensor ? "btn-outline" : "btn-warning"}`}
+          onClick={() => handleToggleSensor(!plc?.drone_landed_sensor)}
+          disabled={loading}
+          title="Giả lập đổi trạng thái cảm biến quang/chạm sàn DB15 Bit 0.5"
+        >
+          🛬 {plc?.drone_landed_sensor ? "Giả lập: Báo Trống (Clear)" : "Giả lập: Báo Có Drone"}
         </button>
       </div>
 

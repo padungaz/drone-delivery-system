@@ -209,6 +209,14 @@ export async function controlPlcLock(lock: boolean): Promise<Response> {
   });
 }
 
+export async function setSimulatedDroneSensor(detected: boolean): Promise<Response> {
+  return fetch(`${API_BASE}/api/plc/sensor/drone-detected`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ detected }),
+  });
+}
+
 export async function getRobotStatus(): Promise<Response> {
   return fetch(`${API_BASE}/api/robot/status`);
 }
