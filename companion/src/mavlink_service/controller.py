@@ -577,20 +577,20 @@ class MavlinkController:
     def goto_location(self, lat: float, lon: float, alt_m: float) -> bool:
         if not self._can_send("goto"):
             return False
-        self.connection.mav.set_position_target_global_int_send(
-            0,
+        self.connection.mav.command_long_send(
             self.connection.target_system,
             self.connection.target_component,
-            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
-            0b0000111111111000,
-            int(lat * 1e7),
-            int(lon * 1e7),
-            alt_m,
-            0, 0, 0,
-            0, 0, 0,
-            0, 0,
+            mavutil.mavlink.MAV_CMD_DO_REPOSITION,
+            0,
+            -1.0,                             # param1: ground speed (-1 = default)
+            0.0,                              # param2: flags
+            0.0,                              # param3: reserved
+            float("nan"),                     # param4: yaw angle (NaN = no change)
+            lat,                              # param5: latitude (deg)
+            lon,                              # param6: longitude (deg)
+            alt_m,                            # param7: altitude relative (m)
         )
-        logger.info("GOTO: lat=%.7f lon=%.7f alt=%.1f m", lat, lon, alt_m)
+        logger.info("GOTO (DO_REPOSITION): lat=%.7f lon=%.7f alt=%.1f m", lat, lon, alt_m)
         return True
 
     def land(self) -> bool:

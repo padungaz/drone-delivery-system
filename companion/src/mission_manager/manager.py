@@ -410,21 +410,17 @@ class MissionManager:
             self.mavlink.takeoff(target_alt)
 
         elif state == DroneState.FLY_TO_PICKUP:
-            # Method A: Transition from PX4 TAKEOFF → OFFBOARD for GPS navigation.
-            # This is the first time OFFBOARD is engaged in the mission.
-            if self.mavlink.telemetry.flight_mode != "OFFBOARD":
-                logger.info("FLY_TO_PICKUP: switching to OFFBOARD for GPS navigation")
-                ok = self.mavlink.set_mode_offboard()
-                if not ok:
-                    logger.error("Failed to enter OFFBOARD for FLY_TO_PICKUP")
-                    self.state_machine.transition_to(DroneState.ERROR)
-                    return
+            # Transition from PX4 TAKEOFF → LOITER mode + DO_REPOSITION command
+            if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
+                logger.info("FLY_TO_PICKUP: ensuring mode is LOITER for DO_REPOSITION navigation")
+                self.mavlink.set_mode("LOITER")
             self.mavlink.goto_location(
                 self.locations.pickup_lat,
                 self.locations.pickup_lon,
                 config.TAKEOFF_ALTITUDE_M,
             )
             self._goto_sent = True
+            self._last_goto_retry = time.time()
 
         elif state == DroneState.DESCEND:
             # Descend altitude depends on current phase
@@ -471,20 +467,17 @@ class MissionManager:
                 )
 
         elif state == DroneState.FLY_TO_DROP:
-            # Enter OFFBOARD for GPS navigation to drop point.
-            if self.mavlink.telemetry.flight_mode != "OFFBOARD":
-                logger.info("FLY_TO_DROP: switching to OFFBOARD for GPS navigation")
-                ok = self.mavlink.set_mode_offboard()
-                if not ok:
-                    logger.error("Failed to enter OFFBOARD for FLY_TO_DROP")
-                    self.state_machine.transition_to(DroneState.ERROR)
-                    return
+            # Transition to LOITER mode + DO_REPOSITION command for drop navigation
+            if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
+                logger.info("FLY_TO_DROP: ensuring mode is LOITER for DO_REPOSITION navigation")
+                self.mavlink.set_mode("LOITER")
             self.mavlink.goto_location(
                 self.locations.drop_lat,
                 self.locations.drop_lon,
                 config.TAKEOFF_ALTITUDE_M,
             )
             self._goto_sent = True
+            self._last_goto_retry = time.time()
 
         elif state == DroneState.WAIT_DROP_CONFIRM:
             self._landing_status = "WAIT_DROP"
@@ -559,6 +552,15 @@ class MissionManager:
             ):
                 self._landing_phase = "pickup"
                 self.state_machine.transition_to(DroneState.DESCEND)
+            else:
+                last_retry = getattr(self, "_last_goto_retry", 0.0)
+                if time.time() - last_retry >= 3.0:
+                    self._last_goto_retry = time.time()
+                    self.mavlink.goto_location(
+                        self.locations.pickup_lat,
+                        self.locations.pickup_lon,
+                        config.TAKEOFF_ALTITUDE_M,
+                    )
 
         # ── FLY_TO_DROP ────────────────────────────────────────────────────
         elif state == DroneState.FLY_TO_DROP:
@@ -569,6 +571,15 @@ class MissionManager:
             ):
                 self._landing_phase = "drop"
                 self.state_machine.transition_to(DroneState.DESCEND)
+            else:
+                last_retry = getattr(self, "_last_goto_retry", 0.0)
+                if time.time() - last_retry >= 3.0:
+                    self._last_goto_retry = time.time()
+                    self.mavlink.goto_location(
+                        self.locations.drop_lat,
+                        self.locations.drop_lon,
+                        config.TAKEOFF_ALTITUDE_M,
+                    )
 
         # ── DESCEND ────────────────────────────────────────────────────────
         elif state == DroneState.DESCEND:
