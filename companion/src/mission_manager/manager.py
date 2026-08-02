@@ -583,7 +583,7 @@ class MissionManager:
 
         # ── DESCEND ────────────────────────────────────────────────────────
         elif state == DroneState.DESCEND:
-            if self._mission_active and self.mavlink.telemetry.altitude_relative <= 3.0:
+            if self._mission_active and self.mavlink.telemetry.altitude_relative <= config.DESCEND_ALTITUDE_M + 0.3:
                 self.state_machine.transition_to(DroneState.SEARCH_ARUCO)
 
         # ── SEARCH_ARUCO ───────────────────────────────────────────────────
