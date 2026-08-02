@@ -137,9 +137,6 @@ class MissionManager:
         elif action == "SET_MODE":
             self._handle_set_mode(payload)
 
-        elif action == "MOVE_RELATIVE":
-            self._handle_move_relative(payload)
-
         elif action == "ARM":
             self._handle_arm()
 
@@ -184,10 +181,13 @@ class MissionManager:
             alt = payload.get("alt", config.TAKEOFF_ALTITUDE_M)
             if lat and lon:
                 logger.info("STEP NAV_GPS to lat=%.6f, lon=%.6f, alt=%.1fm", lat, lon, alt)
-                # Enter OFFBOARD mode for GPS navigation (after TAKEOFF completed)
-                if self.mavlink.telemetry.flight_mode != "OFFBOARD":
-                    self.mavlink.set_mode_offboard()
-                self.mavlink.goto_location(lat, lon, alt)
+                # Enter LOITER mode for GPS navigation (after TAKEOFF completed)
+                if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
+                    self.mavlink.set_mode("LOITER")
+                target_lat = lat or self.mavlink.telemetry.latitude or self.locations.pickup_lat
+                target_lon = lon or self.mavlink.telemetry.longitude or self.locations.pickup_lon
+                if target_lat and target_lon:
+                    self.mavlink.goto_location(target_lat, target_lon, alt)
                 self.state_machine.force_state(DroneState.FLY_TO_PICKUP)
 
         elif step == "DESCEND":
@@ -266,13 +266,6 @@ class MissionManager:
             return
         logger.info("Manual DISARM command sent (force=%s)", force)
         self.mavlink.disarm(force=force)
-
-    def _handle_move_relative(self, payload: dict) -> None:
-        dx = payload.get("dx", 0.0)
-        dy = payload.get("dy", 0.0)
-        dz = payload.get("dz", 0.0)
-        logger.info("Moving relative: dx=%.1f, dy=%.1f, dz=%.1f", dx, dy, dz)
-        self.mavlink.move_relative(dx, dy, dz)
 
     def _handle_start(self, payload: dict) -> None:
         new_locations = MissionLocations(
