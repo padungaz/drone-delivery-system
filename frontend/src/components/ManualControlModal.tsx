@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   setFlightMode,
-  moveRelative,
   startCamera,
   stopCamera,
   armDrone,
@@ -19,14 +18,12 @@ type Props = {
 
 const FLIGHT_MODES = [
   { label: "🟡 Hold / Loiter", value: "LOITER", desc: "Chế độ định vị giữ vị trí & bay tới đích (DO_REPOSITION)" },
-  { label: "⚡ Offboard", value: "OFFBOARD", desc: "Chế độ điều khiển trực tiếp vector từ Pi 5" },
   { label: "🛫 Takeoff", value: "TAKEOFF", desc: "Cất cánh tự động lên độ cao an toàn" },
   { label: "🛬 Land", value: "LAND", desc: "Hạ cánh tự động tại vị trí hiện tại" },
   { label: "🏠 Return (RTL)", value: "RTL", desc: "Bay quay về Trạm xuất phát và đáp" },
 ];
 
 export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: Props) {
-  const [activeTab, setActiveTab] = useState<"step" | "advanced">("step");
   const [armLoading, setArmLoading] = useState<string | null>(null);
   const [stepMsg, setStepMsg] = useState<string | null>(null);
 
@@ -78,7 +75,7 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
   };
 
   const handleSetMode = async (mode: string) => {
-    if ((mode === "OFFBOARD" || mode === "LOITER" || mode === "TAKEOFF") && !isArmed) {
+    if ((mode === "LOITER" || mode === "TAKEOFF") && !isArmed) {
       setStepMsg(`⚠️ Vui lòng ARM trước khi chọn chế độ ${mode}`);
       return;
     }
@@ -90,14 +87,6 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
     } catch (err) {
       console.error("Failed to set mode", err);
       setStepMsg("❌ Lỗi mạng khi đặt chế độ");
-    }
-  };
-
-  const handleMove = async (dx: number, dy: number, dz: number) => {
-    try {
-      await moveRelative(dx, dy, dz);
-    } catch (err) {
-      console.error("Failed to move", err);
     }
   };
 
@@ -142,11 +131,12 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
 
   return (
     <div className="modal-overlay">
-      <div className="modal-content" style={{ maxWidth: "680px", width: "95%" }}>
+      <div className="modal-content" style={{ maxWidth: "700px", width: "95%" }}>
         <button onClick={onClose} className="modal-close" title="Đóng">✕</button>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
-          <h2>🎮 Điều khiển Thủ công Drone</h2>
+        {/* Header Section */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.75rem" }}>
+          <h2>🎮 Bảng Điều khiển & Kiểm thử Drone</h2>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
             <span className={`armed-badge ${isArmed ? "armed" : "disarmed"}`}>
               {isArmed ? "🔴 ARMED" : "🟢 DISARMED"}
@@ -157,330 +147,247 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
           </div>
         </div>
 
-        {/* Modal Tab Switcher */}
-        <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border)", marginBottom: "1.2rem", paddingBottom: "0.5rem" }}>
-          <button
-            type="button"
-            className={`btn-map-action ${activeTab === "step" ? "active" : ""}`}
-            onClick={() => setActiveTab("step")}
-            style={{ fontSize: "0.9rem", padding: "0.5rem 1rem" }}
-          >
-            🪜 Điều khiển từng bước (Step Pipeline)
-          </button>
-          <button
-            type="button"
-            className={`btn-map-action ${activeTab === "advanced" ? "active" : ""}`}
-            onClick={() => setActiveTab("advanced")}
-            style={{ fontSize: "0.9rem", padding: "0.5rem 1rem" }}
-          >
-            🎛️ Chế độ bay & Phím D-Pad
-          </button>
-        </div>
-
         {stepMsg && <p className="action-message" style={{ marginBottom: "1rem" }}>{stepMsg}</p>}
 
-        {/* ── TAB 1: STEP-BY-STEP PIPELINE ───────────────────────────────── */}
-        {activeTab === "step" && (
-          <div className="step-pipeline-wrapper">
-            <p className="warning-text" style={{ marginBottom: "1rem" }}>
-              Kích hoạt độc lập từng bước riêng lẻ trong quy trình bay tự động để kiểm tra & cân chỉnh cảm biến.
-            </p>
+        {/* ── SECTION 1: ARM / DISARM CONTROLS ──────────────────────────── */}
+        <div className="modal-section" style={{ marginBottom: "1.2rem" }}>
+          <div className="arm-controls">
+            <button
+              id="btn-manual-arm"
+              className="btn btn-arm"
+              disabled={isArmed || armLoading !== null}
+              onClick={handleArm}
+              title={isArmed ? "Đã khóa mô-tơ" : "Mở khóa động cơ"}
+            >
+              {armLoading === "arm" ? "Arming…" : "⚡ ARM ĐỘNG CƠ"}
+            </button>
+            <button
+              id="btn-manual-disarm"
+              className="btn btn-disarm"
+              disabled={!isArmed || armLoading !== null}
+              onClick={() => handleDisarm(false)}
+              title={!isArmed ? "Đã tắt mô-tơ" : "Tắt mô-tơ"}
+            >
+              {armLoading === "disarm" ? "Disarming…" : "🛑 DISARM"}
+            </button>
+            <button
+              id="btn-force-disarm"
+              className="btn btn-force-disarm"
+              disabled={armLoading !== null}
+              onClick={() => handleDisarm(true)}
+              title="⚠️ Khẩn cấp ngắt mô-tơ lập tức"
+            >
+              {armLoading === "force" ? "Forcing…" : "☠️ FORCE DISARM"}
+            </button>
+          </div>
+        </div>
 
-            <div className="step-grid">
-              {/* Step 1: IDLE */}
-              <div className="step-card">
-                <div className="step-num">1</div>
-                <div className="step-info">
-                  <strong>🔴 Reset về IDLE</strong>
-                  <span>Khôi phục FSM về trạng thái nghỉ ban đầu</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-step"
-                  onClick={() => handleStepAction("RESET_IDLE")}
-                  disabled={armLoading !== null}
-                >
-                  Reset IDLE
-                </button>
+        {/* ── SECTION 2: STEP-BY-STEP PIPELINE ──────────────────────────── */}
+        <div className="step-pipeline-wrapper" style={{ marginBottom: "1.2rem" }}>
+          <h3 style={{ marginBottom: "0.5rem" }}>🪜 Quy trình Bay từng bước (Step Pipeline)</h3>
+          <p className="warning-text" style={{ marginBottom: "0.8rem" }}>
+            Kích hoạt độc lập từng bước trong quy trình tự động để kiểm tra & cân chỉnh cảm biến.
+          </p>
+
+          <div className="step-grid">
+            {/* Step 1: IDLE */}
+            <div className="step-card">
+              <div className="step-num">1</div>
+              <div className="step-info">
+                <strong>🔴 Reset về IDLE</strong>
+                <span>Khôi phục FSM về trạng thái nghỉ</span>
               </div>
+              <button
+                type="button"
+                className="btn btn-step"
+                onClick={() => handleStepAction("RESET_IDLE")}
+                disabled={armLoading !== null}
+              >
+                Reset IDLE
+              </button>
+            </div>
 
-              {/* Step 2: ARMING */}
-              <div className="step-card">
-                <div className="step-num">2</div>
-                <div className="step-info">
-                  <strong>⚡ ARM / DISARM Động cơ</strong>
-                  <span>Khóa an toàn & khởi động mô-tơ</span>
-                </div>
-                <div style={{ display: "flex", gap: "6px" }}>
-                  <button
-                    type="button"
-                    className="btn btn-arm"
-                    style={{ padding: "0.3rem 0.6rem", fontSize: "0.8rem" }}
-                    onClick={handleArm}
-                    disabled={isArmed || armLoading !== null}
-                  >
-                    ARM
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-disarm"
-                    style={{ padding: "0.3rem 0.6rem", fontSize: "0.8rem" }}
-                    onClick={() => handleDisarm(false)}
-                    disabled={!isArmed || armLoading !== null}
-                  >
-                    DISARM
-                  </button>
-                </div>
+            {/* Step 2: TAKEOFF */}
+            <div className="step-card">
+              <div className="step-num">2</div>
+              <div className="step-info">
+                <strong>🛫 TAKEOFF (Giữ vị trí)</strong>
+                <span>Cất cánh thẳng đứng & giữ cố định 2m</span>
               </div>
+              <button
+                type="button"
+                className="btn btn-step primary"
+                onClick={() => handleStepAction("TAKEOFF", { alt: 2.0 })}
+                disabled={!isArmed || armLoading !== null}
+              >
+                Cất cánh (2m)
+              </button>
+            </div>
 
-              {/* Step 3: TAKEOFF */}
-              <div className="step-card">
+            {/* Step 3: NAV_GPS */}
+            <div className="step-card" style={{ gridColumn: "1 / -1", background: "rgba(15, 23, 42, 0.6)", padding: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%" }}>
                 <div className="step-num">3</div>
-                <div className="step-info">
-                  <strong>🛫 TAKEOFF (Giữ vị trí)</strong>
-                  <span>Cất cánh thẳng đứng & giữ cố định độ cao ~2m</span>
+                <div className="step-info" style={{ flex: 1 }}>
+                  <strong>🎯 Bay GPS vị trí chỉ định (`LOITER`)</strong>
+                  <span>Bay định hướng GPS & giữ vị trí tự động qua `MAV_CMD_DO_REPOSITION`</span>
                 </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", marginTop: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                <select
+                  className="form-input"
+                  style={{ width: "auto", minWidth: "160px", padding: "0.35rem 0.6rem" }}
+                  value={targetType}
+                  onChange={(e) => setTargetType(e.target.value as any)}
+                >
+                  <option value="pickup">📦 Điểm Lấy hàng</option>
+                  <option value="drop">📬 Điểm Giao hàng</option>
+                  <option value="home">🏠 Trạm xuất phát (Kho)</option>
+                  <option value="custom">📍 Tọa độ tùy chỉnh</option>
+                </select>
+
+                {targetType === "custom" && (
+                  <>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      placeholder="Lat"
+                      className="form-input"
+                      style={{ width: "110px", padding: "0.35rem" }}
+                      value={customLat}
+                      onChange={(e) => setCustomLat(parseFloat(e.target.value) || 0)}
+                    />
+                    <input
+                      type="number"
+                      step="0.000001"
+                      placeholder="Lon"
+                      className="form-input"
+                      style={{ width: "110px", padding: "0.35rem" }}
+                      value={customLon}
+                      onChange={(e) => setCustomLon(parseFloat(e.target.value) || 0)}
+                    />
+                  </>
+                )}
+
+                <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Cao (m):</span>
+                <input
+                  type="number"
+                  step="0.5"
+                  className="form-input"
+                  style={{ width: "70px", padding: "0.35rem" }}
+                  value={targetAlt}
+                  onChange={(e) => setTargetAlt(parseFloat(e.target.value) || 2.0)}
+                />
+
                 <button
                   type="button"
                   className="btn btn-step primary"
-                  onClick={() => handleStepAction("TAKEOFF", { alt: 2.0 })}
+                  onClick={() => handleStepAction("NAV_GPS")}
                   disabled={!isArmed || armLoading !== null}
                 >
-                  Cất cánh (2m)
+                  Bay GPS (`LOITER`)
                 </button>
               </div>
+            </div>
 
-              {/* Step 4: NAV_GPS */}
-              <div className="step-card" style={{ gridColumn: "1 / -1", background: "rgba(15, 23, 42, 0.6)", padding: "12px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%" }}>
-                  <div className="step-num">4</div>
-                  <div className="step-info" style={{ flex: 1 }}>
-                    <strong>🎯 Bay GPS tới vị trí chỉ định</strong>
-                    <span>Bay định hướng GPS & tự động giữ vị trí (Loiter) khi tới nơi</span>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: "10px", marginTop: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                  <select
-                    className="form-input"
-                    style={{ width: "auto", minWidth: "160px", padding: "0.35rem 0.6rem" }}
-                    value={targetType}
-                    onChange={(e) => setTargetType(e.target.value as any)}
-                  >
-                    <option value="pickup">📦 Điểm Lấy hàng</option>
-                    <option value="drop">📬 Điểm Giao hàng</option>
-                    <option value="home">🏠 Trạm xuất phát (Kho)</option>
-                    <option value="custom">📍 Tọa độ tùy chỉnh</option>
-                  </select>
-
-                  {targetType === "custom" && (
-                    <>
-                      <input
-                        type="number"
-                        step="0.000001"
-                        placeholder="Lat"
-                        className="form-input"
-                        style={{ width: "110px", padding: "0.35rem" }}
-                        value={customLat}
-                        onChange={(e) => setCustomLat(parseFloat(e.target.value) || 0)}
-                      />
-                      <input
-                        type="number"
-                        step="0.000001"
-                        placeholder="Lon"
-                        className="form-input"
-                        style={{ width: "110px", padding: "0.35rem" }}
-                        value={customLon}
-                        onChange={(e) => setCustomLon(parseFloat(e.target.value) || 0)}
-                      />
-                    </>
-                  )}
-
-                  <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Cao (m):</span>
-                  <input
-                    type="number"
-                    step="0.5"
-                    className="form-input"
-                    style={{ width: "65px", padding: "0.35rem" }}
-                    value={targetAlt}
-                    onChange={(e) => setTargetAlt(parseFloat(e.target.value) || 10)}
-                  />
-
-                  <button
-                    type="button"
-                    className="btn btn-step primary"
-                    onClick={() => handleStepAction("NAV_GPS")}
-                    disabled={!isArmed || armLoading !== null}
-                  >
-                    Bay GPS & Hover
-                  </button>
-                </div>
+            {/* Step 4: DESCEND */}
+            <div className="step-card">
+              <div className="step-num">4</div>
+              <div className="step-info">
+                <strong>📉 DESCEND (Hạ tiếp cận)</strong>
+                <span>Hạ cao độ rà tìm xuống ~4m</span>
               </div>
+              <button
+                type="button"
+                className="btn btn-step"
+                onClick={() => handleStepAction("DESCEND", { alt: 4.0 })}
+                disabled={!isArmed || armLoading !== null}
+              >
+                Hạ cao độ (4m)
+              </button>
+            </div>
 
-              {/* Step 5: DESCEND */}
-              <div className="step-card">
-                <div className="step-num">5</div>
-                <div className="step-info">
-                  <strong>📉 DESCEND (Hạ độ cao tiếp cận)</strong>
-                  <span>Hạ thấp độ cao rà tìm xuống ~4m & giữ vị trí</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-step"
-                  onClick={() => handleStepAction("DESCEND", { alt: 4.0 })}
-                  disabled={!isArmed || armLoading !== null}
-                >
-                  Hạ độ cao (4m)
-                </button>
+            {/* Step 5: SEARCH_ARUCO */}
+            <div className="step-card">
+              <div className="step-num">5</div>
+              <div className="step-info">
+                <strong>📷 SEARCH ARUCO (Rà Marker)</strong>
+                <span>Bật Camera rà mã ArUco</span>
               </div>
+              <button
+                type="button"
+                className="btn btn-step"
+                onClick={() => handleStepAction("SEARCH_ARUCO")}
+                disabled={armLoading !== null}
+              >
+                Bật Rà ArUco
+              </button>
+            </div>
 
-              {/* Step 6: SEARCH_ARUCO */}
-              <div className="step-card">
-                <div className="step-num">6</div>
-                <div className="step-info">
-                  <strong>📷 SEARCH ARUCO (Rà tìm Marker)</strong>
-                  <span>Bật Camera USB + thị giác máy tính rà ArUco</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-step"
-                  onClick={() => handleStepAction("SEARCH_ARUCO")}
-                  disabled={armLoading !== null}
-                >
-                  Bật Rà ArUco
-                </button>
+            {/* Step 6: PRECISION_LANDING */}
+            <div className="step-card">
+              <div className="step-num">6</div>
+              <div className="step-info">
+                <strong>🎯 PRECISION LANDING</strong>
+                <span>Hạ cánh căn chỉnh theo ArUco (&lt;20cm)</span>
               </div>
+              <button
+                type="button"
+                className="btn btn-step success"
+                onClick={() => handleStepAction("PRECISION_LANDING")}
+                disabled={!isArmed || armLoading !== null}
+              >
+                Hạ cánh ArUco
+              </button>
+            </div>
 
-              {/* Step 7: PRECISION_LANDING */}
-              <div className="step-card">
-                <div className="step-num">7</div>
-                <div className="step-info">
-                  <strong>🎯 PRECISION LANDING (ArUco)</strong>
-                  <span>Hạ cánh chính xác căn chỉnh theo mã ArUco (&lt;20cm)</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-step success"
-                  onClick={() => handleStepAction("PRECISION_LANDING")}
-                  disabled={!isArmed || armLoading !== null}
-                >
-                  Hạ cánh ArUco
-                </button>
+            {/* Step 7: NORMAL_LANDING */}
+            <div className="step-card">
+              <div className="step-num">7</div>
+              <div className="step-info">
+                <strong>🛬 NORMAL LANDING (Hạ thường)</strong>
+                <span>PX4 Auto Land tại chỗ</span>
               </div>
-
-              {/* Step 8: NORMAL_LANDING */}
-              <div className="step-card">
-                <div className="step-num">8</div>
-                <div className="step-info">
-                  <strong>🛬 NORMAL LANDING (Hạ thường)</strong>
-                  <span>PX4 Auto Land thẳng đứng tại chỗ (Không ArUco)</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-step warning"
-                  onClick={() => handleStepAction("NORMAL_LANDING")}
-                  disabled={!isArmed || armLoading !== null}
-                >
-                  Hạ thường (Land)
-                </button>
-              </div>
+              <button
+                type="button"
+                className="btn btn-step warning"
+                onClick={() => handleStepAction("NORMAL_LANDING")}
+                disabled={!isArmed || armLoading !== null}
+              >
+                Hạ thường (Land)
+              </button>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* ── TAB 2: ADVANCED MODES & D-PAD ──────────────────────────────── */}
-        {activeTab === "advanced" && (
-          <div>
-            {/* ── ARM / DISARM ─────────────────────────────────────── */}
-            <div className="modal-section">
-              <h3>
-                Arm / Disarm&nbsp;
-                <span className={`armed-badge ${isArmed ? "armed" : "disarmed"}`}>
-                  {isArmed ? "🔴 ARMED" : "🟢 DISARMED"}
-                </span>
-              </h3>
-              <div className="arm-controls">
+        {/* ── SECTION 3: QUICK FLIGHT MODES & CAMERA CONTROLS ──────────── */}
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1rem" }}>
+          <div className="modal-section">
+            <h3 style={{ marginBottom: "0.5rem" }}>Chế độ bay Nhanh (PX4 Modes)</h3>
+            <div className="modal-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px" }}>
+              {FLIGHT_MODES.map((mode) => (
                 <button
-                  id="btn-manual-arm"
-                  className="btn btn-arm"
-                  disabled={isArmed || armLoading !== null}
-                  onClick={handleArm}
-                  title={isArmed ? "Đã khóa mô-tơ" : "Mở khóa động cơ"}
+                  key={mode.value}
+                  onClick={() => handleSetMode(mode.value)}
+                  className={`btn-mode ${droneStatus?.flight_mode === mode.value ? "active" : ""}`}
+                  title={mode.desc}
                 >
-                  {armLoading === "arm" ? "Arming…" : "⚡ ARM"}
+                  {mode.label}
                 </button>
-                <button
-                  id="btn-manual-disarm"
-                  className="btn btn-disarm"
-                  disabled={!isArmed || armLoading !== null}
-                  onClick={() => handleDisarm(false)}
-                  title={!isArmed ? "Đã tắt mô-tơ" : "Tắt mô-tơ"}
-                >
-                  {armLoading === "disarm" ? "Disarming…" : "🛑 DISARM"}
-                </button>
-                <button
-                  id="btn-force-disarm"
-                  className="btn btn-force-disarm"
-                  disabled={armLoading !== null}
-                  onClick={() => handleDisarm(true)}
-                  title="⚠️ Khẩn cấp ngắt mô-tơ lập tức"
-                >
-                  {armLoading === "force" ? "Forcing…" : "☠️ FORCE DISARM"}
-                </button>
-              </div>
-            </div>
-
-            {/* ── Flight Modes ─────────────────────────────────────── */}
-            <div className="modal-section">
-              <h3>Chế độ bay (PX4 Modes)</h3>
-              <div className="modal-grid-3">
-                {FLIGHT_MODES.map((mode) => (
-                  <button
-                    key={mode.value}
-                    onClick={() => handleSetMode(mode.value)}
-                    className={`btn-mode ${droneStatus?.flight_mode === mode.value ? "active" : ""}`}
-                    title={mode.desc}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* ── Movement ─────────────────────────────────────────── */}
-            <div className="modal-section">
-              <h3>Di chuyển phím D-Pad (10cm steps)</h3>
-              <p className="warning-text">Yêu cầu chế độ OFFBOARD + ARMED.</p>
-              <div className="movement-box">
-                {/* Z axis */}
-                <div className="z-axis-controls">
-                  <button onClick={() => handleMove(0, 0, -0.1)} className="btn-move round" title="Up">UP</button>
-                  <span className="z-label">Z-Axis</span>
-                  <button onClick={() => handleMove(0, 0, 0.1)} className="btn-move round" title="Down">DN</button>
-                </div>
-
-                {/* X/Y axis (D-pad) */}
-                <div className="modal-grid-dpad">
-                  <div />
-                  <button onClick={() => handleMove(0.1, 0, 0)} className="btn-move" title="Forward">▲</button>
-                  <div />
-                  <button onClick={() => handleMove(0, -0.1, 0)} className="btn-move" title="Left">◀</button>
-                  <button onClick={() => handleMove(-0.1, 0, 0)} className="btn-move" title="Backward">▼</button>
-                  <button onClick={() => handleMove(0, 0.1, 0)} className="btn-move" title="Right">▶</button>
-                </div>
-              </div>
-            </div>
-
-            {/* ── Camera ───────────────────────────────────────────── */}
-            <div className="modal-section">
-              <h3>Camera USB Vision</h3>
-              <div className="camera-controls">
-                <button onClick={() => handleCamera("start")} className="btn btn-cam-start">Bật Camera</button>
-                <button onClick={() => handleCamera("stop")} className="btn btn-cam-stop">Tắt Camera</button>
-              </div>
+              ))}
             </div>
           </div>
-        )}
+
+          <div className="modal-section">
+            <h3 style={{ marginBottom: "0.5rem" }}>Camera Vision</h3>
+            <div className="camera-controls" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <button onClick={() => handleCamera("start")} className="btn btn-cam-start">Bật Camera</button>
+              <button onClick={() => handleCamera("stop")} className="btn btn-cam-stop">Tắt Camera</button>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   );
