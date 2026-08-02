@@ -166,7 +166,7 @@ CAMERA_ARUCO_SEND_INTERVAL_SEC = 2.0
 TAKEOFF_ALTITUDE_M = float(
     os.getenv(
         "TAKEOFF_ALTITUDE_M",
-        "2.0"
+        "4.0"
     )
 )
 
@@ -182,7 +182,7 @@ RTL_ALTITUDE_M = float(
 DESCEND_ALTITUDE_M = float(
     os.getenv(
         "DESCEND_ALTITUDE_M",
-        "5.0"
+        "2.5"
     )
 )
 

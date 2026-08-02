@@ -31,7 +31,7 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
   const [targetType, setTargetType] = useState<"home" | "pickup" | "drop" | "custom">("pickup");
   const [customLat, setCustomLat] = useState<number>(16.0544);
   const [customLon, setCustomLon] = useState<number>(108.2022);
-  const [targetAlt, setTargetAlt] = useState<number>(10.0);
+  const [targetAlt, setTargetAlt] = useState<number>(4.0);
 
   if (!isOpen) return null;
 
@@ -212,15 +212,15 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
               <div className="step-num">2</div>
               <div className="step-info">
                 <strong>🛫 TAKEOFF (Giữ vị trí)</strong>
-                <span>Cất cánh thẳng đứng & giữ cố định 2m</span>
+                <span>Cất cánh thẳng đứng & giữ cố định 4m</span>
               </div>
               <button
                 type="button"
                 className="btn btn-step primary"
-                onClick={() => handleStepAction("TAKEOFF", { alt: 2.0 })}
+                onClick={() => handleStepAction("TAKEOFF", { alt: 4.0 })}
                 disabled={!isArmed || armLoading !== null}
               >
-                Cất cánh (2m)
+                Cất cánh (4m)
               </button>
             </div>
 
@@ -230,7 +230,7 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
                 <div className="step-num">3</div>
                 <div className="step-info" style={{ flex: 1 }}>
                   <strong>🎯 Bay GPS vị trí chỉ định (`LOITER`)</strong>
-                  <span>Bay định hướng GPS & giữ vị trí tự động qua `MAV_CMD_DO_REPOSITION`</span>
+                  <span>Bay định hướng GPS & giữ vị trí tự động qua `MAV_CMD_DO_REPOSITION` (4m)</span>
                 </div>
               </div>
 
@@ -277,7 +277,7 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
                   className="form-input"
                   style={{ width: "70px", padding: "0.35rem" }}
                   value={targetAlt}
-                  onChange={(e) => setTargetAlt(parseFloat(e.target.value) || 2.0)}
+                  onChange={(e) => setTargetAlt(parseFloat(e.target.value) || 4.0)}
                 />
 
                 <button
@@ -296,15 +296,15 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
               <div className="step-num">4</div>
               <div className="step-info">
                 <strong>📉 DESCEND (Hạ tiếp cận)</strong>
-                <span>Hạ cao độ rà tìm xuống ~4m</span>
+                <span>Hạ cao độ rà tìm xuống 2.5m</span>
               </div>
               <button
                 type="button"
                 className="btn btn-step"
-                onClick={() => handleStepAction("DESCEND", { alt: 4.0 })}
+                onClick={() => handleStepAction("DESCEND", { alt: 2.5 })}
                 disabled={!isArmed || armLoading !== null}
               >
-                Hạ cao độ (4m)
+                Hạ cao độ (2.5m)
               </button>
             </div>
 
