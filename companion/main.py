@@ -135,9 +135,6 @@ class CompanionApp:
     # ------------------------------------------------------------------
 
     def setup(self) -> bool:
-        if not self._connect_mavlink():
-            return False
-
         self.mission = MissionManager(self.mavlink, self.vision, self.ws)
         self.ws._on_command = self.mission.handle_command
 
@@ -153,6 +150,11 @@ class CompanionApp:
     # ------------------------------------------------------------------
     # Async tasks
     # ------------------------------------------------------------------
+
+    async def connect_mavlink_background(self) -> None:
+        """Connect to MAVLink asynchronously in background without blocking WebSocket startup."""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._connect_mavlink)
 
     async def run_ws_listener(self) -> None:
         await self.ws.connect()
@@ -216,6 +218,7 @@ async def main():
 
     await asyncio.gather(
         app.run_ws_listener(),
+        app.connect_mavlink_background(),
         app.run_main_loop(),
     )
 
