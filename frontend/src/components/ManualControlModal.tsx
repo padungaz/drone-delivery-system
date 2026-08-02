@@ -18,8 +18,8 @@ type Props = {
 };
 
 const FLIGHT_MODES = [
-  { label: "⚡ Offboard", value: "OFFBOARD", desc: "Chế độ điều khiển hướng từ Pi 5" },
-  { label: "🟡 Hold / Loiter", value: "LOITER", desc: "Duy trì vị trí & độ cao cố định" },
+  { label: "🟡 Hold / Loiter", value: "LOITER", desc: "Chế độ định vị giữ vị trí & bay tới đích (DO_REPOSITION)" },
+  { label: "⚡ Offboard", value: "OFFBOARD", desc: "Chế độ điều khiển trực tiếp vector từ Pi 5" },
   { label: "🛫 Takeoff", value: "TAKEOFF", desc: "Cất cánh tự động lên độ cao an toàn" },
   { label: "🛬 Land", value: "LAND", desc: "Hạ cánh tự động tại vị trí hiện tại" },
   { label: "🏠 Return (RTL)", value: "RTL", desc: "Bay quay về Trạm xuất phát và đáp" },
@@ -78,7 +78,7 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
   };
 
   const handleSetMode = async (mode: string) => {
-    if ((mode === "OFFBOARD" || mode === "TAKEOFF") && !isArmed) {
+    if ((mode === "OFFBOARD" || mode === "LOITER" || mode === "TAKEOFF") && !isArmed) {
       setStepMsg(`⚠️ Vui lòng ARM trước khi chọn chế độ ${mode}`);
       return;
     }
