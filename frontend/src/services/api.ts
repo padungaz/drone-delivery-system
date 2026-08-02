@@ -84,12 +84,7 @@ export async function setFlightMode(mode: string): Promise<Response> {
   });
 }
 
-/** Move drone relatively. */
-export async function moveRelative(dx: number, dy: number, dz: number): Promise<Response> {
-  return fetch(`${API_BASE}/missions/move-relative?dx=${dx}&dy=${dy}&dz=${dz}&drone_id=${DRONE_ID}`, {
-    method: "POST",
-  });
-}
+
 
 /** Manually ARM the drone (only when IDLE and disarmed). */
 export async function armDrone(): Promise<Response> {
