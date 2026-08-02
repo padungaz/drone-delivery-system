@@ -406,7 +406,8 @@ class MissionManager:
             # Method A: Use PX4 native TAKEOFF mode.
             # PX4 handles motor ramp-up, attitude control, and climb.
             # No OFFBOARD setpoints during takeoff — avoids mode conflict.
-            self.mavlink.takeoff(config.TAKEOFF_ALTITUDE_M)
+            target_alt = getattr(self.mavlink, "_target_takeoff_alt", config.TAKEOFF_ALTITUDE_M)
+            self.mavlink.takeoff(target_alt)
 
         elif state == DroneState.FLY_TO_PICKUP:
             # Method A: Transition from PX4 TAKEOFF → OFFBOARD for GPS navigation.
@@ -525,6 +526,13 @@ class MissionManager:
                 # PX4 TAKEOFF mode handles the climb. No OFFBOARD needed here.
                 logger.info("ARM confirmed — transitioning to TAKEOFF")
                 self.state_machine.transition_to(DroneState.TAKEOFF)
+            else:
+                # Periodic retry every 3.0 seconds if PX4 hasn't armed yet
+                last_retry = getattr(self, "_last_arm_retry", 0.0)
+                if time.time() - last_retry >= 3.0:
+                    logger.info("ARMing in progress — retrying ARM command...")
+                    self._last_arm_retry = time.time()
+                    self.mavlink.arm()
 
         # ── TAKEOFF ────────────────────────────────────────────────────────
         elif state == DroneState.TAKEOFF:

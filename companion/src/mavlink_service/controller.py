@@ -391,9 +391,9 @@ class MavlinkController:
             logger.info("OFFBOARD: Starting continuous setpoint keepalive thread...")
             self._start_offboard_keepalive()
 
-            # ── Phase 2: Đợi 2.0s cho luồng setpoint đi vào quỹ đạo mượt mà ──
-            logger.info("OFFBOARD: Streaming setpoints for 2 s before switching mode...")
-            time.sleep(2.0)
+            # ── Phase 2: Đợi 0.5s cho luồng setpoint đi vào quỹ đạo mượt mà ──
+            logger.info("OFFBOARD: Streaming setpoints for 0.5s before switching mode...")
+            time.sleep(0.5)
 
             # ── Phase 3: Bắn lệnh chuyển mode (Setpoint vẫn đang chảy liên tục 20Hz) ──
             for attempt in range(1, retries + 1):
