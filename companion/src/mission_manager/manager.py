@@ -187,6 +187,8 @@ class MissionManager:
                 target_lat = lat or self.mavlink.telemetry.latitude or self.locations.pickup_lat
                 target_lon = lon or self.mavlink.telemetry.longitude or self.locations.pickup_lon
                 if target_lat and target_lon:
+                    self.locations.pickup_lat = target_lat
+                    self.locations.pickup_lon = target_lon
                     self.mavlink.goto_location(target_lat, target_lon, alt)
                 self.state_machine.force_state(DroneState.FLY_TO_PICKUP)
 
