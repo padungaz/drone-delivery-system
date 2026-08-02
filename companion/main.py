@@ -23,7 +23,7 @@ import time
 
 import config
 from src.mavlink_service.factory import create_mavlink_controller
-from src.mission_manager.manager import MissionManager
+from src.mission_manager import MissionManager
 from src.network_service.websocket_client import WebSocketClient
 from src.telemetry_service.publisher import TelemetryPublisher
 from src.vision_service.aruco_landing import ArucoLandingService
