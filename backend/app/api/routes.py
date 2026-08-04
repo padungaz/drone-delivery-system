@@ -221,9 +221,6 @@ async def set_mode(mode: str, drone_id: str = "drone-01"):
     return {"status": "SET_MODE sent", "drone_id": drone_id}
 
 
-
-
-
 @router.post("/missions/arm")
 async def arm_drone(drone_id: str = "drone-01"):
     """Send ARM command to drone (manual arm, outside mission flow)."""

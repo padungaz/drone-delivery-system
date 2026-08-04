@@ -1,16 +1,44 @@
 :root {
-  --bg: #0f1419;
-  --surface: #1a2332;
-  --border: #2d3a4f;
-  --text: #e8edf4;
-  --muted: #8b9cb3;
-  --accent: #3b82f6;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --rtl: #f97316;
-  --pickup: #8b5cf6;   /* purple — pickup confirm */
-  --drop: #06b6d4;     /* cyan   — drop confirm   */
+  /* GCS Cyber Dark Base Colors */
+  --bg: #060911;
+  --bg-secondary: #0b101b;
+  --surface: rgba(15, 23, 42, 0.75);
+  --surface-hover: rgba(21, 32, 54, 0.85);
+  --surface-card: rgba(26, 38, 57, 0.65);
+  --border: rgba(0, 240, 255, 0.15);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-active: #00F0FF;
+  
+  /* Text & Typography */
+  --text: #F1F5F9;
+  --text-heading: #00F0FF;
+  --text-subheading: #94A3B8;
+  --muted: #64748B;
+  
+  /* Cyber Industrial Accents */
+  --accent: #00F0FF;          /* Cyber Cyan   */
+  --accent-glow: rgba(0, 240, 255, 0.35);
+  --success: #00E676;         /* Emerald Glow */
+  --success-glow: rgba(0, 230, 118, 0.35);
+  --warning: #FFB800;         /* Electric Amber */
+  --warning-glow: rgba(255, 184, 0, 0.35);
+  --danger: #FF2A6D;          /* Crimson Red  */
+  --danger-glow: rgba(255, 42, 109, 0.45);
+  --rtl: #FF7043;
+  --pickup: #A855F7;          /* Purple Glow  */
+  --drop: #06B6D4;            /* Cyan Accent  */
+  
+  /* Fonts */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-heading: 'Orbitron', 'Rajdhani', sans-serif;
+  --font-subheading: 'Rajdhani', sans-serif;
+  
+  /* Glow Shadows */
+  --glow-cyan: 0 0 15px rgba(0, 240, 255, 0.35);
+  --glow-success: 0 0 15px rgba(0, 230, 118, 0.35);
+  --glow-warning: 0 0 15px rgba(255, 184, 0, 0.35);
+  --glow-danger: 0 0 15px rgba(255, 42, 109, 0.45);
 }
 
 * {
@@ -20,14 +48,21 @@
 }
 
 body {
-  font-family: "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
+  font-family: var(--font-sans);
+  background-color: var(--bg);
+  background-image: 
+    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: center center;
   color: var(--text);
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .dashboard {
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 1.5rem;
 }
@@ -37,80 +72,242 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
   border-bottom: 1px solid var(--border);
+  background: rgba(11, 16, 27, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 12px;
+  padding: 1rem 1.5rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+.header-branding {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.brand-badge {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.brand-badge.fpt {
+  background: rgba(249, 115, 22, 0.18);
+  color: #F97316;
+  border: 1px solid rgba(249, 115, 22, 0.4);
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.2);
+}
+
+.brand-badge.team {
+  background: rgba(0, 240, 255, 0.15);
+  color: #00F0FF;
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+}
+
+.gcs-clock {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--accent);
+  text-shadow: 0 0 12px rgba(0, 240, 255, 0.5);
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  padding: 0.3rem 0.8rem;
+  border-radius: 6px;
+  letter-spacing: 0.05em;
 }
 
 .header h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
+  font-family: var(--font-heading);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-heading);
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .connection-badges {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.6rem;
+  align-items: center;
 }
 
 .badge {
-  padding: 0.25rem 0.75rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 20px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.badge::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
 }
 
 .badge.online {
-  background: rgba(34, 197, 94, 0.15);
+  background: rgba(0, 230, 118, 0.12);
   color: var(--success);
-  border: 1px solid var(--success);
+  border: 1px solid rgba(0, 230, 118, 0.4);
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.2);
+}
+
+.badge.online::before {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
 }
 
 .badge.offline {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(255, 42, 109, 0.12);
   color: var(--danger);
-  border: 1px solid var(--danger);
+  border: 1px solid rgba(255, 42, 109, 0.35);
+}
+
+.badge.offline::before {
+  background: var(--danger);
 }
 
 .badge.error {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-  border: 1px solid #ef4444;
+  background: rgba(255, 42, 109, 0.22);
+  color: #FF6B93;
+  border: 1px solid var(--danger);
+  box-shadow: 0 0 16px rgba(255, 42, 109, 0.4);
   animation: pulse-error 1.5s ease-in-out infinite;
 }
 
+.badge.error::before {
+  background: var(--danger);
+  box-shadow: 0 0 10px var(--danger);
+}
+
+.tab-navigation {
+  display: flex;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  padding: 4px;
+  border-radius: 10px;
+  gap: 6px;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5);
+  margin-top: 0.4rem;
+}
+
+.tab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-subheading);
+  font-family: var(--font-subheading);
+  padding: 0.45rem 1.1rem;
+  border-radius: 7px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-btn:hover {
+  color: var(--text);
+  background: rgba(0, 240, 255, 0.08);
+  border-color: rgba(0, 240, 255, 0.25);
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.25) 0%, rgba(15, 23, 42, 0.95) 100%);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
+}
+
 @keyframes pulse-error {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.98); }
 }
 
 .error-banner {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(255, 42, 109, 0.15);
   border: 1px solid var(--danger);
-  color: var(--danger);
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
+  color: #FF6B93;
+  padding: 0.85rem 1.25rem;
+  border-radius: 10px;
   margin-bottom: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  box-shadow: 0 0 20px rgba(255, 42, 109, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .main-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .panel {
   background: var(--surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.25rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel:hover {
+  border-color: rgba(0, 240, 255, 0.3);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 240, 255, 0.1);
 }
 
 .panel h2 {
-  font-size: 1rem;
-  font-weight: 600;
+  font-family: var(--font-subheading);
+  font-size: 1.1rem;
+  font-weight: 700;
   margin-bottom: 1rem;
-  color: var(--muted);
+  color: var(--text-heading);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .control-buttons {
@@ -1665,4 +1862,358 @@ input {
 .step-item.error-state.active {
   opacity: 1;
   border-color: #ef4444;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 3: GCS HUD Telemetry & Camera & Controls Panel
+ * --------------------------------------------------------------------------- */
+
+.telemetry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.armed-pill {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  letter-spacing: 0.05em;
+}
+
+.armed-pill.armed {
+  background: rgba(0, 230, 118, 0.18);
+  color: var(--success);
+  border: 1px solid rgba(0, 230, 118, 0.4);
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.3);
+}
+
+.armed-pill.disarmed {
+  background: rgba(255, 42, 109, 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(255, 42, 109, 0.3);
+}
+
+.hud-gauges-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.hud-card {
+  background: rgba(11, 16, 27, 0.85);
+  border: 1px solid rgba(0, 240, 255, 0.18);
+  border-radius: 10px;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hud-card-title {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-subheading);
+  letter-spacing: 0.08em;
+}
+
+.attitude-indicators {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0.25rem 0;
+}
+
+.att-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.att-val {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.att-gauge.highlight .att-val {
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+}
+
+.att-lbl {
+  font-size: 0.65rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.agl-meter-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.agl-bar-outer {
+  width: 14px;
+  height: 52px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 4px;
+  display: flex;
+  align-items: flex-end;
+  padding: 2px;
+}
+
+.agl-bar-fill {
+  width: 100%;
+  background: linear-gradient(to top, #00E676, #00F0FF);
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
+  transition: height 0.3s ease;
+}
+
+.agl-values {
+  display: flex;
+  flex-direction: column;
+}
+
+.agl-main {
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+}
+
+.agl-sub {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.telemetry-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.metric-box {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.metric-lbl {
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.metric-val {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.metric-val.state-val {
+  color: #A855F7;
+}
+
+.metric-val.mode-val {
+  color: var(--accent);
+}
+
+.metric-val.aruco-on {
+  color: var(--success);
+  text-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
+}
+
+.metric-val.aruco-off {
+  color: var(--muted);
+}
+
+.gps-coords-bar {
+  display: flex;
+  justify-content: space-between;
+  background: rgba(6, 9, 17, 0.8);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0.5rem 0.85rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.gps-coords-bar strong {
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 4: Smart Intralogistics Digital Twin & Storage Grid Styling
+ * --------------------------------------------------------------------------- */
+
+.sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.sensor-item {
+  background: rgba(11, 16, 27, 0.8);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  transition: all 0.25s ease;
+}
+
+.sensor-icon {
+  font-size: 1.25rem;
+}
+
+.sensor-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-weight: 600;
+  text-align: center;
+}
+
+.sensor-value {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.sensor-item.active-green {
+  border-color: rgba(0, 230, 118, 0.4);
+  background: rgba(0, 230, 118, 0.1);
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.2);
+}
+.sensor-item.active-green .sensor-value { color: var(--success); }
+
+.sensor-item.active-blue {
+  border-color: rgba(0, 240, 255, 0.4);
+  background: rgba(0, 240, 255, 0.1);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.2);
+}
+.sensor-item.active-blue .sensor-value { color: var(--accent); }
+
+.sensor-item.active-orange {
+  border-color: rgba(255, 184, 0, 0.4);
+  background: rgba(255, 184, 0, 0.1);
+  box-shadow: 0 0 12px rgba(255, 184, 0, 0.2);
+}
+.sensor-item.active-orange .sensor-value { color: var(--warning); }
+
+.sensor-item.active-red {
+  border-color: rgba(255, 42, 109, 0.4);
+  background: rgba(255, 42, 109, 0.12);
+  box-shadow: 0 0 12px rgba(255, 42, 109, 0.3);
+}
+.sensor-item.active-red .sensor-value { color: var(--danger); }
+
+/* Storage Slot 3D Glass Cards */
+.slot-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.storage-slot-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 110px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.storage-slot-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px rgba(0, 240, 255, 0.2);
+}
+
+.storage-slot-card.occupied {
+  border-color: rgba(0, 240, 255, 0.4);
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%);
+}
+
+.storage-slot-card.empty {
+  border-color: var(--border-subtle);
+  opacity: 0.75;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 5: GCS Dark Map & Delivery Requests Panel Styling
+ * --------------------------------------------------------------------------- */
+
+.custom-map-marker {
+  background: transparent;
+  border: none;
+}
+
+.leaflet-container {
+  background: #060911 !important;
+  font-family: var(--font-sans) !important;
+}
+
+.leaflet-control-zoom a {
+  background-color: rgba(15, 23, 42, 0.9) !important;
+  color: var(--text-heading) !important;
+  border-color: var(--border) !important;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: rgba(11, 16, 27, 0.95) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 6: Split Operations View & Final Layout Polish
+ * --------------------------------------------------------------------------- */
+
+.split-view-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.split-column {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 1200px) {
+  .split-view-layout {
+    grid-template-columns: 1fr;
+  }
 }

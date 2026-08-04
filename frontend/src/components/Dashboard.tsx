@@ -72,6 +72,18 @@ export function Dashboard() {
     setLocations(loc);
   };
 
+  // Live clock for GCS Header
+  const [clockTime, setClockTime] = useState("");
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      setClockTime(now.toLocaleTimeString("vi-VN", { hour12: false }));
+    };
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Quick device status checks for header badges
   const plcDev = devices.find((d) => d.device_type === "PLC");
   const robotDev = devices.find((d) => d.device_type === "ROBOT");
@@ -82,7 +94,12 @@ export function Dashboard() {
     <div className="dashboard">
       <header className="header">
         <div className="header-left">
-          <h1>🚁 Smart Intralogistics & Drone Delivery System</h1>
+          <div className="header-branding">
+            <span className="brand-badge fpt">FPT POLYTECHNIC</span>
+            <span className="brand-badge team">⚡ ALPHA TEAM</span>
+          </div>
+          <h1>🚁 Smart Intralogistics & Drone Delivery GCS</h1>
+          
           {/* Tab Navigation Bar */}
           <nav className="tab-navigation">
             <button
@@ -90,21 +107,21 @@ export function Dashboard() {
               className={`tab-btn ${activeTab === "intralogistics" ? "active" : ""}`}
               onClick={() => setActiveTab("intralogistics")}
             >
-              🏭 Kho thông minh (Intralogistics)
+              🏭 Kho thông minh
             </button>
             <button
               type="button"
               className={`tab-btn ${activeTab === "dashboard" ? "active" : ""}`}
               onClick={() => setActiveTab("dashboard")}
             >
-              📊 Bảng điều khiển Drone
+              📊 Ground Control Station
             </button>
             <button
               type="button"
               className={`tab-btn ${activeTab === "map" ? "active" : ""}`}
               onClick={() => setActiveTab("map")}
             >
-              🗺️ Bản đồ Live Map
+              🗺️ Live Map GPS
             </button>
             <button
               type="button"
@@ -116,19 +133,22 @@ export function Dashboard() {
           </nav>
         </div>
 
-        <div className="connection-badges">
-          <span className={`badge ${sysWsConnected ? "online" : "offline"}`}>
-            WS System: {sysWsConnected ? "Online" : "Offline"}
-          </span>
-          <span className={`badge ${droneOnline ? "online" : "offline"}`}>
-            UAV: {droneOnline ? "Online" : "Offline"}
-          </span>
-          <span className={`badge ${isPlcOnline ? "online" : "offline"}`}>
-            PLC: {isPlcOnline ? "Online" : "Offline"}
-          </span>
-          <span className={`badge ${isRobotOnline ? "online" : "offline"}`}>
-            Robot: {isRobotOnline ? "Online" : "Offline"}
-          </span>
+        <div className="header-right">
+          {clockTime && <div className="gcs-clock">{clockTime} ICT</div>}
+          <div className="connection-badges">
+            <span className={`badge ${sysWsConnected ? "online" : "offline"}`}>
+              WS System: {sysWsConnected ? "Online" : "Offline"}
+            </span>
+            <span className={`badge ${droneOnline ? "online" : "offline"}`}>
+              UAV: {droneOnline ? "Online" : "Offline"}
+            </span>
+            <span className={`badge ${isPlcOnline ? "online" : "offline"}`}>
+              PLC: {isPlcOnline ? "Online" : "Offline"}
+            </span>
+            <span className={`badge ${isRobotOnline ? "online" : "offline"}`}>
+              Robot: {isRobotOnline ? "Online" : "Offline"}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -164,40 +184,49 @@ export function Dashboard() {
         </div>
       )}
 
-      {/* Tab: Split View (Map + Dashboard Panels) */}
+      {/* Tab: Split View (Side-by-Side Operations Mode) */}
       {activeTab === "split" && (
-        <div className="view-container">
-          <MapPanel telemetry={telemetry} locations={locations} droneOnline={droneOnline} />
-
-          <div className="main-grid" style={{ marginTop: "1rem" }}>
-            <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
-            <ControlButtons
-              locations={locations}
-              telemetry={telemetry}
-              droneOnline={droneOnline}
-              onOpenManual={() => setManualModalOpen(true)}
-            />
+        <div className="view-container split-view-layout">
+          {/* Left Column: Drone Flight Operations (Map + Telemetry + Controls) */}
+          <div className="split-column left-col">
+            <MapPanel telemetry={telemetry} locations={locations} droneOnline={droneOnline} />
+            <div style={{ marginTop: "1rem" }}>
+              <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
+            </div>
+            <div style={{ marginTop: "1rem" }}>
+              <ControlButtons
+                locations={locations}
+                telemetry={telemetry}
+                droneOnline={droneOnline}
+                onOpenManual={() => setManualModalOpen(true)}
+              />
+            </div>
           </div>
 
-          <div className="main-grid" style={{ marginTop: "1rem" }}>
-            <WarehouseConfigPanel onWarehouseLoaded={handleWarehouseLoaded} />
-            <MissionForm onChange={setLocations} initialLocations={locations} />
-          </div>
-
-          <div style={{ marginTop: "1rem" }}>
-            <CameraPanel
-              cameraStatus={cameraStatus}
-              arucoDetection={arucoDetection}
-              droneOnline={droneOnline}
+          {/* Right Column: Intralogistics Warehouse & Camera Vision */}
+          <div className="split-column right-col">
+            <IntralogisticsPanel
+              devices={devices}
+              plc={plc}
+              robot={robot}
+              storage={storage}
+              activeMission={activeMission}
+              cameraActive={cameraActive}
             />
-          </div>
-
-          <div style={{ marginTop: "1rem" }}>
-            <DeliveryRequestsPanel
-              homeLat={warehouseLat}
-              homeLon={warehouseLon}
-              onLocationsSelected={handleDeliveryLocations}
-            />
+            <div style={{ marginTop: "1rem" }}>
+              <CameraPanel
+                cameraStatus={cameraStatus}
+                arucoDetection={arucoDetection}
+                droneOnline={droneOnline}
+              />
+            </div>
+            <div style={{ marginTop: "1rem" }}>
+              <DeliveryRequestsPanel
+                homeLat={warehouseLat}
+                homeLon={warehouseLon}
+                onLocationsSelected={handleDeliveryLocations}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -251,8 +280,8 @@ export function Dashboard() {
       />
 
       <footer className="footer">
-        <span>LAN Mode — Admin Dashboard</span>
-        <span>Drone Delivery System v2.0</span>
+        <span>FPT POLYTECHNIC — ALPHA TEAM</span>
+        <span>LAN Mode — Smart Intralogistics & Drone Delivery GCS v2.5</span>
       </footer>
     </div>
   );

@@ -580,3 +580,121 @@ flowchart TD
     style InvDone fill:#10b981,color:#fff
     style InvFail fill:#ef4444,color:#fff
 ```
+
+---
+
+### 7.5. Lưu đồ Thuật toán Điều khiển Bay & Máy Trạng thái Drone (Drone Flight Control FSM Algorithm)
+
+```mermaid
+flowchart TD
+    Start([🚀 KHỞI ĐỘNG DRONE CONTROL FSM]) --> IdleState[Trạng thái IDLE - Chờ lệnh từ Server/Backend]
+    IdleState --> CmdCheck{Nhận lệnh điều khiển?}
+
+    %% Khởi chạy đơn hàng
+    CmdCheck -->|Lệnh START / START_MISSION| InitMission[Nạp tọa độ Home, Pickup, Drop & Đặt landing_phase = pickup]
+    InitMission --> ArmingState[Chuyển trạng thái: ARMING]
+
+    %% Trạng thái ARMING
+    ArmingState --> SendArmCmd[Gửi lệnh MAVLink: ARM]
+    SendArmCmd --> CheckArmed{Pixhawk xác nhận armed = True?}
+    CheckArmed -->|Quá 30s Timeout| ArmError[Báo lỗi ARM Timeout -> Transition ERROR]
+    CheckArmed -->|Chưa armed| CheckArmed
+    CheckArmed -->|Đã armed| TakeoffState[Chuyển trạng thái: TAKEOFF]
+
+    %% Trạng thái TAKEOFF
+    TakeoffState --> ExecTakeoff[Gửi lệnh PX4 TAKEOFF altitude = 10m]
+    ExecTakeoff --> CheckAlt{Đạt altitude >= 85% target?}
+    CheckAlt -->|Quá 30s Timeout| TakeoffError[Báo lỗi Takeoff Timeout -> Transition ERROR]
+    CheckAlt -->|Chưa đạt| CheckAlt
+    CheckAlt -->|Đạt độ cao| CheckPhase{Kiểm tra landing_phase}
+
+    CheckPhase -->|phase = pickup| FlyPickupState[Chuyển trạng thái: FLY_TO_PICKUP]
+    CheckPhase -->|phase = enroute_drop| FlyDropState[Chuyển trạng thái: FLY_TO_DROP]
+    CheckPhase -->|phase = rtl| ReturnHomeState[Chuyển trạng thái: RETURN_HOME]
+
+    %% Trạng thái FLY_TO_PICKUP
+    FlyPickupState --> SwitchOffboard1[Chuyển chế độ OFFBOARD]
+    SwitchOffboard1 --> NavPickup[Gửi vị trí target_pickup_lat, lon, alt]
+    NavPickup --> CheckArrivedPickup{Đến vị trí Pickup? radius <= 1.5m}
+    CheckArrivedPickup -->|Chưa tới| NavPickup
+    CheckArrivedPickup -->|Đã tới| DescendPickup[Chuyển trạng thái: DESCEND - landing_phase = pickup]
+
+    %% Trạng thái FLY_TO_DROP
+    FlyDropState --> SwitchOffboard2[Chuyển chế độ OFFBOARD]
+    SwitchOffboard2 --> NavDrop[Gửi vị trí target_drop_lat, lon, alt]
+    NavDrop --> CheckArrivedDrop{Đến vị trí Drop? radius <= 1.5m}
+    CheckArrivedDrop -->|Chưa tới| NavDrop
+    CheckArrivedDrop -->|Đã tới| DescendDrop[Chuyển trạng thái: DESCEND - landing_phase = drop]
+
+    %% Trạng thái DESCEND
+    DescendPickup --> ExecDescend[Hạ độ cao xuống DESCEND_ALTITUDE = 3m]
+    DescendDrop --> ExecDescend
+    ExecDescend --> CheckDescendAlt{Đạt độ cao dò ArUco? altitude <= 4m}
+    CheckDescendAlt -->|Chưa tới| ExecDescend
+    CheckDescendAlt -->|Đã đạt| SearchArucoState[Chuyển trạng thái: SEARCH_ARUCO]
+
+    %% Trạng thái SEARCH_ARUCO
+    SearchArucoState --> InitVision[Kích hoạt OpenCV Camera Stream & ArucoLandingService]
+    InitVision --> CheckArUco{Camera phát hiện ArUco Marker?}
+    CheckArUco -->|Quá Timeout 30s| SearchError[Báo lỗi Không tìm thấy ArUco -> Transition ERROR / RTL]
+    CheckArUco -->|Phát hiện Marker| PrecLandState[Chuyển trạng thái: PRECISION_LANDING]
+
+    %% Trạng thái PRECISION_LANDING
+    PrecLandState --> SetModePrecland[Kích hoạt PX4 PRECLAND & Phát tin MAVLink LANDING_TARGET @ 25Hz]
+    SetModePrecland --> CheckBlindZone{Độ cao AGL < 0.4m? Vùng mù Camera}
+    CheckBlindZone -->|Chưa| AlignAndDescend[Tiếp tục căn chỉnh sai số Offset X/Y & hạ cao độ]
+    AlignAndDescend --> CheckBlindZone
+    CheckBlindZone -->|Vào vùng mù| ForceLand[Chuyển chế độ LAND hạ cánh thẳng đứng & giữ hướng]
+    ForceLand --> CheckLanded{Pixhawk báo is_landed = True & armed = False?}
+    CheckLanded -->|Chưa| ForceLand
+    CheckLanded -->|Đã tiếp đất & Disarm| CheckLandPhase{Kiểm tra landing_phase}
+
+    CheckLandPhase -->|phase = pickup| WaitPickupState[Chuyển trạng thái: WAIT_PICKUP_CONFIRM]
+    CheckLandPhase -->|phase = drop| WaitDropState[Chuyển trạng thái: WAIT_DROP_CONFIRM]
+
+    %% Trạng thái WAIT_PICKUP_CONFIRM
+    WaitPickupState --> StopVision1[Tắt Camera Stream & Phát tin WS: waiting_pickup_confirm]
+    StopVision1 --> WaitPickupCmd{Nhận lệnh PICKUP_COMPLETE?}
+    WaitPickupCmd -->|Chờ| WaitPickupCmd
+    WaitPickupCmd -->|Nhận lệnh| SetPhaseDrop[Đặt landing_phase = enroute_drop & Chuyển trạng thái ARMING]
+    SetPhaseDrop --> ArmingState
+
+    %% Trạng thái WAIT_DROP_CONFIRM
+    WaitDropState --> StopVision2[Tắt Camera Stream & Phát tin WS: waiting_drop_confirm]
+    StopVision2 --> WaitDropCmd{Nhận lệnh DROP_COMPLETE?}
+    WaitDropCmd -->|Chờ| WaitDropCmd
+    WaitDropCmd -->|Nhận lệnh| SetPhaseRTL[Đặt landing_phase = rtl & Chuyển trạng thái ARMING]
+    SetPhaseRTL --> ArmingState
+
+    %% Trạng thái RETURN_HOME
+    ReturnHomeState --> ExecRTL[Dừng OFFBOARD keepalive & Gửi lệnh MAVLink RTL]
+    ExecRTL --> CheckHomeTouchdown{PX4 auto-land & auto-disarm tại Home?}
+    CheckHomeTouchdown -->|Chưa| ExecRTL
+    CheckHomeTouchdown -->|Đã về Home| CheckPending{Có đơn hàng chờ? Pending Mission}
+    CheckPending -->|Có đơn chờ Continuous Delivery| ContinuousStart[Nạp đơn mới -> Set landing_phase = pickup -> ARMING]
+    ContinuousStart --> ArmingState
+    CheckPending -->|Không có| CompleteMission([✅ HOÀN THÀNH TOÀN BỘ CHUYẾN BAY -> IDLE])
+    CompleteMission --> IdleState
+
+    %% Xử lý Khẩn cấp & Lỗi (Failsafe)
+    CmdCheck -->|Lệnh FORCE_RTL| ForceRTLAction[Kích hoạt RTL khẩn cấp -> Transition RETURN_HOME]
+    ForceRTLAction --> ReturnHomeState
+    
+    ArmError --> RecoverIdle[Chờ 5s tự ngắt -> Return IDLE]
+    TakeoffError --> RecoverIdle
+    SearchError --> ForceRTLAction
+    RecoverIdle --> IdleState
+
+    style Start fill:#10b981,color:#fff
+    style CompleteMission fill:#10b981,color:#fff
+    style ArmError fill:#ef4444,color:#fff
+    style TakeoffError fill:#ef4444,color:#fff
+    style SearchError fill:#ef4444,color:#fff
+    style ArmingState fill:#3b82f6,color:#fff
+    style TakeoffState fill:#3b82f6,color:#fff
+    style FlyPickupState fill:#8b5cf6,color:#fff
+    style FlyDropState fill:#8b5cf6,color:#fff
+    style PrecLandState fill:#f59e0b,color:#fff
+    style ReturnHomeState fill:#6366f1,color:#fff
+```
+```

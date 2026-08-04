@@ -9,7 +9,7 @@ Cách dùng:
   2. Chạy nhanh qua tham số:
      python generate_qr_pdf.py --id SP001 --sender "Nguyen Van A" --address "Da Nang"
 
-  3. Tạo nhanh 5 mã QR mẫu (Batch mode):
+  3. Tạo nhanh các mã QR mẫu (Batch mode):
      python generate_qr_pdf.py --batch
 """
 
@@ -198,18 +198,18 @@ def main():
     parser.add_argument("--id", type=str, help="Ma san pham (VD: SP001, PROD-8899)")
     parser.add_argument("--sender", type=str, default="Nguyen Van A", help="Ten nguoi gui")
     parser.add_argument("--address", type=str, default="Da Nang", help="Dia chi giao hang")
-    parser.add_argument("--batch", action="store_true", help="Tao nhanh bo 5 ma QR mau (SP001..SP005)")
+    parser.add_argument("--batch", action="store_true", help="Tao nhanh bo ma QR mau tu SP005 den SP010")
     parser.add_argument("--output", type=str, help="Ten file PDF xuat ra")
 
     args = parser.parse_args()
 
-    # Che do Batch: Tao 5 ma QR mau
+    # Che do Batch: Tao bo ma QR mau tu SP005 den SP010
     if args.batch:
-        print("\n--- Dang khoi tao bo 5 ma QR tem san pham mau (SP001 .. SP005) ---")
-        for i in range(1, 6):
-            p_id = f"SP00{i}"
-            generate_qr_pdf(p_id, sender_name=f"Nguyen Van {chr(64+i)}", address=f"Tram {i} - Da Nang")
-        print("\n==> Da tao xong 5 file PDF tem QR thanh cong!")
+        print("\n--- Dang khoi tao bo ma QR tem san pham mau (SP005 .. SP010) ---")
+        for i in range(5, 11):
+            p_id = f"SP{i:03d}"
+            generate_qr_pdf(p_id, sender_name=f"Nguyen Van {chr(64 + i)}", address=f"Tram {i} - Da Nang")
+        print("\n==> Da tao xong cac file PDF tem QR thanh cong!")
         return
 
     # Che do nhan tham so CLI
