@@ -228,6 +228,10 @@ class MavlinkController:
         elif msg_type == "GPS_RAW_INT":
             self.telemetry.gps_satellite = msg.satellites_visible
             self.telemetry.gps_fix_type  = msg.fix_type
+            if (self.telemetry.latitude == 0.0 or self.telemetry.longitude == 0.0) and msg.fix_type >= 2:
+                if msg.lat != 0 and msg.lon != 0:
+                    self.telemetry.latitude  = msg.lat / 1e7
+                    self.telemetry.longitude = msg.lon / 1e7
 
         # ---- Flight mode + armed state ----
         elif msg_type == "HEARTBEAT":
