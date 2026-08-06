@@ -29,6 +29,12 @@ class MarkerPose:
     distance: float = 0.0
     angle_x: float = 0.0
     angle_y: float = 0.0
+    center_x: int = 0
+    center_y: int = 0
+    offset_x: int = 0
+    offset_y: int = 0
+    image_width: int = 0
+    image_height: int = 0
 
 
 class ArucoLandingService:
@@ -242,6 +248,12 @@ class ArucoLandingService:
         dy_frd = float(tx)
         dist = float(math.sqrt(tx**2 + ty**2 + tz**2))
 
+        h, w = frame.shape[:2]
+        cx, cy = w // 2, h // 2
+        c = marker_corners[0]
+        mx = int(sum(p[0] for p in c) / 4)
+        my = int(sum(p[1] for p in c) / 4)
+
         pose.detected = True
         pose.marker_id = config.ARUCO_MARKER_ID
         pose.dx = dx_frd
@@ -249,6 +261,12 @@ class ArucoLandingService:
         pose.distance = dist
         pose.angle_x = float(math.atan2(dx_frd, tz))
         pose.angle_y = float(math.atan2(dy_frd, tz))
+        pose.center_x = mx
+        pose.center_y = my
+        pose.offset_x = mx - cx
+        pose.offset_y = my - cy
+        pose.image_width = w
+        pose.image_height = h
 
         with self._lock:
             self._last_pose = pose

@@ -222,12 +222,12 @@ class CameraService:
                     latest_result = ArucoResult(
                         aruco_detected=True,
                         marker_id=pose.marker_id,
-                        center_x=int(pose.dy + config.CAMERA_WIDTH / 2),
-                        center_y=int(-pose.dx + config.CAMERA_HEIGHT / 2),
-                        offset_x=int(pose.dy),
-                        offset_y=int(-pose.dx),
-                        image_width=config.CAMERA_WIDTH,
-                        image_height=config.CAMERA_HEIGHT,
+                        center_x=pose.center_x,
+                        center_y=pose.center_y,
+                        offset_x=pose.offset_x,
+                        offset_y=pose.offset_y,
+                        image_width=pose.image_width or config.CAMERA_WIDTH,
+                        image_height=pose.image_height or config.CAMERA_HEIGHT,
                         timestamp=now_str,
                     )
                 else:
