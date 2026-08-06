@@ -87,7 +87,7 @@ class ArucoLandingService:
             # ── USB webcam via OpenCV VideoCapture (V4L2) ──
             camera_index = config.CAMERA_WEBCAM_INDEX
             device_name = f"/dev/video{camera_index}"
-            logger.info("Opening USB webcam %s for ArUco landing...", device_name)
+            logger.info("[CAMERA_TEST] Opening USB webcam index %d (%s)...", camera_index, device_name)
 
             try:
                 if config.IS_WINDOWS:
@@ -96,8 +96,25 @@ class ArucoLandingService:
                     cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
 
                 if not cap.isOpened():
-                    logger.error("Failed to open USB webcam %s", device_name)
-                else:
+                    logger.warning("[CAMERA_TEST] Failed to open USB webcam at index %d (%s). Testing index fallback...", camera_index, device_name)
+                    # Automatic fallback (e.g. index 0 -> index 1 or index 1 -> index 0 for RPi 5 metadata node handling)
+                    fallback_index = 1 if camera_index == 0 else 0
+                    fallback_device = f"/dev/video{fallback_index}"
+                    logger.info("[CAMERA_TEST] Attempting fallback to index %d (%s)...", fallback_index, fallback_device)
+                    
+                    if config.IS_WINDOWS:
+                        cap_fallback = cv2.VideoCapture(fallback_index)
+                    else:
+                        cap_fallback = cv2.VideoCapture(fallback_index, cv2.CAP_V4L2)
+
+                    if cap_fallback.isOpened():
+                        logger.info("[CAMERA_TEST] Fallback succeeded! Opened USB webcam at index %d (%s)", fallback_index, fallback_device)
+                        cap = cap_fallback
+                        self._device = fallback_device
+                    else:
+                        logger.error("[CAMERA_TEST] Fallback failed. Could not open USB webcam at index %d (%s) or index %d (%s). Check physical connection & permissions (group 'video').", camera_index, device_name, fallback_index, fallback_device)
+
+                if cap.isOpened():
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.CAMERA_WIDTH)
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.CAMERA_HEIGHT)
                     cap.set(cv2.CAP_PROP_FPS, config.CAMERA_FPS)
@@ -110,12 +127,12 @@ class ArucoLandingService:
                     self._camera_backend = "webcam"
                     self._init_camera_matrix(actual_w, actual_h)
                     logger.info(
-                        "USB webcam initialized: %dx%d @ %.0f FPS",
+                        "[CAMERA_TEST] USB webcam initialized successfully: %dx%d @ %.0f FPS",
                         actual_w, actual_h, actual_fps,
                     )
                     initialized = True
             except Exception as exc:
-                logger.error("USB webcam init failed: %s", exc)
+                logger.error("[CAMERA_TEST] USB webcam init exception: %s", exc)
 
         else:
             logger.info(

@@ -20,12 +20,23 @@ export function TelemetryPanel({ telemetry, droneOnline }: Props) {
     );
   }
 
+  // Extract telemetry values safely with default fallbacks
+  const roll = telemetry.roll ?? 0;
+  const pitch = telemetry.pitch ?? 0;
+  const heading = telemetry.heading ?? 0;
+  const altAgl = telemetry.altitude_agl ?? 0;
+  const altRel = telemetry.altitude_relative ?? 0;
+  const speed = telemetry.ground_speed ?? 0;
+  const lat = telemetry.latitude ?? 0;
+  const lon = telemetry.longitude ?? 0;
+  const sats = telemetry.gps_satellite ?? 0;
+
   // Calculate battery color state
   const batPct = Math.max(0, Math.min(100, telemetry.battery ?? 100));
   const batColor = batPct > 50 ? "#00E676" : batPct > 20 ? "#FFB800" : "#FF2A6D";
 
   // AGL Altitude percentage for meter gauge (max 10m scale)
-  const aglMeterPct = Math.min(100, (telemetry.altitude_agl / 10.0) * 100);
+  const aglMeterPct = Math.min(100, (altAgl / 10.0) * 100);
 
   return (
     <section className="panel telemetry-panel">
@@ -43,15 +54,15 @@ export function TelemetryPanel({ telemetry, droneOnline }: Props) {
           <div className="hud-card-title">ATTITUDE & HEADING</div>
           <div className="attitude-indicators">
             <div className="att-gauge">
-              <span className="att-val">{telemetry.roll.toFixed(1)}°</span>
+              <span className="att-val">{roll.toFixed(1)}°</span>
               <span className="att-lbl">ROLL</span>
             </div>
             <div className="att-gauge">
-              <span className="att-val">{telemetry.pitch.toFixed(1)}°</span>
+              <span className="att-val">{pitch.toFixed(1)}°</span>
               <span className="att-lbl">PITCH</span>
             </div>
             <div className="att-gauge highlight">
-              <span className="att-val">{telemetry.heading.toFixed(0)}°</span>
+              <span className="att-val">{heading.toFixed(0)}°</span>
               <span className="att-lbl">HEADING (YAW)</span>
             </div>
           </div>
@@ -65,8 +76,8 @@ export function TelemetryPanel({ telemetry, droneOnline }: Props) {
               <div className="agl-bar-fill" style={{ height: `${aglMeterPct}%` }} />
             </div>
             <div className="agl-values">
-              <span className="agl-main">{telemetry.altitude_agl.toFixed(2)} m</span>
-              <span className="agl-sub">Rel Alt: {telemetry.altitude_relative.toFixed(1)}m</span>
+              <span className="agl-main">{altAgl.toFixed(2)} m</span>
+              <span className="agl-sub">Rel Alt: {altRel.toFixed(1)}m</span>
             </div>
           </div>
         </div>
@@ -76,11 +87,11 @@ export function TelemetryPanel({ telemetry, droneOnline }: Props) {
       <div className="telemetry-metrics-grid">
         <div className="metric-box">
           <span className="metric-lbl">STATE</span>
-          <span className="metric-val state-val">{telemetry.drone_state}</span>
+          <span className="metric-val state-val">{telemetry.drone_state || "UNKNOWN"}</span>
         </div>
         <div className="metric-box">
           <span className="metric-lbl">FLIGHT MODE</span>
-          <span className="metric-val mode-val">{telemetry.flight_mode}</span>
+          <span className="metric-val mode-val">{telemetry.flight_mode || "UNKNOWN"}</span>
         </div>
         <div className="metric-box">
           <span className="metric-lbl">BATTERY</span>
@@ -90,11 +101,11 @@ export function TelemetryPanel({ telemetry, droneOnline }: Props) {
         </div>
         <div className="metric-box">
           <span className="metric-lbl">SPEED</span>
-          <span className="metric-val">{telemetry.ground_speed.toFixed(1)} m/s</span>
+          <span className="metric-val">{speed.toFixed(1)} m/s</span>
         </div>
         <div className="metric-box">
           <span className="metric-lbl">GPS SATS</span>
-          <span className="metric-val gps-val">📡 {telemetry.gps_satellite}</span>
+          <span className="metric-val gps-val">📡 {sats}</span>
         </div>
         <div className="metric-box">
           <span className="metric-lbl">ARUCO VISION</span>
@@ -106,8 +117,8 @@ export function TelemetryPanel({ telemetry, droneOnline }: Props) {
 
       {/* Coordinates Footer */}
       <div className="gps-coords-bar">
-        <span>LAT: <strong>{telemetry.latitude.toFixed(7)}°</strong></span>
-        <span>LON: <strong>{telemetry.longitude.toFixed(7)}°</strong></span>
+        <span>LAT: <strong>{lat.toFixed(7)}°</strong></span>
+        <span>LON: <strong>{lon.toFixed(7)}°</strong></span>
         <span>PHASE: <strong>{telemetry.landing_phase?.toUpperCase() || "IDLE"}</strong></span>
       </div>
     </section>

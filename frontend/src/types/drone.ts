@@ -49,6 +49,10 @@ export interface Telemetry {
   landing_phase: string;  // "pickup" | "drop" | "rtl" | "none"
   landing_location?: LandingLocation;
   armed: boolean;
+  roll?: number;
+  pitch?: number;
+  yaw?: number;
+  rangefinder_valid?: boolean;
 }
 
 export interface DroneStatus {

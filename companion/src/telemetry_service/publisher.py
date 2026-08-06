@@ -24,7 +24,7 @@ class TelemetryPublisher:
 
     def build_payload(self) -> dict:
         t = self.mavlink.telemetry
-        logger.info(
+        logger.debug(
             "Telemetry status check: Lat=%.6f, Lon=%.6f, AltRel=%.2fm, AltAGL=%.2fm (valid=%s), Bat=%.1f%%, Speed=%.1fm/s, Heading=%.1f, GPS Sat=%d, Mode=%s, Armed=%s",
             t.latitude,
             t.longitude,
