@@ -260,13 +260,15 @@ class MavlinkController:
                 8: "RATTITUDE",
             }
             px4_auto_submodes = {
-                1: "LOITER",
-                2: "MISSION",
-                3: "RTL",
-                4: "TAKEOFF",
-                5: "LAND",
-                6: "FOLLOW",
-                7: "PRECLAND",
+                1: "READY",
+                2: "TAKEOFF",
+                3: "LOITER",
+                4: "MISSION",
+                5: "RTL",
+                6: "LAND",
+                7: "RTGS",
+                8: "FOLLOW",
+                9: "PRECLAND",
             }
 
             if main_mode in px4_main_modes:
@@ -307,8 +309,8 @@ class MavlinkController:
             "ALTCTL": (2.0, 0.0),
             "POSCTL": (3.0, 0.0),
             "AUTO": (4.0, 0.0),
-            "MISSION": (4.0, 1.0),
-            "AUTO.MISSION": (4.0, 1.0),
+            "MISSION": (4.0, 4.0),
+            "AUTO.MISSION": (4.0, 4.0),
             "TAKEOFF": (4.0, 2.0),
             "AUTO.TAKEOFF": (4.0, 2.0),
             "LOITER": (4.0, 3.0),
@@ -319,7 +321,7 @@ class MavlinkController:
             "AUTO.RTL": (4.0, 5.0),
             "LAND": (4.0, 6.0),
             "AUTO.LAND": (4.0, 6.0),
-            "PRECLAND": (4.0, 6.0),
+            "PRECLAND": (4.0, 9.0),
             "ACRO": (5.0, 0.0),
             "OFFBOARD": (6.0, 0.0),
             "STABILIZED": (7.0, 0.0),
