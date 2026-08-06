@@ -273,6 +273,22 @@ class ArucoLandingService:
         pose.image_width = w
         pose.image_height = h
 
+        now = time.time()
+        last_log_time = getattr(self, "_last_detect_log_time", 0.0)
+        if now - last_log_time >= 1.5:
+            self._last_detect_log_time = now
+            logger.info(
+                "[ARUCO_DETECTED] Marker ID: %d | Center: (%d, %d) | Pixel Offset: (%+d, %+d) | 3D Offset: dx=%.2fm, dy=%.2fm, dist=%.2fm",
+                pose.marker_id,
+                pose.center_x,
+                pose.center_y,
+                pose.offset_x,
+                pose.offset_y,
+                pose.dx,
+                pose.dy,
+                pose.distance,
+            )
+
         with self._lock:
             self._last_pose = pose
             if pose.detected:
