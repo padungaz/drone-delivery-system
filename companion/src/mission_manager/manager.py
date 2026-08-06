@@ -633,6 +633,17 @@ class MissionManager:
                 return
             if self._mission_active and self._aruco_detected:
                 self.state_machine.transition_to(DroneState.PRECISION_LANDING)
+            else:
+                # Auto-climb FOV expansion for narrow USB camera angle:
+                # If marker not detected after 6s at 1.0m altitude, climb to 2.2m to double ground FOV coverage
+                last_climb = getattr(self, "_last_search_climb", 0.0)
+                if elapsed >= 6.0 and (time.time() - last_climb >= 5.0):
+                    self._last_search_climb = time.time()
+                    target_lat = self.locations.pickup_lat if self._landing_phase == "pickup" else self.locations.drop_lat
+                    target_lon = self.locations.pickup_lon if self._landing_phase == "pickup" else self.locations.drop_lon
+                    if target_lat and target_lon:
+                        logger.info("ArUco not detected at 1.0m — climbing to 2.2m altitude to double camera FOV coverage...")
+                        self.mavlink.goto_location(target_lat, target_lon, 2.2)
 
         # ── PRECISION_LANDING ──────────────────────────────────────────────
         elif state == DroneState.PRECISION_LANDING:

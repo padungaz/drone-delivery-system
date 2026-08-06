@@ -190,7 +190,12 @@ class ArucoLandingService:
             self._init_camera_matrix(frame.shape[1], frame.shape[0])
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = self.detector.detectMarkers(gray)
+        # Apply CLAHE contrast enhancement for USB camera under outdoor shadows/sunlight
+        if not hasattr(self, "_clahe") or self._clahe is None:
+            self._clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced_gray = self._clahe.apply(gray)
+
+        corners, ids, _ = self.detector.detectMarkers(enhanced_gray)
 
         pose = MarkerPose()
 
