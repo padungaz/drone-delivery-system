@@ -222,7 +222,7 @@ class ArucoLandingService:
                 [-half, -half, 0.0],
             ], dtype=np.float32)
             img_points = marker_corners.reshape((4, 2)).astype(np.float32)
-            pnp_flag = getattr(cv2, "SOLVE_PNP_IPPE_SQUARE", cv2.SOLVE_PNP_ITERATIVE)
+            pnp_flag = getattr(cv2, "SOLVEPNP_IPPE_SQUARE", getattr(cv2, "SOLVEPNP_ITERATIVE", 0))
             success, rvec, tvec = cv2.solvePnP(
                 obj_points,
                 img_points,
