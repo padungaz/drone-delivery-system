@@ -79,11 +79,11 @@ class ArucoLandingService:
                 logger.info("CSI camera initialized (%dx%d)", config.CAMERA_WIDTH, config.CAMERA_HEIGHT)
                 initialized = True
             except ImportError:
-                logger.warning("picamera2 not available — CSI camera cannot be used")
+                logger.warning("[CAMERA_TEST] picamera2 not available — CSI camera cannot be used. Falling back to USB webcam...")
             except Exception as exc:
-                logger.error("CSI camera init failed: %s", exc)
+                logger.error("[CAMERA_TEST] CSI camera init failed: %s. Falling back to USB webcam...", exc)
 
-        elif backend == "webcam":
+        if not initialized and backend in ("webcam", "csi", "auto"):
             # ── USB webcam via OpenCV VideoCapture (V4L2) ──
             camera_index = config.CAMERA_WEBCAM_INDEX
             device_name = f"/dev/video{camera_index}"
