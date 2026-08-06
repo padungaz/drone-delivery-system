@@ -147,6 +147,11 @@ class WebSocketClient:
     def stop(self) -> None:
         self._should_run = False
         if self._ws:
-            asyncio.create_task(self._ws.close())
+            try:
+                loop = asyncio.get_running_loop()
+                if loop.is_running():
+                    loop.create_task(self._ws.close())
+            except RuntimeError:
+                pass
         logger.info("[INFO] WebSocket client stopped")
 

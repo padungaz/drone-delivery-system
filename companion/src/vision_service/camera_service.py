@@ -51,14 +51,17 @@ class CameraService:
         self,
         on_camera_status: Optional[Callable[[str, str], None]] = None,
         on_aruco_detection: Optional[Callable[[dict], None]] = None,
+        vision_service: Optional[object] = None,
     ):
         """
         Args:
             on_camera_status: callback(status, device) — called when camera state changes
             on_aruco_detection: callback(payload) — called every 2s with ArUco results
+            vision_service: optional shared ArucoLandingService instance
         """
         self._on_camera_status = on_camera_status
         self._on_aruco_detection = on_aruco_detection
+        self._vision_service = vision_service
 
         self._cap: Optional[cv2.VideoCapture] = None
         self._thread: Optional[threading.Thread] = None
@@ -99,6 +102,25 @@ class CameraService:
 
         logger.info("[CAMERA] Starting camera...")
         logger.info("[CAMERA] Device: %s", self._device)
+
+        if self._vision_service is not None:
+            # Delegate camera hardware initialization to shared ArucoLandingService
+            ok = self._vision_service.init_camera()
+            if not ok:
+                logger.error("[CAMERA] Vision service failed to open camera")
+                self._status = "ERROR"
+                self._notify_status()
+                return False
+            self._status = "ON"
+            self._notify_status()
+            self._stop_event.clear()
+            self._thread = threading.Thread(
+                target=self._detection_loop,
+                name="aruco-detection",
+                daemon=True,
+            )
+            self._thread.start()
+            return True
 
         try:
             self._cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
@@ -193,6 +215,53 @@ class CameraService:
         latest_result = ArucoResult()
 
         while not self._stop_event.is_set():
+            if self._vision_service is not None:
+                pose = getattr(self._vision_service, "last_pose", None)
+                now_str = datetime.now(timezone.utc).isoformat()
+                if pose and pose.detected:
+                    latest_result = ArucoResult(
+                        aruco_detected=True,
+                        marker_id=pose.marker_id,
+                        center_x=int(pose.dy + config.CAMERA_WIDTH / 2),
+                        center_y=int(-pose.dx + config.CAMERA_HEIGHT / 2),
+                        offset_x=int(pose.dy),
+                        offset_y=int(-pose.dx),
+                        image_width=config.CAMERA_WIDTH,
+                        image_height=config.CAMERA_HEIGHT,
+                        timestamp=now_str,
+                    )
+                else:
+                    latest_result = ArucoResult(
+                        aruco_detected=False,
+                        timestamp=now_str,
+                    )
+
+                self._last_result = latest_result
+                now = time.time()
+                if now - last_send_time >= send_interval:
+                    last_send_time = now
+                    if latest_result.aruco_detected:
+                        payload = {
+                            "aruco_detected": True,
+                            "marker_id": latest_result.marker_id,
+                            "center_x": latest_result.center_x,
+                            "center_y": latest_result.center_y,
+                            "offset_x": latest_result.offset_x,
+                            "offset_y": latest_result.offset_y,
+                            "image_width": latest_result.image_width,
+                            "image_height": latest_result.image_height,
+                            "timestamp": latest_result.timestamp,
+                        }
+                    else:
+                        payload = {
+                            "aruco_detected": False,
+                            "timestamp": latest_result.timestamp,
+                        }
+                    self._notify_aruco(payload)
+
+                time.sleep(0.1)
+                continue
+
             if self._cap is None or not self._cap.isOpened():
                 logger.error("[CAMERA] Camera lost — stopping thread")
                 self._status = "ERROR"

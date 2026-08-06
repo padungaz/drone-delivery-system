@@ -53,6 +53,10 @@ class ArucoLandingService:
         self._running = False
 
     def init_camera(self) -> bool:
+        if self._running and self._camera_backend != "none":
+            logger.info("ArUco landing camera already running (%s)", self._camera_backend)
+            return True
+
         self.stop()
 
         initialized = False
@@ -192,13 +196,20 @@ class ArucoLandingService:
         )
 
         tx, ty, tz = tvec[0][0]
+        # Downward facing camera frame mapping to Body FRD:
+        # Camera +X (image right) -> Drone Body +Y (Right)
+        # Camera +Y (image down)  -> Drone Body -X (Backward)
+        dx_frd = -float(ty)
+        dy_frd = float(tx)
+        dist = float(math.sqrt(tx**2 + ty**2 + tz**2))
+
         pose.detected = True
         pose.marker_id = config.ARUCO_MARKER_ID
-        pose.dx = float(tx)
-        pose.dy = float(ty)
-        pose.distance = float(math.sqrt(tx**2 + ty**2 + tz**2))
-        pose.angle_x = float(math.atan2(tx, tz))
-        pose.angle_y = float(math.atan2(ty, tz))
+        pose.dx = dx_frd
+        pose.dy = dy_frd
+        pose.distance = dist
+        pose.angle_x = float(math.atan2(dx_frd, tz))
+        pose.angle_y = float(math.atan2(dy_frd, tz))
 
         with self._lock:
             self._last_pose = pose

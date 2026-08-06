@@ -40,6 +40,10 @@ logger = logging.getLogger(__name__)
 ARM_TIMEOUT_SEC = 30.0
 # How long to wait for TAKEOFF altitude before giving up
 TAKEOFF_TIMEOUT_SEC = 30.0
+# Enroute & Descend timeouts
+FLY_TO_PICKUP_TIMEOUT_SEC = 120.0
+FLY_TO_DROP_TIMEOUT_SEC = 120.0
+DESCEND_TIMEOUT_SEC = 60.0
 # ArUco search timeout
 ARUCO_SEARCH_TIMEOUT_SEC = config.LANDING_SEARCH_TIMEOUT_SEC
 
@@ -89,10 +93,11 @@ class MissionManager:
         # Continuous Delivery: a new START arrived while drone is RETURN_HOME
         self._pending_mission: Optional[MissionLocations] = None
 
-        # Camera test service — controlled from frontend
+        # Camera test service — controlled from frontend (uses shared vision_service)
         self._camera_service = CameraService(
             on_camera_status=self._on_camera_status_sync,
             on_aruco_detection=self._on_aruco_detection_sync,
+            vision_service=self.vision,
         )
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -270,14 +275,19 @@ class MissionManager:
         self.mavlink.disarm(force=force)
 
     def _handle_start(self, payload: dict) -> None:
-        new_locations = MissionLocations(
-            home_lat=payload["home_lat"],
-            home_lon=payload["home_lon"],
-            pickup_lat=payload["pickup_lat"],
-            pickup_lon=payload["pickup_lon"],
-            drop_lat=payload["drop_lat"],
-            drop_lon=payload["drop_lon"],
-        )
+        try:
+            new_locations = MissionLocations(
+                home_lat=float(payload.get("home_lat", 0.0) or 0.0),
+                home_lon=float(payload.get("home_lon", 0.0) or 0.0),
+                pickup_lat=float(payload.get("pickup_lat", 0.0) or 0.0),
+                pickup_lon=float(payload.get("pickup_lon", 0.0) or 0.0),
+                drop_lat=float(payload.get("drop_lat", 0.0) or 0.0),
+                drop_lon=float(payload.get("drop_lon", 0.0) or 0.0),
+            )
+        except (ValueError, TypeError) as exc:
+            logger.error("Invalid START command payload parameters: %s", exc)
+            return
+
         current = self.state_machine.state
 
         if current == DroneState.IDLE:
@@ -530,16 +540,31 @@ class MissionManager:
                 return
 
             target_alt = getattr(self.mavlink, "_target_takeoff_alt", config.TAKEOFF_ALTITUDE_M)
-            if self._mission_active and self.mavlink.telemetry.altitude_relative >= target_alt * 0.85:
-                if self._landing_phase == "pickup":
-                    self.state_machine.transition_to(DroneState.FLY_TO_PICKUP)
-                elif self._landing_phase == "enroute_drop":
-                    self.state_machine.transition_to(DroneState.FLY_TO_DROP)
-                elif self._landing_phase == "rtl":
-                    self.state_machine.transition_to(DroneState.RETURN_HOME)
+            if self.mavlink.telemetry.altitude_relative >= target_alt * 0.85:
+                if self._mission_active:
+                    if self._landing_phase == "pickup":
+                        self.state_machine.transition_to(DroneState.FLY_TO_PICKUP)
+                    elif self._landing_phase == "enroute_drop":
+                        self.state_machine.transition_to(DroneState.FLY_TO_DROP)
+                    elif self._landing_phase == "rtl":
+                        self.state_machine.transition_to(DroneState.RETURN_HOME)
+                else:
+                    if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
+                        logger.info("Manual TAKEOFF reached target altitude — switching mode to LOITER")
+                        self.mavlink.set_mode("LOITER")
 
         # ── FLY_TO_PICKUP ──────────────────────────────────────────────────
         elif state == DroneState.FLY_TO_PICKUP:
+            if elapsed > FLY_TO_PICKUP_TIMEOUT_SEC:
+                logger.error("FLY_TO_PICKUP timeout (%.0fs) — transitioning to ERROR", FLY_TO_PICKUP_TIMEOUT_SEC)
+                self.state_machine.transition_to(DroneState.ERROR)
+                return
+
+            if self.locations.pickup_lat == 0.0 or self.locations.pickup_lon == 0.0:
+                logger.error("Invalid pickup coordinates (0.0, 0.0) — transitioning to ERROR")
+                self.state_machine.transition_to(DroneState.ERROR)
+                return
+
             if self._mission_active and self.mavlink.is_at_location(
                 self.locations.pickup_lat,
                 self.locations.pickup_lon,
@@ -551,6 +576,8 @@ class MissionManager:
                 last_retry = getattr(self, "_last_goto_retry", 0.0)
                 if time.time() - last_retry >= 3.0:
                     self._last_goto_retry = time.time()
+                    if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
+                        self.mavlink.set_mode("LOITER")
                     self.mavlink.goto_location(
                         self.locations.pickup_lat,
                         self.locations.pickup_lon,
@@ -559,6 +586,16 @@ class MissionManager:
 
         # ── FLY_TO_DROP ────────────────────────────────────────────────────
         elif state == DroneState.FLY_TO_DROP:
+            if elapsed > FLY_TO_DROP_TIMEOUT_SEC:
+                logger.error("FLY_TO_DROP timeout (%.0fs) — transitioning to ERROR", FLY_TO_DROP_TIMEOUT_SEC)
+                self.state_machine.transition_to(DroneState.ERROR)
+                return
+
+            if self.locations.drop_lat == 0.0 or self.locations.drop_lon == 0.0:
+                logger.error("Invalid drop coordinates (0.0, 0.0) — transitioning to ERROR")
+                self.state_machine.transition_to(DroneState.ERROR)
+                return
+
             if self._mission_active and self.mavlink.is_at_location(
                 self.locations.drop_lat,
                 self.locations.drop_lon,
@@ -570,6 +607,8 @@ class MissionManager:
                 last_retry = getattr(self, "_last_goto_retry", 0.0)
                 if time.time() - last_retry >= 3.0:
                     self._last_goto_retry = time.time()
+                    if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
+                        self.mavlink.set_mode("LOITER")
                     self.mavlink.goto_location(
                         self.locations.drop_lat,
                         self.locations.drop_lon,
@@ -578,6 +617,11 @@ class MissionManager:
 
         # ── DESCEND ────────────────────────────────────────────────────────
         elif state == DroneState.DESCEND:
+            if elapsed > DESCEND_TIMEOUT_SEC:
+                logger.error("DESCEND timeout (%.0fs) — transitioning to ERROR", DESCEND_TIMEOUT_SEC)
+                self.state_machine.transition_to(DroneState.ERROR)
+                return
+
             if self._mission_active and self.mavlink.telemetry.altitude_relative <= config.DESCEND_ALTITUDE_M + 0.3:
                 self.state_machine.transition_to(DroneState.SEARCH_ARUCO)
 

@@ -100,6 +100,7 @@ class MavlinkController:
         self._connected = False
         self.connection_uri = config.MAVLINK_DEVICE
         self.use_baud = True
+        self._send_lock = threading.Lock()
 
         # OFFBOARD keepalive: PX4 requires continuous setpoint stream
         # to stay in OFFBOARD mode (COM_OF_LOSS_T timeout ~1-2 s).
@@ -162,7 +163,17 @@ class MavlinkController:
 
     @property
     def is_connected(self) -> bool:
-        return self._connected and self.connection is not None
+        if not self._connected or self.connection is None:
+            return False
+        if time.time() - self.telemetry.last_update > config.MAVLINK_HEARTBEAT_TIMEOUT:
+            if self._connected:
+                logger.warning(
+                    "[WARNING] MAVLink heartbeat timeout (>%ds) — connection lost",
+                    config.MAVLINK_HEARTBEAT_TIMEOUT,
+                )
+                self._connected = False
+            return False
+        return True
 
     # ===================================================================
     # MAVLink receive
@@ -294,16 +305,17 @@ class MavlinkController:
 
     def _send_set_mode_command(self, custom_mode: float, custom_sub_mode: float) -> None:
         """Send MAV_CMD_DO_SET_MODE to PX4."""
-        self.connection.mav.command_long_send(
-            self.connection.target_system,
-            self.connection.target_component,
-            mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-            0,  # confirmation
-            mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,  # param1
-            custom_mode,      # param2: custom mode
-            custom_sub_mode,  # param3: custom sub_mode
-            0.0, 0.0, 0.0, 0.0,
-        )
+        with self._send_lock:
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+                0,  # confirmation
+                mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,  # param1
+                custom_mode,      # param2: custom mode
+                custom_sub_mode,  # param3: custom sub_mode
+                0.0, 0.0, 0.0, 0.0,
+            )
 
     def wait_command_ack(self, command_id: int, timeout: float = 3.0) -> bool:
         """Wait for COMMAND_ACK from PX4. Returns True if ACCEPTED."""
@@ -324,10 +336,12 @@ class MavlinkController:
         logger.warning("COMMAND_ACK timeout for cmd=%d", command_id)
         return False
 
-    def set_mode(self, mode: str, retries: int = 3) -> bool:
+    def set_mode(self, mode: str, retries: int = 3, force_send: bool = False) -> bool:
         """Set PX4 flight mode with ACK verification and retry."""
-        if not self._can_send("mode"):
+        if not force_send and not self._can_send("mode"):
             return False
+        if force_send:
+            self._last_command_time["mode"] = time.time()
         try:
             custom_mode, custom_sub_mode = self._resolve_mode_id(mode)
             if custom_mode is None:
@@ -429,21 +443,22 @@ class MavlinkController:
         OFFBOARD keepalive only needs to send position-hold setpoints
         to keep PX4 in OFFBOARD mode during GPS navigation phases.
         """
-        if not self.is_connected:
+        if not self.is_connected or self.connection is None:
             return
 
         # Velocity-hold setpoint: vx=0, vy=0, vz=0 (hold position)
-        self.connection.mav.set_position_target_local_ned_send(
-            0,
-            self.connection.target_system,
-            self.connection.target_component,
-            mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-            0b0000_1111_1100_0111,  # Use Velocity X=0, Y=0, Z=0 only
-            0, 0, 0,
-            0.0, 0.0, 0.0,          # Velocity: 0 m/s (hold)
-            0, 0, 0,
-            0, 0,
-        )
+        with self._send_lock:
+            self.connection.mav.set_position_target_local_ned_send(
+                0,
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                0b0000_1111_1100_0111,  # Use Velocity X=0, Y=0, Z=0 only
+                0, 0, 0,
+                0.0, 0.0, 0.0,          # Velocity: 0 m/s (hold)
+                0, 0, 0,
+                0, 0,
+            )
 
     def _start_offboard_keepalive(self) -> None:
         """Start background thread that streams setpoints at 20Hz to keep OFFBOARD alive."""
@@ -520,15 +535,16 @@ class MavlinkController:
                     break
                 time.sleep(0.1)
 
-        self.connection.mav.command_long_send(
-            self.connection.target_system,
-            self.connection.target_component,
-            mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-            0,
-            1,                            # param1=1 → ARM
-            21196 if force else 0,         # param2=21196 → force arm
-            0, 0, 0, 0, 0,
-        )
+        with self._send_lock:
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                0,
+                1,                            # param1=1 → ARM
+                21196 if force else 0,         # param2=21196 → force arm
+                0, 0, 0, 0, 0,
+            )
         logger.info("ARM command sent (force=%s)", force)
         ack = self.wait_command_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=2.0)
         if ack:
@@ -540,15 +556,16 @@ class MavlinkController:
     def disarm(self, force: bool = False) -> bool:
         if not self._can_send("disarm"):
             return False
-        self.connection.mav.command_long_send(
-            self.connection.target_system,
-            self.connection.target_component,
-            mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-            0,
-            0,                        # param1=0 → DISARM
-            21196 if force else 0,     # param2=21196 → force disarm
-            0, 0, 0, 0, 0,
-        )
+        with self._send_lock:
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                0,
+                0,                        # param1=0 → DISARM
+                21196 if force else 0,     # param2=21196 → force disarm
+                0, 0, 0, 0, 0,
+            )
         logger.info("DISARM command sent (force=%s)", force)
         return True
 
@@ -557,39 +574,41 @@ class MavlinkController:
             return False
         self._target_takeoff_alt = altitude_m
         logger.info("Initiating TAKEOFF to %.1f m...", altitude_m)
-        ok = self.set_mode("TAKEOFF")
+        ok = self.set_mode("TAKEOFF", force_send=True)
         if not ok:
             logger.info("Set mode TAKEOFF not acknowledged, sending MAV_CMD_NAV_TAKEOFF...")
             lat = self.telemetry.latitude if self.telemetry.latitude != 0.0 else float("nan")
             lon = self.telemetry.longitude if self.telemetry.longitude != 0.0 else float("nan")
-            self.connection.mav.command_long_send(
-                self.connection.target_system,
-                self.connection.target_component,
-                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-                0,
-                0.0, 0.0, 0.0, float("nan"),
-                lat, lon,
-                altitude_m,
-            )
+            with self._send_lock:
+                self.connection.mav.command_long_send(
+                    self.connection.target_system,
+                    self.connection.target_component,
+                    mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                    0,
+                    0.0, 0.0, 0.0, float("nan"),
+                    lat, lon,
+                    altitude_m,
+                )
             ok = self.wait_command_ack(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, timeout=2.0)
         return ok
 
     def goto_location(self, lat: float, lon: float, alt_m: float) -> bool:
         if not self._can_send("goto"):
             return False
-        self.connection.mav.command_long_send(
-            self.connection.target_system,
-            self.connection.target_component,
-            mavutil.mavlink.MAV_CMD_DO_REPOSITION,
-            0,
-            -1.0,                             # param1: ground speed (-1 = default)
-            0.0,                              # param2: flags
-            0.0,                              # param3: reserved
-            float("nan"),                     # param4: yaw angle (NaN = no change)
-            lat,                              # param5: latitude (deg)
-            lon,                              # param6: longitude (deg)
-            alt_m,                            # param7: altitude relative (m)
-        )
+        with self._send_lock:
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_DO_REPOSITION,
+                0,
+                -1.0,                             # param1: ground speed (-1 = default)
+                0.0,                              # param2: flags
+                0.0,                              # param3: reserved
+                float("nan"),                     # param4: yaw angle (NaN = no change)
+                lat,                              # param5: latitude (deg)
+                lon,                              # param6: longitude (deg)
+                alt_m,                            # param7: altitude relative (m)
+            )
         logger.info("GOTO (DO_REPOSITION): lat=%.7f lon=%.7f alt=%.1f m", lat, lon, alt_m)
         return True
 
@@ -616,20 +635,21 @@ class MavlinkController:
         size_y: float = 0.15,
     ) -> None:
         """Send LANDING_TARGET message for ArUco precision landing."""
-        if not self.is_connected:
+        if not self.is_connected or self.connection is None:
             return
         try:
-            self.connection.mav.landing_target_send(
-                0,
-                0,
-                mavutil.mavlink.MAV_FRAME_BODY_FRD,
-                0,
-                angle_x,
-                angle_y,
-                distance,
-                size_x,
-                size_y,
-            )
+            with self._send_lock:
+                self.connection.mav.landing_target_send(
+                    0,
+                    0,
+                    mavutil.mavlink.MAV_FRAME_BODY_FRD,
+                    0,
+                    angle_x,
+                    angle_y,
+                    distance,
+                    size_x,
+                    size_y,
+                )
         except Exception as exc:
             logger.error("send_landing_target failed: %s", exc)
 
@@ -673,17 +693,18 @@ class MavlinkController:
         if not self._can_send("goto") or not self.connection:
             return False
 
-        self.connection.mav.set_position_target_local_ned_send(
-            0, # time_boot_ms
-            self.connection.target_system,
-            self.connection.target_component,
-            mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
-            0b110111111000,
-            dx, dy, dz,
-            0, 0, 0,
-            0, 0, 0,
-            0, 0
-        )
+        with self._send_lock:
+            self.connection.mav.set_position_target_local_ned_send(
+                0, # time_boot_ms
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
+                0b110111111000,
+                dx, dy, dz,
+                0, 0, 0,
+                0, 0, 0,
+                0, 0
+            )
         self._last_command_time["goto"] = time.time()
         logger.info("Move relative: dx=%.1f, dy=%.1f, dz=%.1f", dx, dy, dz)
         return True
