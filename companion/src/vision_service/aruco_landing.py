@@ -205,14 +205,36 @@ class ArucoLandingService:
             return pose
 
         marker_corners = corners[target_idx]
-        rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
-            marker_corners,
-            config.ARUCO_MARKER_SIZE_M,
-            self.camera_matrix,
-            self.dist_coeffs,
-        )
-
-        tx, ty, tz = tvec[0][0]
+        if hasattr(cv2.aruco, "estimatePoseSingleMarkers"):
+            rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
+                marker_corners,
+                config.ARUCO_MARKER_SIZE_M,
+                self.camera_matrix,
+                self.dist_coeffs,
+            )
+            tx, ty, tz = tvec[0][0]
+        else:
+            half = config.ARUCO_MARKER_SIZE_M / 2.0
+            obj_points = np.array([
+                [-half,  half, 0.0],
+                [ half,  half, 0.0],
+                [ half, -half, 0.0],
+                [-half, -half, 0.0],
+            ], dtype=np.float32)
+            img_points = marker_corners.reshape((4, 2)).astype(np.float32)
+            pnp_flag = getattr(cv2, "SOLVE_PNP_IPPE_SQUARE", cv2.SOLVE_PNP_ITERATIVE)
+            success, rvec, tvec = cv2.solvePnP(
+                obj_points,
+                img_points,
+                self.camera_matrix,
+                self.dist_coeffs,
+                flags=pnp_flag,
+            )
+            if not success:
+                with self._lock:
+                    self._last_pose = pose
+                return pose
+            tx, ty, tz = tvec.flatten()
         # Downward facing camera frame mapping to Body FRD:
         # Camera +X (image right) -> Drone Body +Y (Right)
         # Camera +Y (image down)  -> Drone Body -X (Backward)
