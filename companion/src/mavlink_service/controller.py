@@ -235,14 +235,48 @@ class MavlinkController:
 
         # ---- Flight mode + armed state ----
         elif msg_type == "HEARTBEAT":
+            # Only process HEARTBEAT from the actual PX4 Autopilot (ignore GCS sysid 255 / companion heartbeats)
+            if self.connection and msg.get_srcSystem() != self.connection.target_system:
+                return
+            if msg.get_srcComponent() not in (1, mavutil.mavlink.MAV_COMP_ID_AUTOPILOT1):
+                return
+
             self.telemetry.armed = bool(
                 msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED
             )
-            mode_str = mavutil.mode_string_v10(msg)
-            # PX4 custom mode 6 is OFFBOARD (base_mode custom_mode_enabled)
-            custom_main_mode = (msg.custom_mode >> 16) & 0xFF if msg.custom_mode > 65535 else msg.custom_mode
-            if custom_main_mode == 6 or mode_str == "UNKNOWN" and (msg.base_mode & 1):
-                mode_str = "OFFBOARD"
+
+            # PX4 custom mode decoding (uint32 bitmask: bits 16-23 = main mode, bits 24-31 = sub mode)
+            main_mode = (msg.custom_mode >> 16) & 0xFF
+            sub_mode = (msg.custom_mode >> 24) & 0xFF
+
+            px4_main_modes = {
+                1: "MANUAL",
+                2: "ALTCTL",
+                3: "POSCTL",
+                4: "AUTO",
+                5: "ACRO",
+                6: "OFFBOARD",
+                7: "STABILIZED",
+                8: "RATTITUDE",
+            }
+            px4_auto_submodes = {
+                1: "LOITER",
+                2: "MISSION",
+                3: "RTL",
+                4: "TAKEOFF",
+                5: "LAND",
+                6: "FOLLOW",
+                7: "PRECLAND",
+            }
+
+            if main_mode in px4_main_modes:
+                if main_mode == 4 and sub_mode in px4_auto_submodes:
+                    mode_str = f"AUTO.{px4_auto_submodes[sub_mode]}"
+                else:
+                    mode_str = px4_main_modes[main_mode]
+            else:
+                mode_str = mavutil.mode_string_v10(msg)
+
             self.telemetry.flight_mode = mode_str
 
         # ---- PX4 Status Text & Pre-arm Warnings ----

@@ -4,7 +4,7 @@ const getHost = () => {
   if (typeof window !== "undefined" && window.location.hostname) {
     return window.location.hostname;
   }
-  return "192.168.58.66";
+  return "192.168.137.1";
 };
 
 const defaultHost = getHost();
