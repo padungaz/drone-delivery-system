@@ -216,7 +216,7 @@ class MissionManager:
 
         elif step == "PRECISION_LANDING":
             logger.info("STEP PRECISION_LANDING initiated")
-            self.vision.init_camera()
+            self._handle_camera_start()
             self.state_machine.force_state(DroneState.PRECISION_LANDING)
 
         elif step == "NORMAL_LANDING":
@@ -456,7 +456,7 @@ class MissionManager:
 
         elif state == DroneState.SEARCH_ARUCO:
             self._landing_status = "SEARCHING"
-            self.vision.init_camera()
+            self._handle_camera_start()
 
         elif state == DroneState.PRECISION_LANDING:
             self._landing_status = "PRECISION_LANDING"
@@ -464,7 +464,6 @@ class MissionManager:
 
         elif state == DroneState.WAIT_PICKUP_CONFIRM:
             self._landing_status = "WAIT_PICKUP"
-            self.vision.stop()
             logger.info("Landed at pickup — waiting for PICKUP_COMPLETE command")
             if self._event_loop and self._event_loop.is_running():
                 asyncio.run_coroutine_threadsafe(
@@ -487,7 +486,6 @@ class MissionManager:
 
         elif state == DroneState.WAIT_DROP_CONFIRM:
             self._landing_status = "WAIT_DROP"
-            self.vision.stop()
             logger.info("Landed at drop — waiting for DROP_COMPLETE command")
             if self._event_loop and self._event_loop.is_running():
                 asyncio.run_coroutine_threadsafe(
