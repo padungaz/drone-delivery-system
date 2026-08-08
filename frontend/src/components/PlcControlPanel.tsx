@@ -21,7 +21,7 @@ export function PlcControlPanel({ plc }: Props) {
         return;
       }
       const data = await res.json();
-      setMsg(data.message || `Lệnh ${open ? "Mở" : "Đóng"} nắp thành công!`);
+      setMsg(data.message || `Lệnh ${open ? "Nâng Trục Z" : "Hạ Trục Z"} thành công!`);
     } catch (err) {
       setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
     } finally {
@@ -86,9 +86,9 @@ export function PlcControlPanel({ plc }: Props) {
       {/* Sensor Indicators — 2x3 grid */}
       <div className="sensor-grid">
         <div className={`sensor-item ${plc?.hatch_open ? "active-green" : "inactive"}`}>
-          <span className="sensor-icon">📂</span>
-          <span className="sensor-label">Nắp Docking</span>
-          <span className="sensor-value">{plc?.hatch_open ? "ĐANG MỞ" : "ĐÃ ĐÓNG"}</span>
+          <span className="sensor-icon">⬆️</span>
+          <span className="sensor-label">Trục Z Robot</span>
+          <span className="sensor-value">{plc?.hatch_open ? "ĐANG NÂNG (UP)" : "ĐÃ HẠ (DOWN)"}</span>
         </div>
 
         <div className={`sensor-item ${plc?.drone_locked ? "active-blue" : "inactive"}`}>
@@ -146,7 +146,7 @@ export function PlcControlPanel({ plc }: Props) {
           onClick={() => handleHatch(true)}
           disabled={loading || plc?.plc_busy || !plc?.connected}
         >
-          📂 Mở nắp Docking
+          ⬆️ Nâng Trục Z (Robot)
         </button>
         <button
           type="button"
@@ -154,7 +154,7 @@ export function PlcControlPanel({ plc }: Props) {
           onClick={() => handleHatch(false)}
           disabled={loading || plc?.plc_busy || !plc?.connected}
         >
-          📁 Đóng nắp Docking
+          ⬇️ Hạ Trục Z (Robot)
         </button>
         <button
           type="button"

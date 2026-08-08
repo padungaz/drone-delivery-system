@@ -28,8 +28,8 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 
 async def init_db() -> None:
-    # Import storage models so their tables are registered with Base.metadata
-    import app.storage.models  # noqa: F401
+    # Ensure all ORM models are registered with Base.metadata
+    import app.models.database  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

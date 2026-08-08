@@ -93,7 +93,7 @@ class MissionManager:
         3. ROBOT MOVE_HOME -> Check success
         4. PLC Z_UP -> Check success (Must be UP before robot enters pad area)
         5. ROBOT PICK_PRODUCT (from UAV) -> Check success
-        6. ROBOT MOVE_HOME -> Check success (Robot retracts before closing hatch)
+        6. ROBOT MOVE_HOME -> Check success (Robot retracts before lowering Z-axis)
         7. PLC Z_DOWN -> Check success
         8. Camera ON -> Scan QR -> Find available storage slot
         9. ROBOT STORE (place into storage slot A1..C3) -> Check success
@@ -150,7 +150,7 @@ class MissionManager:
         # Step 3: PLC Z_UP (Safety Interlock: Must succeed before robot enters pad)
         plc_res = await self.plc_mgr.execute_command(PLCCommand.Z_UP)
         if plc_res.plc_error or plc_res.z_axis != "UP":
-            return await self._abort_mission(mission, "Step 3: PLC Z_UP failed! Hatch not open. Aborting for collision safety.")
+            return await self._abort_mission(mission, "Step 3: PLC Z_UP failed! Trục Z chưa nâng. Aborting for collision safety.")
 
         mission.step_details = "4. PLC đã nâng trục Z lên vị trí trên (PLC_Z_UP_DONE)."
         await self.log_event("PLC", "Z_UP completed (PLC_Z_UP_DONE)")
@@ -168,7 +168,7 @@ class MissionManager:
         await self.session.commit()
         await self._notify_mission_progress(mission)
 
-        # Step 5: ROBOT MOVE_HOME (Retract from pad before closing hatch)
+        # Step 5: ROBOT MOVE_HOME (Retract from pad before lowering Z-axis)
         robot_res = await self.robot_mgr.execute_command(RobotCommand.MOVE_HOME)
         if robot_res.state == "ERROR":
             return await self._abort_mission(mission, "Step 5: Robot MOVE_HOME failed while carrying product!")
@@ -178,7 +178,7 @@ class MissionManager:
         await self.session.commit()
         await self._notify_mission_progress(mission)
 
-        # Step 6: PLC Z_DOWN (Close hatch after robot retracts)
+        # Step 6: PLC Z_DOWN (Lower Z-axis after robot retracts)
         plc_res = await self.plc_mgr.execute_command(PLCCommand.Z_DOWN)
         if plc_res.plc_error:
             return await self._abort_mission(mission, "Step 6: PLC Z_DOWN failed!")
@@ -261,7 +261,7 @@ class MissionManager:
         6. Camera ON -> Verify product
         7. PLC Z_UP -> Check success (Safety Interlock: Must be UP before robot places on UAV)
         8. ROBOT PLACE_PRODUCT (onto UAV) -> Check success
-        9. ROBOT MOVE_HOME -> Check success (Robot retracts before closing hatch)
+        9. ROBOT MOVE_HOME -> Check success (Robot retracts before lowering Z-axis)
         10. Camera OFF -> Turn off camera immediately after placement
         11. PLC Z_DOWN -> Check success
         12. PLC UNLOCK_DRONE -> Complete
@@ -352,7 +352,7 @@ class MissionManager:
         if plc_res.plc_error or plc_res.z_axis != "UP":
             self.qr_svc.stop_camera_scanner()
             await self.qr_svc.notify_status_ws()
-            return await self._abort_mission(mission, "Step 6: PLC Z_UP failed! Hatch not open. Aborting for collision safety.")
+            return await self._abort_mission(mission, "Step 6: PLC Z_UP failed! Trục Z chưa nâng. Aborting for collision safety.")
 
         mission.step_details = "6. PLC đã nâng trục Z lên (PLC_Z_UP_DONE)."
         await self.log_event("PLC", "Z_UP completed (PLC_Z_UP_DONE)")
@@ -424,6 +424,47 @@ class MissionManager:
         await self.session.refresh(mission)
         return mission
 
+    async def pause_mission(self, mission_id: Optional[int] = None) -> Optional[IntralogisticsMissionRecord]:
+        mission = await self.get_active_mission() if not mission_id else await self.session.get(IntralogisticsMissionRecord, mission_id)
+        if mission and mission.state not in ("COMPLETED", "FAILED", "ERROR_NO_FREE_SLOT", "ERROR_PRODUCT_NOT_FOUND"):
+            mission.state = "PAUSED"
+            mission.step_details = f"⏸️ Nhiệm vụ #{mission.id} đã được tạm dừng bởi Operator."
+            await self.log_event("SERVER", f"Mission #{mission.id} PAUSED by Operator")
+            await self.session.commit()
+            await self._notify_mission_progress(mission)
+            await self.session.refresh(mission)
+            return mission
+        return None
+
+    async def resume_mission(self, mission_id: Optional[int] = None) -> Optional[IntralogisticsMissionRecord]:
+        mission = await self.session.get(IntralogisticsMissionRecord, mission_id) if mission_id else await self.get_active_mission()
+        if not mission:
+            stmt = select(IntralogisticsMissionRecord).where(IntralogisticsMissionRecord.state == "PAUSED").order_by(IntralogisticsMissionRecord.id.desc())
+            res = await self.session.execute(stmt)
+            mission = res.scalars().first()
+
+        if mission and mission.state == "PAUSED":
+            mission.state = "DOCK_LOCKED"
+            mission.step_details = f"▶️ Nhiệm vụ #{mission.id} được khôi phục tiếp tục."
+            await self.log_event("SERVER", f"Mission #{mission.id} RESUMED by Operator")
+            await self.session.commit()
+            await self._notify_mission_progress(mission)
+            await self.session.refresh(mission)
+            return mission
+        return None
+
+    async def manual_override_qr(self, product_id: str, mission_id: Optional[int] = None) -> Optional[IntralogisticsMissionRecord]:
+        mission = await self.get_active_mission() if not mission_id else await self.session.get(IntralogisticsMissionRecord, mission_id)
+        if mission:
+            mission.product_id = product_id
+            mission.step_details = f"✏️ Operator đã nhập mã QR thủ công: {product_id}"
+            await self.log_event("SERVER", f"Manual QR Override for Mission #{mission.id}: {product_id}")
+            await self.session.commit()
+            await self._notify_mission_progress(mission)
+            await self.session.refresh(mission)
+            return mission
+        return None
+
     async def get_all_missions(self) -> List[IntralogisticsMissionRecord]:
         stmt = select(IntralogisticsMissionRecord).order_by(IntralogisticsMissionRecord.id.desc())
         res = await self.session.execute(stmt)
@@ -435,3 +476,4 @@ class MissionManager:
         ).order_by(IntralogisticsMissionRecord.id.desc())
         res = await self.session.execute(stmt)
         return res.scalars().first()
+

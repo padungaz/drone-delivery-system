@@ -123,6 +123,8 @@ class PLCManager:
         self.plc_heartbeat: bool = False
         self.plc_busy: bool = False
         self.plc_error: bool = False
+        self._reconnect_attempts: int = 0
+        self._next_reconnect_time: float = 0.0
 
         if not self.simulator_mode and SNAP7_AVAILABLE:
             self._connect_plc()
@@ -138,28 +140,33 @@ class PLCManager:
         return cls._instance
 
     def _connect_plc(self) -> bool:
-        """Establishes connection to Siemens S7-1200 PLC."""
+        """Establishes connection to Siemens S7-1200 PLC with exponential backoff on failure."""
         if not SNAP7_AVAILABLE:
             logger.warning("Snap7 library unavailable; remaining in simulator mode.")
             self.is_connected = False
             return False
 
+        import time
+        now = time.time()
+        if now < self._next_reconnect_time:
+            return False  # Exponential backoff cool-down in effect
+
         try:
             if self.client is None:
                 self.client = snap7.client.Client()
-                # Try to set longer TCP timeouts (may not be available in all snap7 versions)
                 try:
                     self.client.set_connection_params(self.plc_ip, self.rack, self.slot)
                 except Exception:
-                    pass  # Pure Python snap7 may not support this
+                    pass
 
             if not self.client.get_connected():
                 logger.info(
-                    "Connecting/Reconnecting to Siemens S7-1200 PLC at %s (Rack: %d, Slot: %d, DB: %d)...",
+                    "Connecting/Reconnecting to Siemens S7-1200 PLC at %s (Rack: %d, Slot: %d, DB: %d, Attempt: %d)...",
                     self.plc_ip,
                     self.rack,
                     self.slot,
                     self.db_number,
+                    self._reconnect_attempts + 1,
                 )
                 try:
                     self.client.disconnect()
@@ -170,10 +177,18 @@ class PLCManager:
             self.is_connected = self.client.get_connected()
             if self.is_connected:
                 logger.info("✅ PLC S7-1200 connected successfully (%s, DB%d)", self.plc_ip, self.db_number)
+                self._reconnect_attempts = 0
+                self._next_reconnect_time = 0.0
             else:
-                logger.error("❌ Failed to connect to PLC S7-1200 (%s)", self.plc_ip)
+                self._reconnect_attempts += 1
+                backoff_delay = min(2 ** self._reconnect_attempts, 16)
+                self._next_reconnect_time = now + backoff_delay
+                logger.error("❌ Failed to connect to PLC S7-1200 (%s). Retrying in %ds...", self.plc_ip, backoff_delay)
         except Exception as e:
-            logger.error("❌ Exception during PLC Snap7 connection: %s", str(e))
+            self._reconnect_attempts += 1
+            backoff_delay = min(2 ** self._reconnect_attempts, 16)
+            self._next_reconnect_time = now + backoff_delay
+            logger.error("❌ Exception during PLC Snap7 connection: %s. Retrying in %ds...", str(e), backoff_delay)
             self.is_connected = False
 
         return self.is_connected

@@ -4,9 +4,8 @@ from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.database import ProductRecord, SystemLogRecord
+from app.models.database import ProductRecord, SystemLogRecord, StorageSlotRecord
 from app.models.schemas import StorageSlotStatus, QRScanPayload
-from app.storage.models import StorageSlotRecord
 
 logger = logging.getLogger(__name__)
 

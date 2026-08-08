@@ -21,8 +21,6 @@ from app.services.device_manager import DeviceManager
 from app.services.inventory_manager import InventoryManager
 from app.services.plc_manager import PLCManager
 from app.services.robot_manager import RobotManager
-from app.storage.repository import StorageRepository
-from app.storage.routes import storage_router
 from app.websocket.manager import system_ws_manager
 from app.websocket.handler import manager as drone_ws_manager
 
@@ -49,6 +47,7 @@ async def heartbeat_monitor_task():
 
                 # Sync ROBOT01 heartbeat based on RobotManager state
                 robot_mgr = RobotManager.get_instance()
+                await robot_mgr.check_connection()
                 robot_status = DeviceStatus.ONLINE if (robot_mgr.is_connected or robot_mgr.simulator_mode) else DeviceStatus.OFFLINE
                 await mgr.update_heartbeat(DeviceHeartbeatRequest(name="ROBOT01", status=robot_status))
 
@@ -87,8 +86,6 @@ async def lifespan(app: FastAPI):
     await init_db()
     # Seed 9 storage slots & 3 LAN devices (UAV01, PLC01, ROBOT01)
     async with async_session() as session:
-        storage_repo = StorageRepository(session)
-        await storage_repo.init_storage_slots()
         inventory_mgr = InventoryManager(session)
         await inventory_mgr.init_default_slots()
 
@@ -125,7 +122,6 @@ app.add_middleware(
 # Existing routers (Backward Compatible)
 app.include_router(router)
 app.include_router(customer_router)
-app.include_router(storage_router)
 
 # Smart Intralogistics Routers
 app.include_router(device_router)

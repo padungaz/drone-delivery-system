@@ -1,5 +1,6 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -140,3 +141,45 @@ async def get_active_mission(
     mgr = MissionManager(session)
     active = await mgr.get_active_mission()
     return active
+
+
+@mission_router.post("/api/mission/pause")
+@mission_router.post("/api/missions/pause")
+async def pause_active_mission(
+    session: AsyncSession = Depends(get_session),
+):
+    mgr = MissionManager(session)
+    mission = await mgr.pause_mission()
+    if not mission:
+        raise HTTPException(status_code=400, detail="No active mission to pause")
+    return {"message": "Nhiệm vụ đã tạm dừng", "mission": mission}
+
+
+@mission_router.post("/api/mission/resume")
+@mission_router.post("/api/missions/resume")
+async def resume_active_mission(
+    session: AsyncSession = Depends(get_session),
+):
+    mgr = MissionManager(session)
+    mission = await mgr.resume_mission()
+    if not mission:
+        raise HTTPException(status_code=400, detail="No paused mission to resume")
+    return {"message": "Nhiệm vụ đã tiếp tục", "mission": mission}
+
+
+class QROverrideRequest(BaseModel):
+    product_id: str
+
+
+@mission_router.post("/api/mission/override-qr")
+@mission_router.post("/api/missions/override-qr")
+async def override_qr_code(
+    req: QROverrideRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    mgr = MissionManager(session)
+    mission = await mgr.manual_override_qr(req.product_id)
+    if not mission:
+        raise HTTPException(status_code=400, detail="No active mission to override QR")
+    return {"message": f"Đã nhập mã QR thủ công: {req.product_id}", "mission": mission}
+

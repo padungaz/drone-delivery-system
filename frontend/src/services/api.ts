@@ -289,4 +289,21 @@ export async function getBackendCameraStatus(): Promise<Response> {
   return fetch(`${API_BASE}/api/inventory/camera-scan/status`);
 }
 
+export async function pauseMission(): Promise<Response> {
+  return fetch(`${API_BASE}/api/missions/pause`, { method: "POST" });
+}
+
+export async function resumeMission(): Promise<Response> {
+  return fetch(`${API_BASE}/api/missions/resume`, { method: "POST" });
+}
+
+export async function overrideMissionQR(productId: string): Promise<Response> {
+  return fetch(`${API_BASE}/api/missions/override-qr`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ product_id: productId }),
+  });
+}
+
+
 

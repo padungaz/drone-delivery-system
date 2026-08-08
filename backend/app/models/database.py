@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -192,5 +193,25 @@ class SystemLogRecord(Base):
     source: Mapped[str] = mapped_column(String(32), index=True)    # "PLC", "ROBOT", "UAV", "SERVER", "CAMERA"
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class StorageSlotRecord(Base):
+    """Represents a physical storage slot in the warehouse (1..9)."""
+
+    __tablename__ = "storage_slots"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    is_empty: Mapped[bool] = mapped_column(Boolean, default=True)
+    qr_code: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, default=None)
+    sender_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, default=None)
+    sender_address: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, default=None)
+    item_created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None)
+
+    slot_name: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, unique=True, index=True)  # A1..C3
+    status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, default="EMPTY")
+    product_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    updated_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None)
+
 
 

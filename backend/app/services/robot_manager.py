@@ -37,6 +37,8 @@ class RobotManager:
         self.state: str = "IDLE"
         self.current_slot: Optional[str] = None
         self.holding_product: Optional[str] = None
+        self._reconnect_attempts: int = 0
+        self._next_reconnect_time: float = 0.0
 
         # Handshake: asyncio.Event for external DONE signal from real robot
         self._done_event: asyncio.Event = asyncio.Event()
@@ -51,6 +53,39 @@ class RobotManager:
             robot_port = int(os.getenv("ROBOT_PORT", "8080"))
             cls._instance = RobotManager(simulator_mode=sim_mode, robot_ip=robot_ip, robot_port=robot_port)
         return cls._instance
+
+    async def check_connection(self) -> bool:
+        """Health check for FAIRINO Robot arm TCP Socket connection."""
+        if self.simulator_mode:
+            self.is_connected = True
+            return True
+
+        import time
+        now = time.time()
+        if now < self._next_reconnect_time:
+            return self.is_connected
+
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.robot_ip, self.robot_port),
+                timeout=3.0
+            )
+            writer.close()
+            await writer.wait_closed()
+            if not self.is_connected:
+                logger.info("✅ FAIRINO Robot TCP Socket connected successfully (%s:%d)", self.robot_ip, self.robot_port)
+            self.is_connected = True
+            self._reconnect_attempts = 0
+            self._next_reconnect_time = 0.0
+            return True
+        except Exception as err:
+            self._reconnect_attempts += 1
+            backoff_delay = min(2 ** self._reconnect_attempts, 16)
+            self._next_reconnect_time = now + backoff_delay
+            if self.is_connected:
+                logger.warning("❌ FAIRINO Robot connection lost (%s:%d): %s. Retrying in %ds...", self.robot_ip, self.robot_port, err, backoff_delay)
+            self.is_connected = False
+            return False
 
     def get_status(self) -> RobotStatusResponse:
         is_online = self.is_connected or self.simulator_mode

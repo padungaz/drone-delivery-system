@@ -10,7 +10,7 @@ import { DeviceStatusPanel } from "./DeviceStatusPanel";
 import { PlcControlPanel } from "./PlcControlPanel";
 import { RobotControlPanel } from "./RobotControlPanel";
 import { StorageSlotsGrid } from "./StorageSlotsGrid";
-import { startIntralogisticsMission } from "../services/api";
+import { startIntralogisticsMission, pauseMission, resumeMission, overrideMissionQR } from "../services/api";
 
 interface Props {
   devices: DeviceInfo[];
@@ -50,6 +50,47 @@ export function IntralogisticsPanel({
       }
       const data = await res.json();
       setMsg(data.message || `Khởi tạo nhiệm vụ FSM ${missionType} thành công!`);
+    } catch (err) {
+      setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePauseMission = async () => {
+    setLoading(true);
+    try {
+      const res = await pauseMission();
+      const data = await res.json();
+      setMsg(data.message || "Đã tạm dừng nhiệm vụ");
+    } catch (err) {
+      setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResumeMission = async () => {
+    setLoading(true);
+    try {
+      const res = await resumeMission();
+      const data = await res.json();
+      setMsg(data.message || "Đã tiếp tục nhiệm vụ");
+    } catch (err) {
+      setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOverrideQR = async () => {
+    const inputProduct = prompt("Nhập mã Sản phẩm QR thủ công:", productId);
+    if (!inputProduct) return;
+    setLoading(true);
+    try {
+      const res = await overrideMissionQR(inputProduct.trim());
+      const data = await res.json();
+      setMsg(data.message || "Đã nhập QR thủ công");
     } catch (err) {
       setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
     } finally {
@@ -128,10 +169,26 @@ export function IntralogisticsPanel({
           })}
         </div>
 
-        {/* Active step details readout */}
-        {activeMission && activeMission.step_details && !isErrorState && (
-          <div className="step-details-box mt-1" style={{ fontSize: "0.9rem", color: "var(--text-secondary, #94a3b8)", background: "rgba(0,0,0,0.2)", padding: "6px 12px", borderRadius: "4px" }}>
-            📍 Tiến trình chi tiết: <strong style={{ color: "#38bdf8" }}>{activeMission.step_details}</strong>
+        {/* Active step details & Manual Operator Control Toolbar */}
+        {activeMission && (
+          <div className="step-details-box mt-1" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.9rem", color: "var(--text-secondary, #94a3b8)", background: "rgba(0,0,0,0.2)", padding: "8px 12px", borderRadius: "6px" }}>
+            <div>
+              📍 Tiến trình chi tiết: <strong style={{ color: "#38bdf8" }}>{activeMission.step_details || activeMission.state}</strong>
+            </div>
+            <div style={{ display: "flex", gap: "8px" }}>
+              {activeMission.state === "PAUSED" ? (
+                <button type="button" className="btn btn-success btn-sm" onClick={handleResumeMission} disabled={loading}>
+                  ▶️ TIẾP TỤC
+                </button>
+              ) : (
+                <button type="button" className="btn btn-warning btn-sm" onClick={handlePauseMission} disabled={loading || isErrorState}>
+                  ⏸️ TẠM DỪNG
+                </button>
+              )}
+              <button type="button" className="btn btn-outline btn-sm" onClick={handleOverrideQR} disabled={loading}>
+                ✏️ NHẬP QR THỦ CÔNG
+              </button>
+            </div>
           </div>
         )}
 

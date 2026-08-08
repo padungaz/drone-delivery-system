@@ -35,7 +35,7 @@ async def control_plc_hatch(req: PLCHatchRequest):
 
     await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
     return {
-        "message": f"Lệnh {'Mở (Z_UP)' if cmd == PLCCommand.Z_UP else 'Đóng (Z_DOWN)'} nắp thành công!",
+        "message": f"Lệnh {'Nâng Trục Z (Z_UP)' if cmd == PLCCommand.Z_UP else 'Hạ Trục Z (Z_DOWN)'} thành công!",
         "status": status.model_dump(),
     }
 

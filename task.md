@@ -35,9 +35,9 @@ Nâng cấp toàn bộ Giao diện Quản trị (Admin Frontend) theo phong các
 
 ## 🟢 GIAI ĐOẠN 4: Kho Thông Minh Digital Twin (Smart Intralogistics Panel)
 - [x] **Task 4.1**: Thiết kế lại **Storage Slots Grid** dạng khối Kệ kho 3D Glass Card trực quan (Trống: Xám mờ, Có hàng: Xanh Cyan, Đặt trước: Vàng Amber).
-- [x] **Task 4.2**: Nâng cấp Bảng điều khiển **PLC S7-1200 & Cửa Hatch** (Công tắc toggle công nghiệp, Đèn LED chuyển động Z-axis nâng/hạ).
+- [x] **Task 4.2**: Nâng cấp Bảng điều khiển **PLC S7-1200 & Trục Z Robot** (Công tắc toggle công nghiệp, Đèn LED chuyển động Z-axis nâng/hạ).
 - [x] **Task 4.3**: Nâng cấp Bảng điều khiển **Robot Arm (Gắp/Trả sản phẩm)** & Khung soi Camera quét mã vạch QR.
-- 🔍 *Kiểm tra Giai đoạn 4*: Kiểm tra tương tác mở cửa Hatch, đổi trạng thái kệ kho và nút điều khiển Robot.
+- 🔍 *Kiểm tra Giai đoạn 4*: Kiểm tra tương tác nâng hạ Trục Z Robot, đổi trạng thái kệ kho và nút điều khiển Robot.
 
 ---
 

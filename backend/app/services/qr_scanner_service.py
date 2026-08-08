@@ -20,9 +20,8 @@ except (ImportError, Exception) as cv2_err:
 logger = logging.getLogger(__name__)
 
 from app.database.repository import async_session
-from app.models.schemas import StorageSlotStatus
+from app.models.schemas import StorageSlotStatus, StorageSlotResponse
 from app.services.inventory_manager import InventoryManager
-from app.storage.repository import StorageRepository
 from app.websocket.manager import system_ws_manager
 from app.websocket.handler import manager as drone_ws_manager
 
@@ -173,12 +172,14 @@ class QRScannerService:
             })
 
             # 2. Broadcast to Drone/Client WS (/ws/client)
-            storage_repo = StorageRepository(session)
-            all_slots = await storage_repo.get_all_slots()
-            state_resp = storage_repo.build_storage_state(all_slots)
+            all_slots = await inv_mgr.get_all_slots()
+            slots_payload = [
+                StorageSlotResponse.model_validate(s).model_dump(mode="json")
+                for s in all_slots
+            ]
             await drone_ws_manager.broadcast_to_clients({
                 "type": "storage_update",
-                "payload": state_resp.model_dump(mode="json", by_alias=True),
+                "payload": slots_payload,
             })
 
             logger.info(
