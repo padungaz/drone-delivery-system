@@ -185,6 +185,12 @@ class CameraService:
             self._cap.release()
             self._cap = None
 
+        if self._vision_service is not None:
+            try:
+                self._vision_service.stop()
+            except Exception as exc:
+                logger.error("[CAMERA] Error stopping vision service: %s", exc)
+
         self._status = "OFF"
         self._last_result = ArucoResult()
         self._notify_status()

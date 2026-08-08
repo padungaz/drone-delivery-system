@@ -369,6 +369,7 @@ class MissionManager:
     def _handle_camera_stop(self) -> None:
         logger.info("CAMERA_STOP received")
         self._camera_service.stop()
+        self.vision.stop()
 
     # -----------------------------------------------------------------------
     # Camera callbacks (called from CameraService background thread)
@@ -649,6 +650,9 @@ class MissionManager:
         elif state == DroneState.PRECISION_LANDING:
             # Wait for PX4 to confirm: landed=True AND armed=False (auto-disarmed)
             if self.mavlink.is_landed() and not self.mavlink.telemetry.armed:
+                logger.info("[VISION] Touchdown & Disarmed confirmed — stopping camera immediately")
+                self.vision.stop()
+                self._camera_service.stop()
                 if self._event_loop and self._event_loop.is_running():
                     loc_type_map = {
                         "pickup": "CUSTOMER_PICKUP",
