@@ -460,6 +460,7 @@ class MissionManager:
 
         elif state == DroneState.PRECISION_LANDING:
             self._landing_status = "PRECISION_LANDING"
+            self._touchdown_handled = False
             self.mavlink.set_mode("PRECLAND")
 
         elif state == DroneState.WAIT_PICKUP_CONFIRM:
@@ -648,6 +649,11 @@ class MissionManager:
         elif state == DroneState.PRECISION_LANDING:
             # Wait for PX4 to confirm: landed=True AND armed=False (auto-disarmed)
             if self.mavlink.is_landed() and not self.mavlink.telemetry.armed:
+                # Guard: only process touchdown once
+                if getattr(self, "_touchdown_handled", False):
+                    return
+                self._touchdown_handled = True
+
                 logger.info("[VISION] Touchdown & Disarmed confirmed — stopping camera immediately")
                 self.vision.stop()
                 self._camera_service.stop()

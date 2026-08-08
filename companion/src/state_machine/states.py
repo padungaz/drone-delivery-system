@@ -50,6 +50,7 @@ TRANSITIONS: dict[DroneState, list[DroneState]] = {
     DroneState.PRECISION_LANDING: [
         DroneState.WAIT_PICKUP_CONFIRM,
         DroneState.WAIT_DROP_CONFIRM,
+        DroneState.IDLE,              # Manual step landing (no mission)
         DroneState.ERROR,
     ],
     # -- Pickup gate --
