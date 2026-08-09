@@ -58,6 +58,12 @@ class MavlinkSimulator:
     def is_connected(self) -> bool:
         return self._connected
 
+    def request_data_streams(self) -> None:
+        pass
+
+    def send_heartbeat(self) -> None:
+        pass
+
     def _sync_telemetry(self) -> None:
         t = self.telemetry
         t.latitude = self._pose.lat

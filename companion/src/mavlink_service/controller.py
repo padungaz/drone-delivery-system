@@ -148,18 +148,53 @@ class MavlinkController:
                         logger.debug("Bỏ qua heartbeat từ system=%s", src_sys)
             
             self._connected = True
+            self.telemetry.last_update = time.time()
 
             logger.info(
                 "[INFO] PX4 heartbeat received — system=%s component=%s",
                 self.connection.target_system,
                 self.connection.target_component,
             )
+            self.request_data_streams()
             return True
 
         except Exception as exc:
             logger.error("MAVLink connection failed: %s", exc)
             self._connected = False
             return False
+
+    def request_data_streams(self) -> None:
+        """Request PX4 to stream telemetry data at a regular rate (4Hz)."""
+        if not self.connection:
+            return
+        try:
+            with self._send_lock:
+                self.connection.mav.request_data_stream_send(
+                    self.connection.target_system,
+                    self.connection.target_component,
+                    mavutil.mavlink.MAV_DATA_STREAM_ALL,
+                    4,  # 4 Hz
+                    1,  # start streaming
+                )
+            logger.info("[INFO] Requested MAVLink data streams (4Hz)")
+        except Exception as exc:
+            logger.warning("[WARNING] Failed to request data streams: %s", exc)
+
+    def send_heartbeat(self) -> None:
+        """Send companion computer HEARTBEAT to PX4 to maintain connection."""
+        if not self.is_connected or self.connection is None:
+            return
+        try:
+            with self._send_lock:
+                self.connection.mav.heartbeat_send(
+                    mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,
+                    mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+                    0,
+                    0,
+                    0,
+                )
+        except Exception as exc:
+            logger.warning("[WARNING] Failed to send companion heartbeat: %s", exc)
 
     @property
     def is_connected(self) -> bool:
@@ -181,14 +216,17 @@ class MavlinkController:
 
     def poll_messages(self) -> None:
         """Read all available MAVLink messages (non-blocking). Call in main loop."""
-        if not self.is_connected:
+        if not self.is_connected or self.connection is None:
             return
 
-        while True:
-            msg = self.connection.recv_match(blocking=False)
-            if msg is None:
-                break
-            self._process_message(msg)
+        try:
+            while True:
+                msg = self.connection.recv_match(blocking=False)
+                if msg is None:
+                    break
+                self._process_message(msg)
+        except Exception as exc:
+            logger.error("[ERROR] MAVLink poll_messages error: %s", exc)
 
     def _process_message(self, msg) -> None:
         msg_type = msg.get_type()

@@ -100,34 +100,28 @@ class CompanionApp:
         self.telemetry_pub: TelemetryPublisher | None = None
         self._running           = True
         self._last_telemetry_send = 0.0
+        self._last_heartbeat_send = 0.0
 
     # ------------------------------------------------------------------
     # MAVLink connect with auto-retry
     # ------------------------------------------------------------------
 
-    def _connect_mavlink(self) -> bool:
-        """
-        Try to connect MAVLink.  Retry forever with delay until success
-        or shutdown signal.
-        """
-        attempt = 0
-        while self._running:
-            attempt += 1
-            logger.info(
-                "[INFO] MAVLink connect attempt %d → %s @ %d baud",
-                attempt,
-                config.MAVLINK_DEVICE,
-                config.MAVLINK_BAUD,
-            )
-            if self.mavlink.connect():
-                logger.info("[INFO] PX4 heartbeat received — MAVLink connected")
-                return True
-            logger.warning(
-                "[WARNING] MAVLink connection failed (attempt %d) — retrying in %.0fs",
-                attempt,
-                config.MAVLINK_RECONNECT_DELAY_SEC,
-            )
-            time.sleep(config.MAVLINK_RECONNECT_DELAY_SEC)
+    def _connect_mavlink_once(self) -> bool:
+        """Try to connect MAVLink once."""
+        if not self._running:
+            return False
+        logger.info(
+            "[INFO] Connecting to MAVLink → %s @ %d baud",
+            config.MAVLINK_DEVICE,
+            config.MAVLINK_BAUD,
+        )
+        if self.mavlink.connect():
+            logger.info("[INFO] PX4 heartbeat received — MAVLink connected")
+            return True
+        logger.warning(
+            "[WARNING] MAVLink connection failed — retrying in %.0fs",
+            config.MAVLINK_RECONNECT_DELAY_SEC,
+        )
         return False
 
     # ------------------------------------------------------------------
@@ -152,9 +146,13 @@ class CompanionApp:
     # ------------------------------------------------------------------
 
     async def connect_mavlink_background(self) -> None:
-        """Connect to MAVLink asynchronously in background without blocking WebSocket startup."""
+        """Continuously maintain MAVLink connection in background, auto-reconnecting if lost."""
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._connect_mavlink)
+        while self._running:
+            if not self.mavlink.is_connected:
+                logger.info("[INFO] MAVLink disconnected or establishing — attempting connection...")
+                await loop.run_in_executor(None, self._connect_mavlink_once)
+            await asyncio.sleep(config.MAVLINK_RECONNECT_DELAY_SEC)
 
     async def run_ws_listener(self) -> None:
         await self.ws.connect()
@@ -168,6 +166,12 @@ class CompanionApp:
                 self.mission.tick()
 
             now = time.time()
+
+            # Send companion heartbeat to PX4 at 1Hz
+            if now - self._last_heartbeat_send >= 1.0:
+                self.mavlink.send_heartbeat()
+                self._last_heartbeat_send = now
+
             if (
                 self.telemetry_pub
                 and now - self._last_telemetry_send >= config.TELEMETRY_INTERVAL_SEC
