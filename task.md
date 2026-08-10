@@ -53,3 +53,13 @@ Nâng cấp toàn bộ Giao diện Quản trị (Admin Frontend) theo phong các
 - [x] **Task 6.1**: Cấu hình chế độ **Split View** (Bản đồ GPS + Telemetry ở nửa trái | Digital Twin Kho + Camera ArUco ở nửa phải).
 - [x] **Task 6.2**: Rà soát tối ưu hiệu năng UI, hiệu ứng mượt mà, kiểm tra hiển thị responsive và hoàn tất nghiệm thu toàn bộ Admin Frontend.
 - 🔍 *Kiểm tra Giai đoạn 6*: Chạy thử nghiệm End-to-End toàn bộ Admin Dashboard trên tất cả chế độ xem.
+
+---
+
+## 🟢 GIAI ĐOẠN 7: Companion Computer & Vận Hành Hệ Thống (Raspberry Pi 5 & MAVLink System)
+- [x] **Task 7.1**: Tối ưu **MAVLink Connection & Reconnect Loop** (Tự động kết nối lại MAVLink khi mất tín hiệu UART/USB, gửi Companion Heartbeat 1Hz và kích hoạt luồng dữ liệu stream PX4).
+- [x] **Task 7.2**: Tối ưu **Camera ArUco Lifecycle & Vision Service** (Khởi tạo sẵn ArUco Detector, tự động ngắt và giải phóng phần cứng camera khi hạ cánh chốt vị trí).
+- [x] **Task 7.3**: Đóng gói **Systemd Auto-Start Service & Deployment Scripts** (Tạo script `install_service.sh` cài đặt tự động `drone-companion.service`, hỗ trợ user `rpi5`/`pi` và quản lý venv).
+- [x] **Task 7.4**: Xử lý & Khắc phục lỗi **Git Integrity & Systemd Service Crash Loop** trên Raspberry Pi (Sửa lỗi 0-byte corrupt objects và cấu hình môi trường chạy ổn định).
+- 🔍 *Kiểm tra Giai đoạn 7*: Vận hành thử nghiệm thực tế Companion Computer trên Raspberry Pi 5 kết nối Pixhawk 6C qua UART `/dev/ttyAMA0`, đồng bộ Telemetry real-time về Backend.
+
