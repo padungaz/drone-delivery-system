@@ -14,16 +14,24 @@ Auto-start:
     sudo systemctl start drone-companion
 """
 
+import os
+import sys
+from pathlib import Path
+
+# Ensure companion root directory is first in sys.path
+sys_dir = str(Path(__file__).parent.resolve())
+if sys_dir not in sys.path:
+    sys.path.insert(0, sys_dir)
+
 import asyncio
 import logging
 import signal
 import socket
-import sys
 import time
 
 import config
 from src.mavlink_service.factory import create_mavlink_controller
-from src.mission_manager import MissionManager
+from src.mission_manager.manager import MissionManager
 from src.network_service.websocket_client import WebSocketClient
 from src.telemetry_service.publisher import TelemetryPublisher
 from src.vision_service.aruco_landing import ArucoLandingService
