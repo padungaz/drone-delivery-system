@@ -601,23 +601,35 @@ class MavlinkController:
         if not self._can_send("arm"):
             return False
 
-        # Ensure PX4 flight mode is switched to LOITER before sending ARM command
-        if self.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER", "AUTO.HOLD"):
+        # Allow POSCTL, STABILIZED, LOITER, HOLD modes before arming
+        if self.telemetry.flight_mode not in ("POSCTL", "STABILIZED", "LOITER", "HOLD", "AUTO.LOITER", "AUTO.HOLD", "MANUAL"):
             logger.info(
-                "PX4 is in mode %s while DISARMED — switching to LOITER before arming",
+                "PX4 is in mode %s while DISARMED — switching to POSCTL before arming",
                 self.telemetry.flight_mode,
             )
-            self.set_mode("LOITER", force_send=True)
-            # Wait for heartbeat telemetry to confirm flight_mode updated to LOITER
+            self.set_mode("POSCTL", force_send=True)
+            # Wait for heartbeat telemetry to confirm flight_mode updated
             t0 = time.time()
             while time.time() - t0 < 1.5:
                 self.poll_messages()
-                if self.telemetry.flight_mode in ("LOITER", "HOLD", "AUTO.LOITER", "AUTO.HOLD"):
+                if self.telemetry.flight_mode in ("POSCTL", "STABILIZED", "LOITER", "HOLD", "AUTO.LOITER", "AUTO.HOLD", "MANUAL"):
                     logger.info("Mode successfully updated to %s before arming", self.telemetry.flight_mode)
                     break
                 time.sleep(0.05)
 
         with self._send_lock:
+            # Force Reset EKF2 Height về 0.0m trước khi ARM
+            logger.info("Resetting EKF2 height offset to 0.0m before arming...")
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
+                0,
+                0, 0, 0, 0, 0, 0,
+                1,  # Param 7 = 1: Reset EKF2 height offset
+            )
+            time.sleep(0.1)
+
             self.connection.mav.command_long_send(
                 self.connection.target_system,
                 self.connection.target_component,
