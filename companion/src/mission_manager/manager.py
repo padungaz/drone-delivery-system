@@ -156,8 +156,10 @@ class MissionManager:
         step = payload.get("step_action", "")
         logger.info("Executing manual step command: %s", step)
 
+        # Any manual step command IMMEDIATELY disables automatic mission loop
+        self._mission_active = False
+
         if step == "RESET_IDLE":
-            self._mission_active = False
             self.state_machine.reset()
             logger.info("FSM state manually reset to IDLE")
 
@@ -184,18 +186,18 @@ class MissionManager:
             lat = payload.get("lat")
             lon = payload.get("lon")
             alt = payload.get("alt", config.TAKEOFF_ALTITUDE_M)
-            if lat and lon:
-                logger.info("STEP NAV_GPS to lat=%.6f, lon=%.6f, alt=%.1fm", lat, lon, alt)
-                # Enter LOITER mode for GPS navigation (after TAKEOFF completed)
-                if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
-                    self.mavlink.set_mode("LOITER")
-                target_lat = lat or self.mavlink.telemetry.latitude or self.locations.pickup_lat
-                target_lon = lon or self.mavlink.telemetry.longitude or self.locations.pickup_lon
-                if target_lat and target_lon:
-                    self.locations.pickup_lat = target_lat
-                    self.locations.pickup_lon = target_lon
-                    self.mavlink.goto_location(target_lat, target_lon, alt)
-                self.state_machine.force_state(DroneState.FLY_TO_PICKUP)
+            target_lat = lat or (self.locations.pickup_lat if self.locations.pickup_lat != 0.0 else self.mavlink.telemetry.latitude)
+            target_lon = lon or (self.locations.pickup_lon if self.locations.pickup_lon != 0.0 else self.mavlink.telemetry.longitude)
+            
+            if not target_lat or not target_lon or target_lat == 0.0 or target_lon == 0.0:
+                logger.error("STEP NAV_GPS rejected: invalid coordinates (lat=%.6f, lon=%.6f)", target_lat or 0.0, target_lon or 0.0)
+                return
+
+            logger.info("STEP NAV_GPS to lat=%.6f, lon=%.6f, alt=%.1fm", target_lat, target_lon, alt)
+            if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
+                self.mavlink.set_mode("LOITER")
+            self.mavlink.goto_location(target_lat, target_lon, alt)
+            self.state_machine.force_state(DroneState.FLY_TO_PICKUP)
 
         elif step == "DESCEND":
             if not self.mavlink.telemetry.armed:
@@ -204,9 +206,11 @@ class MissionManager:
             search_alt = payload.get("alt", config.DESCEND_ALTITUDE_M)
             cur_lat = self.mavlink.telemetry.latitude or payload.get("lat", 0.0)
             cur_lon = self.mavlink.telemetry.longitude or payload.get("lon", 0.0)
+            if not cur_lat or not cur_lon or cur_lat == 0.0 or cur_lon == 0.0:
+                logger.error("STEP DESCEND rejected: no valid position fix")
+                return
             logger.info("STEP DESCEND to search altitude %.1fm at lat=%.6f, lon=%.6f", search_alt, cur_lat, cur_lon)
-            if cur_lat and cur_lon:
-                self.mavlink.goto_location(cur_lat, cur_lon, search_alt)
+            self.mavlink.goto_location(cur_lat, cur_lon, search_alt)
             self.state_machine.force_state(DroneState.DESCEND)
 
         elif step == "SEARCH_ARUCO":
@@ -227,7 +231,9 @@ class MissionManager:
         mode = payload.get("mode")
         if not mode:
             return
-        logger.info("Setting flight mode to: %s", mode)
+        # Manual mode selection cancels active automated mission to prevent control race conditions
+        self._mission_active = False
+        logger.info("Setting flight mode to: %s (manual override)", mode)
         if mode == "TAKEOFF":
             if not self.mavlink.telemetry.armed:
                 logger.warning(
@@ -250,12 +256,14 @@ class MissionManager:
             
     def _handle_arm(self) -> None:
         """Manual ARM command from dashboard (outside mission FSM)."""
+        # Manual ARM cancels active automated mission to prevent control race conditions
+        self._mission_active = False
         if self.state_machine.state != DroneState.IDLE:
             logger.warning(
-                "Manual ARM rejected: drone is in state %s (must be IDLE)",
+                "Manual ARM warning: drone is in state %s (resetting to IDLE for manual operation)",
                 self.state_machine.state.name,
             )
-            return
+            self.state_machine.reset()
         if self.mavlink.telemetry.armed:
             logger.warning("Manual ARM rejected: already armed")
             return
@@ -271,6 +279,7 @@ class MissionManager:
                 self.state_machine.state.name,
             )
             return
+        self._mission_active = False
         logger.info("Manual DISARM command sent (force=%s)", force)
         self.mavlink.disarm(force=force)
 
@@ -297,18 +306,18 @@ class MissionManager:
             self._force_rtl = False
             self._stop_requested = False
             self._landing_phase = "pickup"
-            self._arm_sent = False
-            self.state_machine.transition_to(DroneState.ARMING)
+
+            if self.mavlink.telemetry.armed:
+                # Drone is ALREADY ARMED on ground (e.g. manually armed via dashboard)
+                logger.info("Drone is ALREADY ARMED on ground — proceeding directly to TAKEOFF phase")
+                self._arm_sent = True
+                self.state_machine.transition_to(DroneState.TAKEOFF)
+            else:
+                logger.info("Drone is DISARMED — initiating ARMING phase")
+                self._arm_sent = False
+                self.state_machine.transition_to(DroneState.ARMING)
 
         elif current == DroneState.RETURN_HOME:
-            # ── Continuous Delivery Mode ──────────────────────────────────
-            # Drone is flying home; intercept and head to next pickup.
-            # We arm-if-not-armed is not needed since RETURN_HOME always
-            # ends with PX4 auto-land + auto-disarm before we reach IDLE.
-            # However, if we're still in the air during RETURN_HOME, PX4
-            # is handling the flight — we cannot simply redirect.
-            # Strategy: store pending mission; when RETURN_HOME → IDLE
-            # transition fires, immediately arm for the pending mission.
             logger.info("Continuous Delivery: queuing next mission during RETURN_HOME")
             self._pending_mission = new_locations
 
