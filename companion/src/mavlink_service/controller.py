@@ -600,17 +600,17 @@ class MavlinkController:
     def arm(self, force: bool = False) -> bool:
         if not self._can_send("arm"):
             return False
-        if self.telemetry.flight_mode in ("TAKEOFF", "AUTO.TAKEOFF", "LAND", "AUTO.LAND", "RTL", "AUTO.RTL"):
+        if self.telemetry.flight_mode in ("TAKEOFF", "AUTO.TAKEOFF", "LAND", "AUTO.LAND", "RTL", "AUTO.RTL", "LOITER", "AUTO.LOITER", "HOLD", "AUTO.HOLD"):
             logger.info(
-                "PX4 is in mode %s while DISARMED — switching to LOITER before arming",
+                "PX4 is in mode %s while DISARMED — switching to POSCTL before arming",
                 self.telemetry.flight_mode,
             )
-            self.set_mode("LOITER")
-            # Wait for heartbeat telemetry to confirm flight_mode updated away from Auto mode
+            self.set_mode("POSCTL")
+            # Wait for heartbeat telemetry to confirm flight_mode updated away from Auto/Hold mode
             t0 = time.time()
             while time.time() - t0 < 2.0:
                 self.poll_messages()
-                if self.telemetry.flight_mode not in ("TAKEOFF", "AUTO.TAKEOFF", "LAND", "AUTO.LAND", "RTL", "AUTO.RTL"):
+                if self.telemetry.flight_mode not in ("TAKEOFF", "AUTO.TAKEOFF", "LAND", "AUTO.LAND", "RTL", "AUTO.RTL", "LOITER", "AUTO.LOITER", "HOLD", "AUTO.HOLD"):
                     logger.info("Mode successfully updated to %s before arming", self.telemetry.flight_mode)
                     break
                 time.sleep(0.1)
