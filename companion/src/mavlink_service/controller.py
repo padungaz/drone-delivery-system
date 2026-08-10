@@ -617,17 +617,21 @@ class MavlinkController:
                 time.sleep(0.05)
 
         with self._send_lock:
-            # Force Reset EKF2 Height về 0.0m trước khi ARM
-            logger.info("Resetting EKF2 height offset to 0.0m before arming...")
-            self.connection.mav.command_long_send(
-                self.connection.target_system,
-                self.connection.target_component,
-                mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
-                0,
-                0, 0, 0, 0, 0, 0,
-                1,  # Param 7 = 1: Reset EKF2 height offset
-            )
-            time.sleep(0.1)
+            # Only reset EKF2 height offset if altitude has drifted significantly (> 2.0m)
+            if abs(self.telemetry.altitude_relative) > 2.0:
+                logger.info(
+                    "Altitude drifted (AltRel=%.2fm) — Resetting EKF2 height offset to 0.0m before arming...",
+                    self.telemetry.altitude_relative,
+                )
+                self.connection.mav.command_long_send(
+                    self.connection.target_system,
+                    self.connection.target_component,
+                    mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
+                    0,
+                    0, 0, 0, 0, 0, 0,
+                    1,  # Param 7 = 1: Reset EKF2 height offset
+                )
+                time.sleep(0.8)  # Allow PX4 EKF2 filter 0.8s to re-initialize after offset reset
 
             self.connection.mav.command_long_send(
                 self.connection.target_system,
