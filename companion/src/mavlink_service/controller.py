@@ -399,10 +399,12 @@ class MavlinkController:
         """Wait for COMMAND_ACK from PX4. Returns True if ACCEPTED."""
         start = time.time()
         while time.time() - start < timeout:
-            msg = self.connection.recv_match(
-                type="COMMAND_ACK", blocking=True, timeout=0.5,
-            )
-            if msg and msg.command == command_id:
+            msg = self.connection.recv_match(blocking=True, timeout=0.5)
+            if msg is None:
+                continue
+            # Process all received messages to capture STATUSTEXT and update telemetry
+            self._process_message(msg)
+            if msg.get_type() == "COMMAND_ACK" and getattr(msg, "command", None) == command_id:
                 if msg.result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
                     return True
                 else:
