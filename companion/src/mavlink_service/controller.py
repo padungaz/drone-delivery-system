@@ -600,20 +600,22 @@ class MavlinkController:
     def arm(self, force: bool = False) -> bool:
         if not self._can_send("arm"):
             return False
-        if self.telemetry.flight_mode in ("TAKEOFF", "AUTO.TAKEOFF", "LAND", "AUTO.LAND", "RTL", "AUTO.RTL", "LOITER", "AUTO.LOITER", "HOLD", "AUTO.HOLD"):
+
+        # Ensure PX4 flight mode is switched to LOITER before sending ARM command
+        if self.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER", "AUTO.HOLD"):
             logger.info(
-                "PX4 is in mode %s while DISARMED — switching to POSCTL before arming",
+                "PX4 is in mode %s while DISARMED — switching to LOITER before arming",
                 self.telemetry.flight_mode,
             )
-            self.set_mode("POSCTL")
-            # Wait for heartbeat telemetry to confirm flight_mode updated away from Auto/Hold mode
+            self.set_mode("LOITER", force_send=True)
+            # Wait for heartbeat telemetry to confirm flight_mode updated to LOITER
             t0 = time.time()
-            while time.time() - t0 < 2.0:
+            while time.time() - t0 < 1.5:
                 self.poll_messages()
-                if self.telemetry.flight_mode not in ("TAKEOFF", "AUTO.TAKEOFF", "LAND", "AUTO.LAND", "RTL", "AUTO.RTL", "LOITER", "AUTO.LOITER", "HOLD", "AUTO.HOLD"):
+                if self.telemetry.flight_mode in ("LOITER", "HOLD", "AUTO.LOITER", "AUTO.HOLD"):
                     logger.info("Mode successfully updated to %s before arming", self.telemetry.flight_mode)
                     break
-                time.sleep(0.1)
+                time.sleep(0.05)
 
         with self._send_lock:
             self.connection.mav.command_long_send(
@@ -653,26 +655,10 @@ class MavlinkController:
         if not self._can_send("takeoff"):
             return False
         self._target_takeoff_alt = altitude_m
-        logger.info("Initiating TAKEOFF to %.1f m...", altitude_m)
+        logger.info("Initiating TAKEOFF to %.1fm via PX4 AUTO.TAKEOFF mode...", altitude_m)
 
-        # Step 1: Switch flight mode to TAKEOFF
-        self.set_mode("TAKEOFF", force_send=True)
-
-        # Step 2: Send explicit MAV_CMD_NAV_TAKEOFF command with target altitude
-        lat = self.telemetry.latitude if self.telemetry.latitude != 0.0 else float("nan")
-        lon = self.telemetry.longitude if self.telemetry.longitude != 0.0 else float("nan")
-        with self._send_lock:
-            self.connection.mav.command_long_send(
-                self.connection.target_system,
-                self.connection.target_component,
-                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-                0,
-                0.0, 0.0, 0.0, float("nan"),
-                lat, lon,
-                altitude_m,
-            )
-        logger.info("MAV_CMD_NAV_TAKEOFF sent (target altitude=%.1fm)", altitude_m)
-        ok = self.wait_command_ack(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, timeout=2.0)
+        # Switch flight mode to TAKEOFF mode (PX4 automatically initiates climb to altitude)
+        ok = self.set_mode("TAKEOFF", force_send=True)
         return ok
 
     def goto_location(self, lat: float, lon: float, alt_m: float) -> bool:

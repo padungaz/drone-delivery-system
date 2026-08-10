@@ -566,7 +566,8 @@ class MissionManager:
                     elif self._landing_phase == "rtl":
                         self.state_machine.transition_to(DroneState.RETURN_HOME)
                 else:
-                    logger.info("Manual TAKEOFF complete — holding position in LOITER")
+                    logger.info("Manual TAKEOFF complete — holding position in LOITER (1.5m), waiting for next command")
+                    self.state_machine.transition_to(DroneState.IDLE)
 
         # ── FLY_TO_PICKUP ──────────────────────────────────────────────────
         elif state == DroneState.FLY_TO_PICKUP:
