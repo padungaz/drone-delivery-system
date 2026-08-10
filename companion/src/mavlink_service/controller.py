@@ -654,22 +654,25 @@ class MavlinkController:
             return False
         self._target_takeoff_alt = altitude_m
         logger.info("Initiating TAKEOFF to %.1f m...", altitude_m)
-        ok = self.set_mode("TAKEOFF", force_send=True)
-        if not ok:
-            logger.info("Set mode TAKEOFF not acknowledged, sending MAV_CMD_NAV_TAKEOFF...")
-            lat = self.telemetry.latitude if self.telemetry.latitude != 0.0 else float("nan")
-            lon = self.telemetry.longitude if self.telemetry.longitude != 0.0 else float("nan")
-            with self._send_lock:
-                self.connection.mav.command_long_send(
-                    self.connection.target_system,
-                    self.connection.target_component,
-                    mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-                    0,
-                    0.0, 0.0, 0.0, float("nan"),
-                    lat, lon,
-                    altitude_m,
-                )
-            ok = self.wait_command_ack(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, timeout=2.0)
+
+        # Step 1: Switch flight mode to TAKEOFF
+        self.set_mode("TAKEOFF", force_send=True)
+
+        # Step 2: Send explicit MAV_CMD_NAV_TAKEOFF command with target altitude
+        lat = self.telemetry.latitude if self.telemetry.latitude != 0.0 else float("nan")
+        lon = self.telemetry.longitude if self.telemetry.longitude != 0.0 else float("nan")
+        with self._send_lock:
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                0,
+                0.0, 0.0, 0.0, float("nan"),
+                lat, lon,
+                altitude_m,
+            )
+        logger.info("MAV_CMD_NAV_TAKEOFF sent (target altitude=%.1fm)", altitude_m)
+        ok = self.wait_command_ack(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, timeout=2.0)
         return ok
 
     def goto_location(self, lat: float, lon: float, alt_m: float) -> bool:
