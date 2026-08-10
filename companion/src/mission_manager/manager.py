@@ -243,6 +243,7 @@ class MissionManager:
                 return
             logger.info("Manual TAKEOFF command initiated (altitude=%.1fm)", config.TAKEOFF_ALTITUDE_M)
             self.mavlink.takeoff(config.TAKEOFF_ALTITUDE_M)
+            self.state_machine.force_state(DroneState.TAKEOFF)
         elif mode == "OFFBOARD":
             if not self.mavlink.telemetry.armed:
                 logger.warning(
