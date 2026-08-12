@@ -558,7 +558,7 @@ class MissionManager:
                 if self.mavlink.telemetry.rangefinder_valid and self.mavlink.telemetry.altitude_agl > 0.1
                 else self.mavlink.telemetry.altitude_relative
             )
-            if cur_alt >= target_alt * 0.85:
+            if cur_alt >= target_alt:
                 logger.info(
                     "TAKEOFF reached target altitude %.1fm (current=%.2fm) — switching PX4 mode to LOITER (Position Hold)",
                     target_alt,
