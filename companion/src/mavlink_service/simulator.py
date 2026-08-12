@@ -138,9 +138,15 @@ class MavlinkSimulator:
         logger.info("[MOCK] Mode → %s", mode)
         return True
 
+    def force_reset_ekf2_altitude(self) -> bool:
+        self._pose.alt = 0.0
+        logger.info("[MOCK] Force reset AltRel to 0.0m")
+        return True
+
     def arm(self) -> bool:
         if not self._can_send("arm"):
             return False
+        self.force_reset_ekf2_altitude()
         self._pose.armed = True
         self._pose.mode = "AUTO.MISSION"
         logger.info("[MOCK] Armed")

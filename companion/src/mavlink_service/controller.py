@@ -596,6 +596,29 @@ class MavlinkController:
     # Flight commands
     # ===================================================================
 
+    def force_reset_ekf2_altitude(self) -> bool:
+        """Lệnh cưỡng chế PX4 reset mốc AltRel về 0.0m theo MTF-02P/EKF2."""
+        if not self.is_connected or self.connection is None:
+            logger.warning("Không thể reset EKF2 altitude: MAVLink chưa kết nối")
+            return False
+
+        with self._send_lock:
+            logger.info(
+                "Resetting EKF2 height offset to 0.0m (AltRel=%.2fm)...",
+                self.telemetry.altitude_relative,
+            )
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
+                0,
+                0, 0, 0, 0, 0, 0,
+                1,  # Param 7 = 1: Force reset EKF2 height offset to current distance
+            )
+        time.sleep(0.8)  # Allow PX4 EKF2 filter 0.8s to re-initialize after offset reset
+        logger.info("✓ Đã ép Reset AltRel về 0.0m")
+        return True
+
     def arm(self, force: bool = False) -> bool:
         if not self._can_send("arm"):
             return False
@@ -616,23 +639,10 @@ class MavlinkController:
                     break
                 time.sleep(0.05)
 
-        with self._send_lock:
-            # Only reset EKF2 height offset if altitude has drifted significantly (> 2.0m)
-            if abs(self.telemetry.altitude_relative) > 2.0:
-                logger.info(
-                    "Altitude drifted (AltRel=%.2fm) — Resetting EKF2 height offset to 0.0m before arming...",
-                    self.telemetry.altitude_relative,
-                )
-                self.connection.mav.command_long_send(
-                    self.connection.target_system,
-                    self.connection.target_component,
-                    mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
-                    0,
-                    0, 0, 0, 0, 0, 0,
-                    1,  # Param 7 = 1: Reset EKF2 height offset
-                )
-                time.sleep(0.8)  # Allow PX4 EKF2 filter 0.8s to re-initialize after offset reset
+        # Cưỡng chế Reset AltRel về 0.0m trước khi ARM
+        self.force_reset_ekf2_altitude()
 
+        with self._send_lock:
             self.connection.mav.command_long_send(
                 self.connection.target_system,
                 self.connection.target_component,

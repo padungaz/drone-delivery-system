@@ -22,6 +22,7 @@ class DroneState(Enum):
 TRANSITIONS: dict[DroneState, list[DroneState]] = {
     DroneState.IDLE: [
         DroneState.ARMING,
+        DroneState.TAKEOFF,
         DroneState.ERROR,
     ],
     DroneState.ARMING: [
@@ -33,6 +34,7 @@ TRANSITIONS: dict[DroneState, list[DroneState]] = {
         DroneState.FLY_TO_PICKUP,
         DroneState.FLY_TO_DROP,
         DroneState.RETURN_HOME,
+        DroneState.IDLE,
         DroneState.ERROR,
     ],
     DroneState.FLY_TO_PICKUP: [
