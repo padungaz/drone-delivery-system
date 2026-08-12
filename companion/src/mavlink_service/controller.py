@@ -597,7 +597,10 @@ class MavlinkController:
     # ===================================================================
 
     def force_reset_ekf2_altitude(self) -> bool:
-        """Lệnh cưỡng chế PX4 reset mốc AltRel về 0.0m theo MTF-02P/EKF2."""
+        """Lệnh cưỡng chế PX4 reset mốc AltRel về 0.0m theo MTF-02P/EKF2.
+        Gửi MAV_CMD_DO_SET_HOME (179) với param1=1 để PX4 cập nhật vị trí & độ cao Home về vị trí hiện tại.
+        Đồng thời gửi MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS (242) param7=1.
+        """
         if not self.is_connected or self.connection is None:
             logger.warning("Không thể reset EKF2 altitude: MAVLink chưa kết nối")
             return False
@@ -607,16 +610,26 @@ class MavlinkController:
                 "Resetting EKF2 height offset to 0.0m (AltRel=%.2fm)...",
                 self.telemetry.altitude_relative,
             )
+            # 1. PX4 Command: MAV_CMD_DO_SET_HOME (179) param1=1 -> Ép PX4 lấy độ cao hiện tại làm Home => AltRel = 0.0m
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_DO_SET_HOME,
+                0,
+                1,  # param1 = 1: use current location as home
+                0, 0, 0, 0, 0, 0,
+            )
+            # 2. Command 242 (ArduPilot / EKF offset fallback)
             self.connection.mav.command_long_send(
                 self.connection.target_system,
                 self.connection.target_component,
                 mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
                 0,
                 0, 0, 0, 0, 0, 0,
-                1,  # Param 7 = 1: Force reset EKF2 height offset to current distance
+                1,  # Param 7 = 1: Force reset EKF2 height offset
             )
         time.sleep(0.8)  # Allow PX4 EKF2 filter 0.8s to re-initialize after offset reset
-        logger.info("✓ Đã ép Reset AltRel về 0.0m")
+        logger.info("✓ Đã ép Reset AltRel về 0.0m (DO_SET_HOME + SENSOR_OFFSETS sent)")
         return True
 
     def arm(self, force: bool = False) -> bool:
@@ -680,6 +693,16 @@ class MavlinkController:
         if not self._can_send("takeoff"):
             return False
         self._target_takeoff_alt = altitude_m
+
+        # Nếu drone vẫn ở dưới đất (AGL < 0.4m), tự động reset EKF2 altitude offset trước khi cất cánh
+        cur_alt = (
+            self.telemetry.altitude_agl
+            if self.telemetry.rangefinder_valid and self.telemetry.altitude_agl > 0.1
+            else self.telemetry.altitude_relative
+        )
+        if cur_alt < 0.4:
+            self.force_reset_ekf2_altitude()
+
         logger.info("Initiating TAKEOFF to %.1fm via PX4 AUTO.TAKEOFF mode...", altitude_m)
 
         # Switch flight mode to TAKEOFF mode (PX4 automatically initiates climb to altitude)
