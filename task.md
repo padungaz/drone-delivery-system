@@ -61,5 +61,7 @@ Nâng cấp toàn bộ Giao diện Quản trị (Admin Frontend) theo phong các
 - [x] **Task 7.2**: Tối ưu **Camera ArUco Lifecycle & Vision Service** (Khởi tạo sẵn ArUco Detector, tự động ngắt và giải phóng phần cứng camera khi hạ cánh chốt vị trí).
 - [x] **Task 7.3**: Đóng gói **Systemd Auto-Start Service & Deployment Scripts** (Tạo script `install_service.sh` cài đặt tự động `drone-companion.service`, hỗ trợ user `rpi5`/`pi` và quản lý venv).
 - [x] **Task 7.4**: Xử lý & Khắc phục lỗi **Git Integrity & Systemd Service Crash Loop** trên Raspberry Pi (Sửa lỗi 0-byte corrupt objects và cấu hình môi trường chạy ổn định).
+- [x] **Task 7.5**: Sửa lỗi đồng bộ vị trí **Manual STEP NAV_GPS** (Cập nhật tọa độ `target_lat`/`target_lon` vào `self.locations` tránh FSM báo lỗi `Invalid pickup coordinates (0.0, 0.0)` chuyển về `ERROR`).
+- [x] **Task 7.6**: Tối ưu logic cất cánh **TAKEOFF** (Đọc độ cao thực tế từ cảm biến laser MTF-02P AGL / Relative alt và tự động chuyển PX4 sang chế độ `LOITER` Position Hold giữ vị trí cố định trên không khi đạt độ cao chỉ định).
 - 🔍 *Kiểm tra Giai đoạn 7*: Vận hành thử nghiệm thực tế Companion Computer trên Raspberry Pi 5 kết nối Pixhawk 6C qua UART `/dev/ttyAMA0`, đồng bộ Telemetry real-time về Backend.
 
