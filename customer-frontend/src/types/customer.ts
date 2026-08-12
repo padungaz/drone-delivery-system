@@ -67,6 +67,16 @@ export interface CreateAddressPayload {
   longitude: number;
 }
 
+export interface StorageSlot {
+  id: number;
+  slot_name: string;
+  status: "EMPTY" | "OCCUPIED" | "RESERVED" | "MAINTENANCE";
+  product_id?: string | null;
+  qr_code?: string | null;
+  sender_name?: string | null;
+  sender_address?: string | null;
+}
+
 export interface LatLon {
   lat: number;
   lon: number;

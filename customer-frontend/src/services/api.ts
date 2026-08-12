@@ -18,6 +18,12 @@ export async function getWarehouse(): Promise<WarehouseInfo> {
   return res.json();
 }
 
+export async function getInventorySlots(): Promise<import("../types/customer").StorageSlot[]> {
+  const res = await fetch(`${API_BASE}/api/inventory/slots`);
+  if (!res.ok) throw new Error("Không thể tải danh sách sản phẩm trong kho");
+  return res.json();
+}
+
 // ── Delivery Requests ──────────────────────────────────────────────────────
 
 export async function createDelivery(payload: CreateDeliveryPayload): Promise<DeliveryRequest> {
@@ -43,6 +49,16 @@ export async function getDelivery(id: number): Promise<DeliveryRequest> {
   const res = await fetch(`${API_BASE}/customer/delivery/${id}`);
   if (!res.ok) throw new Error("Cannot fetch delivery");
   return res.json();
+}
+
+export async function deleteDelivery(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/customer/delivery/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Xóa/Hủy đơn hàng thất bại");
+}
+
+export async function completeDelivery(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/delivery-requests/${id}/complete`, { method: "POST" });
+  if (!res.ok) throw new Error("Hoàn thành đơn hàng thất bại");
 }
 
 // ── Customer Addresses ─────────────────────────────────────────────────────

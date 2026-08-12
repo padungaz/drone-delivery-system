@@ -10,7 +10,7 @@ import { DeviceStatusPanel } from "./DeviceStatusPanel";
 import { PlcControlPanel } from "./PlcControlPanel";
 import { RobotControlPanel } from "./RobotControlPanel";
 import { StorageSlotsGrid } from "./StorageSlotsGrid";
-import { startIntralogisticsMission, pauseMission, resumeMission, overrideMissionQR } from "../services/api";
+import { pauseMission, resumeMission, overrideMissionQR, startAutoBatchMissions } from "../services/api";
 
 interface Props {
   devices: DeviceInfo[];
@@ -29,27 +29,20 @@ export function IntralogisticsPanel({
   activeMission,
   cameraActive,
 }: Props) {
-  const [missionType, setMissionType] = useState<"DRONE_PICKUP" | "DRONE_DELIVERY">(
-    "DRONE_PICKUP"
-  );
-  const [productId, setProductId] = useState("PROD-1001");
-  const [targetSlot, setTargetSlot] = useState("A1");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const handleStartMission = async () => {
-    if (!productId.trim()) return;
+  const handleStartSystem = async () => {
     setLoading(true);
     setMsg(null);
     try {
-      const res = await startIntralogisticsMission(missionType, productId.trim(), targetSlot);
+      const res = await startAutoBatchMissions();
       if (!res.ok) {
-        const errText = await res.text();
-        setMsg(`Lỗi ${res.status}: ${errText}`);
+        setMsg(`Lỗi ${res.status}: Không thể kích hoạt hệ thống`);
         return;
       }
       const data = await res.json();
-      setMsg(data.message || `Khởi tạo nhiệm vụ FSM ${missionType} thành công!`);
+      setMsg(data.message || "🚀 Đã bấm START SYSTEM! Backend tự động điều phối các đơn hàng theo thứ tự FIFO.");
     } catch (err) {
       setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
     } finally {
@@ -84,7 +77,7 @@ export function IntralogisticsPanel({
   };
 
   const handleOverrideQR = async () => {
-    const inputProduct = prompt("Nhập mã Sản phẩm QR thủ công:", productId);
+    const inputProduct = prompt("Nhập mã Sản phẩm QR thủ công:", activeMission?.product_id || "PROD-1001");
     if (!inputProduct) return;
     setLoading(true);
     try {
@@ -99,7 +92,7 @@ export function IntralogisticsPanel({
   };
 
   // Dynamic steps definition for DRONE_PICKUP (Nhập kho) vs DRONE_DELIVERY (Xuất kho)
-  const currentType = activeMission?.mission_type ?? missionType;
+  const currentType = activeMission?.mission_type ?? "DRONE_PICKUP";
 
   const pickupSteps = [
     { key: "STARTED", label: "1. UAV Đáp Pad (Camera OFF)" },
@@ -147,27 +140,64 @@ export function IntralogisticsPanel({
           </div>
         )}
 
-        {/* FSM Stepper Progress Bar */}
-        <div className="fsm-stepper">
-          {steps.map((s, idx) => {
-            const isCompletedMission = activeMission?.state === "COMPLETED";
-            const stepIdx = steps.findIndex((st) => st.key === activeMission?.state);
-            const isPassed = isCompletedMission || (Boolean(activeMission) && stepIdx > idx);
-            const isActive = !isCompletedMission && activeMission?.state === s.key;
-
-            return (
-              <div
-                key={s.key}
-                className={`step-item ${isActive ? "active" : ""} ${
-                  isPassed ? "completed" : ""
-                } ${isErrorState && activeMission ? "error-state" : ""}`}
-              >
-                <div className="step-number">{idx + 1}</div>
-                <div className="step-label">{s.label}</div>
+        {/* Decoupled Dual Timeline View (Station Process & UAV Mission) */}
+        {activeMission && (activeMission.station_process || activeMission.uav_mission) ? (
+          <div className="dual-timeline-container" style={{ margin: "1rem 0", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            {/* Station Process Panel */}
+            <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "12px", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)" }}>
+              <h4 style={{ color: "#38bdf8", margin: "0 0 10px 0", fontSize: "0.95rem" }}>
+                ⚙️ Trạm Tự Động Mặt Đất (Station Process - PLC + Robot)
+              </h4>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {(activeMission.station_process?.steps || []).map((step) => (
+                  <div key={step.step} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", padding: "4px 8px", borderRadius: "4px", background: step.status === "completed" ? "rgba(34, 197, 94, 0.15)" : step.status === "in_progress" ? "rgba(56, 189, 248, 0.2)" : "rgba(255,255,255,0.03)" }}>
+                    <span>{step.status === "completed" ? "✅" : step.status === "in_progress" ? "🔄" : "⏳"}</span>
+                    <span style={{ fontWeight: 600, color: "#93c5fd", minWidth: "50px" }}>[{step.device}]</span>
+                    <span style={{ flex: 1, color: step.status === "in_progress" ? "#38bdf8" : "#cbd5e1" }}>{step.description}</span>
+                  </div>
+                ))}
               </div>
-            );
-          })}
-        </div>
+            </div>
+
+            {/* UAV Mission Panel */}
+            <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "12px", borderRadius: "8px", border: "1px solid rgba(168, 85, 247, 0.3)" }}>
+              <h4 style={{ color: "#c084fc", margin: "0 0 10px 0", fontSize: "0.95rem" }}>
+                🚀 Hàng Không UAV (UAV Mission - Xuất phát từ HOME)
+              </h4>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {(activeMission.uav_mission?.steps || []).map((step) => (
+                  <div key={step.step} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", padding: "4px 8px", borderRadius: "4px", background: step.status === "completed" ? "rgba(34, 197, 94, 0.15)" : step.status === "in_progress" ? "rgba(168, 85, 247, 0.2)" : "rgba(255,255,255,0.03)" }}>
+                    <span>{step.status === "completed" ? "✅" : step.status === "in_progress" ? "🛸" : "⏳"}</span>
+                    <span style={{ fontWeight: 600, color: "#e9d5ff", minWidth: "75px" }}>[{step.action}]</span>
+                    <span style={{ flex: 1, color: step.status === "in_progress" ? "#c084fc" : "#cbd5e1" }}>{step.description}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Default FSM Stepper Progress Bar */
+          <div className="fsm-stepper">
+            {steps.map((s, idx) => {
+              const isCompletedMission = activeMission?.state === "COMPLETED";
+              const stepIdx = steps.findIndex((st) => st.key === activeMission?.state);
+              const isPassed = isCompletedMission || (Boolean(activeMission) && stepIdx > idx);
+              const isActive = !isCompletedMission && activeMission?.state === s.key;
+
+              return (
+                <div
+                  key={s.key}
+                  className={`step-item ${isActive ? "active" : ""} ${
+                    isPassed ? "completed" : ""
+                  } ${isErrorState && activeMission ? "error-state" : ""}`}
+                >
+                  <div className="step-number">{idx + 1}</div>
+                  <div className="step-label">{s.label}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Active step details & Manual Operator Control Toolbar */}
         {activeMission && (
@@ -192,63 +222,25 @@ export function IntralogisticsPanel({
           </div>
         )}
 
-        {/* Create Mission Trigger Form */}
-        <div className="create-mission-box mt-2">
-          <h4>🚀 Tạo Nhiệm vụ Intralogistics Tự động mới:</h4>
-          <div className="mission-form-grid">
+        {/* System Orchestrator Control Bar */}
+        <div className="create-mission-box mt-2" style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.1) 0%, rgba(59,130,246,0.1) 100%)", border: "1px solid rgba(16,185,129,0.3)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
-              <label htmlFor="mission-type-select" className="font-bold">Loại Nhiệm vụ:</label>
-              <select
-                id="mission-type-select"
-                className="form-control"
-                value={missionType}
-                onChange={(e) => setMissionType(e.target.value as "DRONE_PICKUP" | "DRONE_DELIVERY")}
-              >
-                <option value="DRONE_PICKUP">DRONE_PICKUP (UAV Nhận hàng vào kho)</option>
-                <option value="DRONE_DELIVERY">DRONE_DELIVERY (Xuất kho lên UAV giao đi)</option>
-              </select>
+              <h4 style={{ margin: 0, fontSize: "1.1rem", color: "#10b981" }}>🚀 VẬN HÀNH HỆ THỐNG TỰ ĐỘNG (SYSTEM ORCHESTRATOR)</h4>
+              <p className="muted" style={{ margin: "0.27rem 0 0 0", fontSize: "0.85rem" }}>
+                Backend chịu trách nhiệm điều phối Mission Manager (UAV + PLC + Robot FSM) theo thứ tự FIFO.
+              </p>
             </div>
-
-            <div>
-              <label htmlFor="prod-id-input" className="font-bold">Mã Hàng hóa (Product ID):</label>
-              <input
-                id="prod-id-input"
-                type="text"
-                className="form-control"
-                value={productId}
-                onChange={(e) => setProductId(e.target.value)}
-                placeholder="PROD-1001"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="target-slot-select" className="font-bold">Ô kho chỉ định (Slot):</label>
-              <select
-                id="target-slot-select"
-                className="form-control"
-                value={targetSlot}
-                onChange={(e) => setTargetSlot(e.target.value)}
-              >
-                {["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"].map((s) => (
-                  <option key={s} value={s}>
-                    Ô {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="align-end">
-              <button
-                type="button"
-                className="btn btn-primary w-full"
-                onClick={handleStartMission}
-                disabled={loading || !!activeMission}
-              >
-                ▶️ KÍCH HOẠT CHUỖI FSM
-              </button>
-            </div>
+            <button
+              type="button"
+              className="btn btn-success"
+              style={{ padding: "0.75rem 1.75rem", fontSize: "1rem", fontWeight: 800, letterSpacing: "0.5px" }}
+              onClick={handleStartSystem}
+              disabled={loading || !!activeMission}
+            >
+              ⚡ START SYSTEM
+            </button>
           </div>
-
           {msg && <div className="panel-msg mt-1">{msg}</div>}
         </div>
       </div>

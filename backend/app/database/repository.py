@@ -402,3 +402,11 @@ class CustomerRepository:
         await self.session.refresh(record)
         return record
 
+    async def delete_delivery_request(self, request_id: int) -> bool:
+        record = await self.get_delivery_request(request_id)
+        if record is None:
+            return False
+        await self.session.delete(record)
+        await self.session.commit()
+        return True
+

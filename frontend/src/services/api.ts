@@ -145,6 +145,18 @@ export async function adminUpdateDeliveryStatus(
   });
 }
 
+export async function adminDeleteDeliveryRequest(id: number): Promise<Response> {
+  return fetch(`${API_BASE}/admin/delivery-requests/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function adminCompleteDeliveryRequest(id: number): Promise<Response> {
+  return fetch(`${API_BASE}/admin/delivery-requests/${id}/complete`, {
+    method: "POST",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Admin — Warehouse Config
 // ---------------------------------------------------------------------------
@@ -304,6 +316,13 @@ export async function overrideMissionQR(productId: string): Promise<Response> {
     body: JSON.stringify({ product_id: productId }),
   });
 }
+
+export async function startAutoBatchMissions(): Promise<Response> {
+  return fetch(`${API_BASE}/api/missions/auto-start`, {
+    method: "POST",
+  });
+}
+
 
 
 

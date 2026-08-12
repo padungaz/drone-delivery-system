@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import {
   adminGetDeliveryRequests,
   adminUpdateDeliveryStatus,
+  adminDeleteDeliveryRequest,
+  adminCompleteDeliveryRequest,
+  startAutoBatchMissions,
 } from "../services/api";
 import type { MissionLocations } from "../types/drone";
 
@@ -42,10 +45,11 @@ const DELIVERY_LABELS: Record<string, string> = {
   SEND_TO_WAREHOUSE: "📤 Gửi tới kho",
 };
 
-export function DeliveryRequestsPanel({ onLocationsSelected, homeLat, homeLon }: Props) {
+export function DeliveryRequestsPanel({ onLocationsSelected: _onLocationsSelected, homeLat: _homeLat, homeLon: _homeLon }: Props) {
   const [requests, setRequests] = useState<DeliveryRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<string>("");
+  const [sortBy, setSortBy] = useState<string>("NEWEST");
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [message, setMessage] = useState<{ id: number; text: string; ok: boolean } | null>(null);
 
@@ -110,26 +114,95 @@ export function DeliveryRequestsPanel({ onLocationsSelected, homeLat, homeLon }:
     }
   };
 
-  const handleSelectAndStart = async (req: DeliveryRequest) => {
-    if (!confirm(`Xác nhận nạp lộ trình của đơn hàng #${req.id} vào danh sách nhận/gửi để chuẩn bị bay?`)) return;
-    const locations: MissionLocations = {
-      home_lat: homeLat,
-      home_lon: homeLon,
-      pickup_lat: req.pickup_lat,
-      pickup_lon: req.pickup_lon,
-      drop_lat: req.drop_lat,
-      drop_lon: req.drop_lon,
-    };
-    if (onLocationsSelected) {
-      onLocationsSelected(locations);
+  const handleDelete = async (req: DeliveryRequest) => {
+    if (!confirm(`⚠️ Xác nhận XÓA vĩnh viễn Đơn hàng #${req.id} của ${req.customer_name}?`)) return;
+    setActionLoading(req.id);
+    setMessage(null);
+    try {
+      const res = await adminDeleteDeliveryRequest(req.id);
+      if (res.ok) {
+        setMessage({ id: req.id, text: "🗑️ Đã xóa đơn hàng thành công", ok: true });
+        fetchRequests();
+      } else {
+        setMessage({ id: req.id, text: "Không thể xóa đơn hàng", ok: false });
+      }
+    } catch {
+      setMessage({ id: req.id, text: "Lỗi kết nối", ok: false });
+    } finally {
+      setActionLoading(null);
     }
-    // Update status to FLYING
-    await adminUpdateDeliveryStatus(req.id, "FLYING");
-    await fetchRequests();
-    setMessage({ id: req.id, text: "🚁 Đã tải địa chỉ vào form mission", ok: true });
   };
 
-  const pendingCount = requests.filter((r) => r.status === "PENDING").length;
+  const handleComplete = async (req: DeliveryRequest) => {
+    if (!confirm(`🎉 Xác nhận MÔ PHỎNG HOÀN THÀNH Đơn hàng #${req.id}? (Hệ thống sẽ tự động chuyển đơn tiếp theo)`)) return;
+    setActionLoading(req.id);
+    setMessage(null);
+    try {
+      const res = await adminCompleteDeliveryRequest(req.id);
+      if (res.ok) {
+        const data = await res.json();
+        setMessage({ id: req.id, text: data.message || "🎉 Đã mô phỏng hoàn thành đơn hàng thành công!", ok: true });
+        fetchRequests();
+      } else {
+        setMessage({ id: req.id, text: "Lỗi hoàn thành đơn", ok: false });
+      }
+    } catch {
+      setMessage({ id: req.id, text: "Lỗi kết nối", ok: false });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSelectAndStart = async (req: DeliveryRequest) => {
+    if (!confirm(`🚀 Xác nhận kích hoạt thực thi Đơn hàng #${req.id}?`)) return;
+    setActionLoading(req.id);
+    setMessage(null);
+    try {
+      await adminUpdateDeliveryStatus(req.id, "APPROVED");
+      const res = await startAutoBatchMissions();
+      const data = await res.json();
+      setMessage({ id: req.id, text: data.message || "🚀 Đã kích hoạt đơn hàng thành công!", ok: data.started !== false });
+      fetchRequests();
+    } catch {
+      setMessage({ id: req.id, text: "Lỗi kết nối khi kích hoạt đơn", ok: false });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleStartAutoBatch = async () => {
+    if (!confirm("🚀 Xác nhận kích hoạt Chạy Tự Động Lần Lượt Toàn Bộ Hàng Chờ (Auto-Batch Execution)?")) return;
+    setLoading(true);
+    try {
+      const res = await startAutoBatchMissions();
+      const data = await res.json();
+      alert(data.message || "Đã kích hoạt tự động chạy hàng chờ!");
+      fetchRequests();
+    } catch {
+      alert("Lỗi kết nối khi kích hoạt tự động hàng chờ");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sortedRequests = [...requests].sort((a, b) => {
+    if (sortBy === "NEWEST") {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+    if (sortBy === "OLDEST") {
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    }
+    if (sortBy === "STATUS") {
+      const order = ["PENDING", "APPROVED", "FLYING", "DELIVERED", "FAILED", "REJECTED"];
+      return order.indexOf(a.status) - order.indexOf(b.status);
+    }
+    if (sortBy === "ID_ASC") {
+      return a.id - b.id;
+    }
+    return 0;
+  });
+
+  const pendingCount = requests.filter((r: DeliveryRequest) => r.status === "PENDING" || r.status === "APPROVED").length;
 
   return (
     <section className="panel delivery-requests-panel">
@@ -137,16 +210,36 @@ export function DeliveryRequestsPanel({ onLocationsSelected, homeLat, homeLon }:
         <h2>
           Đơn hàng
           {pendingCount > 0 && (
-            <span className="pending-badge">{pendingCount} chờ duyệt</span>
+            <span className="pending-badge">{pendingCount} chờ xử lý</span>
           )}
         </h2>
         <div className="panel-header-actions">
+          <button
+            type="button"
+            className="btn btn-success btn-sm"
+            onClick={handleStartAutoBatch}
+            disabled={loading}
+            title="Kích hoạt tự động chạy lần lượt 100% đơn hàng trong danh sách chờ"
+          >
+            ⚡ CHẠY TỰ ĐỘNG HÀNG CHỜ
+          </button>
+          <select
+            className="filter-select"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            title="Sắp xếp danh sách đơn hàng"
+          >
+            <option value="NEWEST">⏱️ Mới nhất</option>
+            <option value="OLDEST">⏳ Cũ nhất (FIFO)</option>
+            <option value="STATUS">📊 Trạng thái</option>
+            <option value="ID_ASC">🔢 Theo #ID</option>
+          </select>
           <select
             className="filter-select"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           >
-            <option value="">Tất cả</option>
+            <option value="">Tất cả Lọc</option>
             <option value="PENDING">Chờ duyệt</option>
             <option value="APPROVED">Đã duyệt</option>
             <option value="FLYING">Đang bay</option>
@@ -165,13 +258,13 @@ export function DeliveryRequestsPanel({ onLocationsSelected, homeLat, homeLon }:
         </div>
       </div>
 
-      {requests.length === 0 ? (
+      {sortedRequests.length === 0 ? (
         <p className="muted" style={{ textAlign: "center", padding: "2rem" }}>
           {loading ? "Đang tải..." : "Không có đơn hàng"}
         </p>
       ) : (
         <div className="delivery-list">
-          {requests.map((req) => (
+          {sortedRequests.map((req) => (
             <div key={req.id} className="delivery-card">
               <div className="delivery-card-header">
                 <div className="delivery-id-type">
@@ -250,9 +343,31 @@ export function DeliveryRequestsPanel({ onLocationsSelected, homeLat, homeLon }:
                     🚁 Chọn & START
                   </button>
                 )}
-                {req.status === "FLYING" && req.mission_id && (
-                  <span className="muted">Mission #{req.mission_id}</span>
+                {req.status !== "DELIVERED" && req.status !== "REJECTED" && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{ background: "#10b981", color: "#ffffff", border: "none", fontWeight: 700, padding: "0.3rem 0.75rem", borderRadius: "6px" }}
+                    disabled={actionLoading === req.id}
+                    onClick={() => handleComplete(req)}
+                    title="Mô phỏng hoàn thành đơn này và tự động chuyển sang đơn kế tiếp"
+                  >
+                    🎉 HOÀN THÀNH (MÔ PHỎNG)
+                  </button>
                 )}
+                {req.status === "FLYING" && req.mission_id && (
+                  <span className="muted" style={{ fontSize: "0.8rem" }}>Mission #{req.mission_id}</span>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" }}
+                  disabled={actionLoading === req.id}
+                  onClick={() => handleDelete(req)}
+                  title="Xóa đơn hàng này khỏi CSDL"
+                >
+                  🗑️ Xóa
+                </button>
               </div>
             </div>
           ))}

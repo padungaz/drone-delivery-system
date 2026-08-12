@@ -359,6 +359,39 @@ class QRScanPayload(BaseModel):
     time: datetime = Field(default_factory=datetime.utcnow)
 
 
+class StationProcessStep(BaseModel):
+    step: int
+    device: str
+    action: str
+    target_slot: Optional[str] = None
+    description: str = ""
+    status: str = "waiting"   # "waiting", "in_progress", "completed", "failed"
+
+
+class StationProcessStatus(BaseModel):
+    station_id: str = "STATION_WH_001"
+    status: str = "waiting"     # "pending", "in_progress", "completed", "failed"
+    current_step: str = "waiting"
+    steps: list[StationProcessStep] = Field(default_factory=list)
+
+
+class UAVMissionStep(BaseModel):
+    step: int
+    action: str
+    start_location: str = "HOME"
+    target_altitude: Optional[float] = None
+    target_location: Optional[dict] = None
+    description: str = ""
+    status: str = "waiting"   # "waiting", "in_progress", "completed", "failed"
+
+
+class UAVMissionStatus(BaseModel):
+    drone_id: str = "UAV01"
+    status: str = "waiting"     # "pending", "in_progress", "completed", "failed"
+    current_step: str = "waiting"
+    steps: list[UAVMissionStep] = Field(default_factory=list)
+
+
 class IntralogisticsMissionType(str, Enum):
     DRONE_PICKUP = "DRONE_PICKUP"
     DRONE_DELIVERY = "DRONE_DELIVERY"
@@ -380,7 +413,10 @@ class IntralogisticsMissionResponse(BaseModel):
     target_slot: Optional[str] = None
     state: str
     step_details: str
+    station_process: Optional[dict] = None
+    uav_mission: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
+
 
 

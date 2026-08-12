@@ -297,6 +297,18 @@ async def admin_update_delivery_status(
     """
     async with async_session() as session:
         repo = CustomerRepository(session)
+
+        # Safety Check: Prevent 2 orders from being FLYING at the same time
+        if status == DeliveryStatus.FLYING:
+            existing_flying = await repo.get_delivery_requests(status="FLYING")
+            flying_others = [r for r in existing_flying if r.id != request_id]
+            if flying_others:
+                other_id = flying_others[0].id
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"🛑 Đã có Đơn hàng #{other_id} đang ở trạng thái ĐANG BAY (FLYING)! Hệ thống chỉ cho phép 1 Drone bay tại 1 thời điểm."
+                )
+
         record = await repo.update_delivery_request_status(
             request_id=request_id,
             status=status.value,
@@ -308,6 +320,49 @@ async def admin_update_delivery_status(
         logger.info("Delivery #%d status → %s", request_id, status)
         await manager.broadcast_to_clients({"type": "delivery_requests_update", "payload": {}})
         return {"status": "updated", "id": request_id, "new_status": status}
+
+
+@customer_router.delete("/admin/delivery-requests/{request_id}")
+@customer_router.delete("/customer/delivery/{request_id}")
+async def delete_delivery_request(request_id: int):
+    """Delete a delivery request by ID."""
+    async with async_session() as session:
+        repo = CustomerRepository(session)
+        deleted = await repo.delete_delivery_request(request_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Delivery request not found")
+        logger.info("Deleted delivery request #%d", request_id)
+        await manager.broadcast_to_clients({"type": "delivery_requests_update", "payload": {}})
+        return {"status": "deleted", "id": request_id}
+
+
+@customer_router.post("/admin/delivery-requests/{request_id}/complete")
+async def admin_complete_delivery_request(request_id: int):
+    """Admin/Swagger: Force complete a delivery request (sets status to DELIVERED) and triggers auto-dispatch of next order."""
+    async with async_session() as session:
+        repo = CustomerRepository(session)
+        record = await repo.update_delivery_request_status(
+            request_id=request_id,
+            status="DELIVERED",
+            note="Đã hoàn thành thủ công từ Swagger UI / Admin API",
+        )
+        if not record:
+            raise HTTPException(status_code=404, detail="Delivery request not found")
+
+        await manager.broadcast_to_clients({"type": "delivery_requests_update", "payload": {}})
+        await system_ws_manager.broadcast("DELIVERY_UPDATE", {"id": request_id, "status": "DELIVERED"})
+
+        # Auto dispatch next order in queue
+        mgr = MissionManager(session)
+        next_mission = await mgr.auto_dispatch_next_mission()
+
+        return {
+            "status": "completed",
+            "id": request_id,
+            "message": f"✅ Đã chuyển Đơn hàng #{request_id} sang DELIVERED (Hoàn thành)!",
+            "next_mission_started": next_mission.id if next_mission else None,
+        }
+
 
 
 @customer_router.get("/admin/warehouse", response_model=WarehouseConfigResponse)

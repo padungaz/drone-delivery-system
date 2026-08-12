@@ -193,6 +193,9 @@ class MissionManager:
                 logger.error("STEP NAV_GPS rejected: invalid coordinates (lat=%.6f, lon=%.6f)", target_lat or 0.0, target_lon or 0.0)
                 return
 
+            self.locations.pickup_lat = target_lat
+            self.locations.pickup_lon = target_lon
+
             logger.info("STEP NAV_GPS to lat=%.6f, lon=%.6f, alt=%.1fm", target_lat, target_lon, alt)
             if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
                 self.mavlink.set_mode("LOITER")
@@ -550,11 +553,16 @@ class MissionManager:
                 return
 
             target_alt = getattr(self.mavlink, "_target_takeoff_alt", config.TAKEOFF_ALTITUDE_M)
-            if self.mavlink.telemetry.altitude_relative >= target_alt * 0.85:
+            cur_alt = (
+                self.mavlink.telemetry.altitude_agl
+                if self.mavlink.telemetry.rangefinder_valid and self.mavlink.telemetry.altitude_agl > 0.1
+                else self.mavlink.telemetry.altitude_relative
+            )
+            if cur_alt >= target_alt * 0.85:
                 logger.info(
-                    "TAKEOFF reached target altitude %.1fm (current=%.2fm) — switching PX4 mode to LOITER (Hold)",
+                    "TAKEOFF reached target altitude %.1fm (current=%.2fm) — switching PX4 mode to LOITER (Position Hold)",
                     target_alt,
-                    self.mavlink.telemetry.altitude_relative,
+                    cur_alt,
                 )
                 if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
                     self.mavlink.set_mode("LOITER")

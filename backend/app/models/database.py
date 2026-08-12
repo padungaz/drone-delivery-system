@@ -178,11 +178,14 @@ class IntralogisticsMissionRecord(Base):
     mission_type: Mapped[str] = mapped_column(String(32))  # "DRONE_PICKUP" or "DRONE_DELIVERY"
     drone_id: Mapped[str] = mapped_column(String(64), default="UAV01")
     product_id: Mapped[str] = mapped_column(String(64))
-    target_slot: Mapped[str] = mapped_column(String(16), nullable=True)
+    target_slot: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     state: Mapped[str] = mapped_column(String(64), default="STARTED")
     step_details: Mapped[str] = mapped_column(Text, default="")
+    station_process_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="")
+    uav_mission_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
 
 class SystemLogRecord(Base):

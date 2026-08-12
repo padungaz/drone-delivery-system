@@ -170,6 +170,39 @@ export interface StorageSlot {
   sender_address?: string | null;
 }
 
+export interface StationProcessStep {
+  step: number;
+  device: string;
+  action: string;
+  target_slot?: string | null;
+  description: string;
+  status: "waiting" | "in_progress" | "completed" | "failed";
+}
+
+export interface StationProcessStatus {
+  station_id: string;
+  status: "pending" | "in_progress" | "completed" | "failed";
+  current_step: string;
+  steps: StationProcessStep[];
+}
+
+export interface UAVMissionStep {
+  step: number;
+  action: string;
+  start_location?: string;
+  target_altitude?: number;
+  target_location?: { latitude: number; longitude: number; altitude: number };
+  description: string;
+  status: "waiting" | "in_progress" | "completed" | "failed";
+}
+
+export interface UAVMissionStatus {
+  drone_id: string;
+  status: "pending" | "in_progress" | "completed" | "failed";
+  current_step: string;
+  steps: UAVMissionStep[];
+}
+
 export interface IntralogisticsMission {
   id: number;
   mission_type: "DRONE_PICKUP" | "DRONE_DELIVERY";
@@ -178,6 +211,8 @@ export interface IntralogisticsMission {
   target_slot: string;
   state: string;
   step_details: string;
+  station_process?: StationProcessStatus | null;
+  uav_mission?: UAVMissionStatus | null;
   created_at: string;
   updated_at: string;
 }
@@ -190,4 +225,5 @@ export interface SystemBroadcastPayload {
   storage: StorageSlot[];
   active_mission: IntralogisticsMission | null;
 }
+
 
