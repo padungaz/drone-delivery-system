@@ -23,6 +23,38 @@ const FLIGHT_MODES = [
   { label: "🏠 Return (RTL)", value: "RTL", desc: "Bay quay về Trạm xuất phát và đáp" },
 ];
 
+function isModeActive(modeValue: string, flightMode?: string, droneState?: string): boolean {
+  const mode = (flightMode || "").toUpperCase();
+  const state = (droneState || "").toUpperCase();
+
+  switch (modeValue) {
+    case "LOITER":
+      return (
+        mode.includes("LOITER") ||
+        mode.includes("HOLD") ||
+        mode.includes("POSCTL") ||
+        mode.includes("MANUAL") ||
+        state === "IDLE" ||
+        state === "WAIT_PICKUP_CONFIRM" ||
+        state === "WAIT_DROP_CONFIRM"
+      );
+    case "TAKEOFF":
+      return mode.includes("TAKEOFF") || state === "TAKEOFF";
+    case "LAND":
+      return (
+        mode.includes("LAND") ||
+        mode.includes("PRECLAND") ||
+        state === "DESCEND_SEARCH" ||
+        state === "PRECISION_LANDING"
+      );
+    case "RTL":
+      return mode.includes("RTL") || state === "RETURN_HOME";
+    default:
+      return mode === modeValue || state === modeValue;
+  }
+}
+
+
 export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: Props) {
   const [armLoading, setArmLoading] = useState<string | null>(null);
   const [stepMsg, setStepMsg] = useState<string | null>(null);
@@ -366,16 +398,19 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
           <div className="modal-section">
             <h3 style={{ marginBottom: "0.5rem" }}>Chế độ bay Nhanh (PX4 Modes)</h3>
             <div className="modal-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px" }}>
-              {FLIGHT_MODES.map((mode) => (
-                <button
-                  key={mode.value}
-                  onClick={() => handleSetMode(mode.value)}
-                  className={`btn-mode ${droneStatus?.flight_mode === mode.value ? "active" : ""}`}
-                  title={mode.desc}
-                >
-                  {mode.label}
-                </button>
-              ))}
+              {FLIGHT_MODES.map((mode) => {
+                const active = isModeActive(mode.value, droneStatus?.flight_mode, droneStatus?.drone_state);
+                return (
+                  <button
+                    key={mode.value}
+                    onClick={() => handleSetMode(mode.value)}
+                    className={`btn-mode mode-${mode.value.toLowerCase()} ${active ? "active" : ""}`}
+                    title={mode.desc}
+                  >
+                    {mode.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

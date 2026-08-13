@@ -71,6 +71,12 @@ MAVLINK_TARGET_COMPONENT = 1
 
 MAVLINK_RECONNECT_DELAY_SEC = 5.0
 MAVLINK_HEARTBEAT_TIMEOUT = 30
+MAVLINK_STREAM_RATE_HZ = int(
+    os.getenv(
+        "MAVLINK_STREAM_RATE_HZ",
+        "10"
+    )
+)
 
 
 
@@ -236,10 +242,8 @@ WS_MAX_RECONNECT_ATTEMPTS = 0
 
 IS_PI = True
 
-IS_SIM = False
-
 IS_WINDOWS = (
     platform.system()
     ==
     "Windows"
-)
+)

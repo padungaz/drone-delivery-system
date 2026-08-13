@@ -101,6 +101,9 @@ class MavlinkController:
         self.connection_uri = config.MAVLINK_DEVICE
         self.use_baud = True
         self._send_lock = threading.Lock()
+        self._ack_lock = threading.Lock()
+        self._pending_acks: dict[int, threading.Event] = {}
+        self._ack_results: dict[int, int] = {}
 
         # OFFBOARD keepalive: PX4 requires continuous setpoint stream
         # to stay in OFFBOARD mode (COM_OF_LOSS_T timeout ~1-2 s).
@@ -164,19 +167,20 @@ class MavlinkController:
             return False
 
     def request_data_streams(self) -> None:
-        """Request PX4 to stream telemetry data at a regular rate (4Hz)."""
+        """Request PX4 to stream telemetry data at a regular rate."""
         if not self.connection:
             return
         try:
+            stream_rate = getattr(config, "MAVLINK_STREAM_RATE_HZ", 10)
             with self._send_lock:
                 self.connection.mav.request_data_stream_send(
                     self.connection.target_system,
                     self.connection.target_component,
                     mavutil.mavlink.MAV_DATA_STREAM_ALL,
-                    4,  # 4 Hz
+                    stream_rate,
                     1,  # start streaming
                 )
-            logger.info("[INFO] Requested MAVLink data streams (4Hz)")
+            logger.info("[INFO] Requested MAVLink data streams (%dHz)", stream_rate)
         except Exception as exc:
             logger.warning("[WARNING] Failed to request data streams: %s", exc)
 
@@ -325,6 +329,16 @@ class MavlinkController:
                 text = text.decode("utf-8", errors="ignore")
             logger.warning("[PX4 STATUSTEXT] %s", text)
 
+        # ---- Command ACK ----
+        elif msg_type == "COMMAND_ACK":
+            cmd = getattr(msg, "command", None)
+            result = getattr(msg, "result", None)
+            if cmd is not None and result is not None:
+                with self._ack_lock:
+                    self._ack_results[cmd] = result
+                    if cmd in self._pending_acks:
+                        self._pending_acks[cmd].set()
+
     # ===================================================================
     # Command control
     # ===================================================================
@@ -395,25 +409,32 @@ class MavlinkController:
             )
 
     def wait_command_ack(self, command_id: int, timeout: float = 3.0) -> bool:
-        """Wait for COMMAND_ACK from PX4. Returns True if ACCEPTED."""
-        start = time.time()
-        while time.time() - start < timeout:
-            msg = self.connection.recv_match(blocking=True, timeout=0.5)
-            if msg is None:
-                continue
-            # Process all received messages to capture STATUSTEXT and update telemetry
-            self._process_message(msg)
-            if msg.get_type() == "COMMAND_ACK" and getattr(msg, "command", None) == command_id:
-                if msg.result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
-                    return True
-                else:
-                    logger.warning(
-                        "COMMAND_ACK rejected: cmd=%d result=%d",
-                        command_id, msg.result,
-                    )
-                    return False
-        logger.warning("COMMAND_ACK timeout for cmd=%d", command_id)
-        return False
+        """Wait for COMMAND_ACK from PX4 asynchronously without blocking message poll loop."""
+        ack_event = threading.Event()
+        with self._ack_lock:
+            self._pending_acks[command_id] = ack_event
+            self._ack_results.pop(command_id, None)
+
+        try:
+            signaled = ack_event.wait(timeout=timeout)
+            if not signaled:
+                logger.warning("COMMAND_ACK timeout for cmd=%d", command_id)
+                return False
+
+            with self._ack_lock:
+                result = self._ack_results.get(command_id)
+
+            if result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
+                return True
+            else:
+                logger.warning(
+                    "COMMAND_ACK rejected: cmd=%d result=%s",
+                    command_id, result,
+                )
+                return False
+        finally:
+            with self._ack_lock:
+                self._pending_acks.pop(command_id, None)
 
     def set_mode(self, mode: str, retries: int = 3, force_send: bool = False) -> bool:
         """Set PX4 flight mode with ACK verification and retry."""
@@ -596,64 +617,9 @@ class MavlinkController:
     # Flight commands
     # ===================================================================
 
-    def force_reset_ekf2_altitude(self) -> bool:
-        """Lệnh cưỡng chế PX4 reset mốc AltRel về 0.0m theo MTF-02P/EKF2.
-        Gửi MAV_CMD_DO_SET_HOME (179) với param1=1 để PX4 cập nhật vị trí & độ cao Home về vị trí hiện tại.
-        Đồng thời gửi MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS (242) param7=1.
-        """
-        if not self.is_connected or self.connection is None:
-            logger.warning("Không thể reset EKF2 altitude: MAVLink chưa kết nối")
-            return False
-
-        with self._send_lock:
-            logger.info(
-                "Resetting EKF2 height offset to 0.0m (AltRel=%.2fm)...",
-                self.telemetry.altitude_relative,
-            )
-            # 1. PX4 Command: MAV_CMD_DO_SET_HOME (179) param1=1 -> Ép PX4 lấy độ cao hiện tại làm Home => AltRel = 0.0m
-            self.connection.mav.command_long_send(
-                self.connection.target_system,
-                self.connection.target_component,
-                mavutil.mavlink.MAV_CMD_DO_SET_HOME,
-                0,
-                1,  # param1 = 1: use current location as home
-                0, 0, 0, 0, 0, 0,
-            )
-            # 2. Command 242 (ArduPilot / EKF offset fallback)
-            self.connection.mav.command_long_send(
-                self.connection.target_system,
-                self.connection.target_component,
-                mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
-                0,
-                0, 0, 0, 0, 0, 0,
-                1,  # Param 7 = 1: Force reset EKF2 height offset
-            )
-        time.sleep(0.8)  # Allow PX4 EKF2 filter 0.8s to re-initialize after offset reset
-        logger.info("✓ Đã ép Reset AltRel về 0.0m (DO_SET_HOME + SENSOR_OFFSETS sent)")
-        return True
-
     def arm(self, force: bool = False) -> bool:
         if not self._can_send("arm"):
             return False
-
-        # Allow POSCTL, STABILIZED, LOITER, HOLD modes before arming
-        if self.telemetry.flight_mode not in ("POSCTL", "STABILIZED", "LOITER", "HOLD", "AUTO.LOITER", "AUTO.HOLD", "MANUAL"):
-            logger.info(
-                "PX4 is in mode %s while DISARMED — switching to POSCTL before arming",
-                self.telemetry.flight_mode,
-            )
-            self.set_mode("POSCTL", force_send=True)
-            # Wait for heartbeat telemetry to confirm flight_mode updated
-            t0 = time.time()
-            while time.time() - t0 < 1.5:
-                self.poll_messages()
-                if self.telemetry.flight_mode in ("POSCTL", "STABILIZED", "LOITER", "HOLD", "AUTO.LOITER", "AUTO.HOLD", "MANUAL"):
-                    logger.info("Mode successfully updated to %s before arming", self.telemetry.flight_mode)
-                    break
-                time.sleep(0.05)
-
-        # Cưỡng chế Reset AltRel về 0.0m trước khi ARM
-        self.force_reset_ekf2_altitude()
 
         with self._send_lock:
             self.connection.mav.command_long_send(
@@ -693,16 +659,6 @@ class MavlinkController:
         if not self._can_send("takeoff"):
             return False
         self._target_takeoff_alt = altitude_m
-
-        # Nếu drone vẫn ở dưới đất (AGL < 0.4m), tự động reset EKF2 altitude offset trước khi cất cánh
-        cur_alt = (
-            self.telemetry.altitude_agl
-            if self.telemetry.rangefinder_valid and self.telemetry.altitude_agl > 0.1
-            else self.telemetry.altitude_relative
-        )
-        if cur_alt < 0.4:
-            self.force_reset_ekf2_altitude()
-
         logger.info("Initiating TAKEOFF to %.1fm via PX4 AUTO.TAKEOFF mode...", altitude_m)
 
         # Switch flight mode to TAKEOFF mode (PX4 automatically initiates climb to altitude)
@@ -710,23 +666,28 @@ class MavlinkController:
         return ok
 
     def goto_location(self, lat: float, lon: float, alt_m: float) -> bool:
-        if not self._can_send("goto"):
+        if not self._can_send("goto") or not self.connection:
             return False
+        lat_int = int(lat * 1e7)
+        lon_int = int(lon * 1e7)
+        # Position X, Y, Z target only (mask out velocity, accel, yaw)
+        type_mask = 0b110111111000
+
         with self._send_lock:
-            self.connection.mav.command_long_send(
+            self.connection.mav.set_position_target_global_int_send(
+                0,  # time_boot_ms
                 self.connection.target_system,
                 self.connection.target_component,
-                mavutil.mavlink.MAV_CMD_DO_REPOSITION,
-                0,
-                -1.0,                             # param1: ground speed (-1 = default)
-                0.0,                              # param2: flags
-                0.0,                              # param3: reserved
-                float("nan"),                     # param4: yaw angle (NaN = no change)
-                lat,                              # param5: latitude (deg)
-                lon,                              # param6: longitude (deg)
-                alt_m,                            # param7: altitude relative (m)
+                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                type_mask,
+                lat_int,
+                lon_int,
+                float(alt_m),
+                0, 0, 0,  # vx, vy, vz
+                0, 0, 0,  # afx, afy, afz
+                0, 0,     # yaw, yaw_rate
             )
-        logger.info("GOTO (DO_REPOSITION): lat=%.7f lon=%.7f alt=%.1f m", lat, lon, alt_m)
+        logger.info("GOTO (GLOBAL_RELATIVE_ALT): lat=%.7f lon=%.7f alt=%.1f m", lat, lon, alt_m)
         return True
 
     def land(self) -> bool:

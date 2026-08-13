@@ -953,25 +953,71 @@ input {
 }
 
 .btn-mode {
-  background: var(--bg);
-  color: var(--muted);
-  border: 1px solid var(--border);
-  padding: 0.5rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 500;
+  background: rgba(15, 23, 42, 0.85);
+  color: var(--text-subheading);
+  border: 1px solid var(--border-subtle);
+  padding: 0.65rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
+
 .btn-mode:hover {
-  background: rgba(59,130,246,0.15);
+  background: rgba(0, 240, 255, 0.12);
   color: var(--accent);
   border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.25);
 }
+
 .btn-mode.active {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+  box-shadow: 0 0 14px rgba(0, 240, 255, 0.5);
+  font-weight: 700;
+}
+
+/* Active Highlight Glow per PX4 Mode */
+.btn-mode.active.mode-loiter {
+  background: linear-gradient(135deg, rgba(255, 184, 0, 0.35) 0%, rgba(255, 140, 0, 0.2) 100%) !important;
+  color: #FFE082 !important;
+  border-color: #FFB800 !important;
+  box-shadow: 0 0 18px rgba(255, 184, 0, 0.6), inset 0 0 10px rgba(255, 184, 0, 0.3) !important;
+  font-weight: 700 !important;
+  text-shadow: 0 0 8px rgba(255, 184, 0, 0.8) !important;
+}
+
+.btn-mode.active.mode-takeoff {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.35) 0%, rgba(0, 150, 255, 0.2) 100%) !important;
+  color: #80D8FF !important;
+  border-color: #00F0FF !important;
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.6), inset 0 0 10px rgba(0, 240, 255, 0.3) !important;
+  font-weight: 700 !important;
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.8) !important;
+}
+
+.btn-mode.active.mode-land {
+  background: linear-gradient(135deg, rgba(0, 230, 118, 0.35) 0%, rgba(0, 200, 83, 0.2) 100%) !important;
+  color: #B9F6CA !important;
+  border-color: #00E676 !important;
+  box-shadow: 0 0 18px rgba(0, 230, 118, 0.6), inset 0 0 10px rgba(0, 230, 118, 0.3) !important;
+  font-weight: 700 !important;
+  text-shadow: 0 0 8px rgba(0, 230, 118, 0.8) !important;
+}
+
+.btn-mode.active.mode-rtl {
+  background: linear-gradient(135deg, rgba(255, 112, 67, 0.35) 0%, rgba(244, 67, 54, 0.2) 100%) !important;
+  color: #FFAB91 !important;
+  border-color: #FF7043 !important;
+  box-shadow: 0 0 18px rgba(255, 112, 67, 0.6), inset 0 0 10px rgba(255, 112, 67, 0.3) !important;
+  font-weight: 700 !important;
+  text-shadow: 0 0 8px rgba(255, 112, 67, 0.8) !important;
 }
 
 .movement-box {

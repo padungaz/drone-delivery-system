@@ -558,14 +558,16 @@ class MissionManager:
                 if self.mavlink.telemetry.rangefinder_valid and self.mavlink.telemetry.altitude_agl > 0.1
                 else self.mavlink.telemetry.altitude_relative
             )
-            if cur_alt >= target_alt:
+            current_mode = self.mavlink.telemetry.flight_mode
+
+            # Passive observation: Transition when PX4 naturally switches to LOITER/HOLD or altitude threshold is met
+            if current_mode in ("AUTO.LOITER", "HOLD", "AUTO.HOLD", "LOITER") or cur_alt >= target_alt:
                 logger.info(
-                    "TAKEOFF reached target altitude %.1fm (current=%.2fm) — switching PX4 mode to LOITER (Position Hold)",
-                    target_alt,
+                    "✓ PX4 completed TAKEOFF! Mode=%s, Altitude=%.2fm (target=%.1fm)",
+                    current_mode,
                     cur_alt,
+                    target_alt,
                 )
-                if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
-                    self.mavlink.set_mode("LOITER")
 
                 if self._mission_active:
                     if self._landing_phase == "pickup":
@@ -575,8 +577,9 @@ class MissionManager:
                     elif self._landing_phase == "rtl":
                         self.state_machine.transition_to(DroneState.RETURN_HOME)
                 else:
-                    logger.info("Manual TAKEOFF complete — holding position in LOITER (1.5m), waiting for next command")
+                    logger.info("Manual TAKEOFF complete — holding position, waiting for next command")
                     self.state_machine.transition_to(DroneState.IDLE)
+
 
         # ── FLY_TO_PICKUP ──────────────────────────────────────────────────
         elif state == DroneState.FLY_TO_PICKUP:
