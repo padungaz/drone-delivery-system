@@ -94,6 +94,11 @@ class MavlinkController:
         self._offboard_keepalive_running = False
         self._offboard_keepalive_thread: Optional[threading.Thread] = None
 
+        # OFFBOARD takeoff state
+        self._offboard_takeoff_active = False
+        self._offboard_takeoff_target_alt = 1.5
+        self._offboard_takeoff_complete = False
+
     # ===================================================================
     # Connection
     # ===================================================================
@@ -518,6 +523,26 @@ class MavlinkController:
                 0, 0,
             )
 
+    def _send_offboard_takeoff_setpoint(self, target_alt_m: float) -> None:
+        """Send Offboard setpoint: climb to target_alt_m (NED: z = -alt)."""
+        if not self.is_connected or self.connection is None:
+            return
+
+        # Typemask: enable position only (x, y, z)
+        # Bits: ignore vx,vy,vz,ax,ay,az,yaw,yaw_rate → 0b0000_1111_1111_1000
+        with self._send_lock:
+            self.connection.mav.set_position_target_local_ned_send(
+                0,
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                0b0000_1111_1111_1000,
+                0.0, 0.0, -target_alt_m,   # x=0, y=0, z=-alt (NED: up is negative)
+                0, 0, 0,
+                0, 0, 0,
+                0, 0,
+            )
+
     def _start_offboard_keepalive(self) -> None:
         self._keepalive_start_time = time.time()
         if self._offboard_keepalive_running:
@@ -544,7 +569,41 @@ class MavlinkController:
 
         while self._offboard_keepalive_running and self.is_connected:
             try:
-                self._send_offboard_position_hold()
+                # ── OFFBOARD Takeoff mode: stream climb setpoint + monitor AGL ──
+                if self._offboard_takeoff_active:
+                    target_alt = self._offboard_takeoff_target_alt
+                    self._send_offboard_takeoff_setpoint(target_alt)
+
+                    # Read current AGL from MTF-02P rangefinder (primary)
+                    # Fallback to EKF2 altitude_relative if rangefinder unavailable
+                    if self.telemetry.rangefinder_valid and self.telemetry.altitude_agl > 0.05:
+                        cur_agl = self.telemetry.altitude_agl
+                        alt_source = "MTF-02P"
+                    else:
+                        cur_agl = self.telemetry.altitude_relative
+                        alt_source = "EKF2"
+
+                    threshold = target_alt * 0.97  # 97% of target (e.g. 1.45m for 1.5m)
+
+                    if cur_agl >= threshold:
+                        logger.info(
+                            "OFFBOARD takeoff: AGL reached %.2fm (threshold=%.2fm, source=%s) "
+                            "— stopping keepalive and switching to LOITER",
+                            cur_agl, threshold, alt_source,
+                        )
+                        self._offboard_takeoff_active = False
+                        self._offboard_takeoff_complete = True
+                        # Stop keepalive BEFORE switching mode to avoid race
+                        self._offboard_keepalive_running = False
+                        # Switch to LOITER for stable hover
+                        self._send_set_mode_command(
+                            *self._resolve_mode_id("LOITER")
+                        )
+                        break
+                else:
+                    # ── Normal OFFBOARD hold mode ──
+                    self._send_offboard_position_hold()
+
                 elapsed = time.time() - getattr(self, "_keepalive_start_time", time.time())
                 if elapsed >= STARTUP_GRACE_SEC:
                     if self.telemetry.flight_mode not in ("OFFBOARD", "LOITER", "HOLD", "UNKNOWN"):
@@ -604,13 +663,47 @@ class MavlinkController:
         logger.info("DISARM command sent (force=%s)", force)
         return True
 
-    def takeoff(self, altitude_m: float = 1.5) -> bool:
-        """Kích hoạt cất cánh tự động qua PX4 AUTO.TAKEOFF mode."""
+    def takeoff_offboard(self, altitude_m: float = 1.5) -> bool:
+        """
+        OFFBOARD takeoff: stream position setpoint Z=-altitude_m to PX4.
+
+        Sequence:
+          1. Start keepalive thread streaming Z=-altitude_m setpoints
+          2. Switch to OFFBOARD mode
+          3. Keepalive thread monitors MTF-02P AGL (fallback: EKF2)
+          4. When AGL >= 97% target → stop keepalive → switch to LOITER
+          5. Set _offboard_takeoff_complete = True for FSM transition
+        """
         if not self._can_send("takeoff"):
             return False
-        logger.info("Initiating TAKEOFF to %.1fm via PX4 AUTO.TAKEOFF mode...", altitude_m)
-        ok = self.set_mode("TAKEOFF", force_send=True)
-        return ok
+        if not self.is_connected:
+            logger.error("takeoff_offboard: not connected")
+            return False
+
+        logger.info(
+            "Initiating OFFBOARD takeoff to %.1fm (setpoint Z=%.1fm NED)...",
+            altitude_m, -altitude_m,
+        )
+
+        # Reset takeoff state
+        self._offboard_takeoff_target_alt = altitude_m
+        self._offboard_takeoff_active = True
+        self._offboard_takeoff_complete = False
+
+        # Enter OFFBOARD mode (starts keepalive thread internally)
+        ok = self.set_mode_offboard()
+        if not ok:
+            logger.error("Failed to enter OFFBOARD mode for takeoff")
+            self._offboard_takeoff_active = False
+            return False
+
+        logger.info("OFFBOARD takeoff streaming active — monitoring AGL for %.2fm threshold",
+                    altitude_m * 0.97)
+        return True
+
+    def takeoff(self, altitude_m: float = 1.5) -> bool:
+        """Cất cánh qua OFFBOARD mode (thay thế AUTO.TAKEOFF)."""
+        return self.takeoff_offboard(altitude_m)
 
     def goto_location(self, lat: float, lon: float, alt_m: float = 1.5) -> bool:
         """

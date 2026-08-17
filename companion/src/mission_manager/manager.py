@@ -413,20 +413,18 @@ class MissionManager:
         self._goto_sent = False
 
         if state == DroneState.ARMING:
-            # Method A: ARM only — no OFFBOARD here.
+            # ARM only — no OFFBOARD here.
             # Sequence: ARM → wait armed=True → transition to TAKEOFF
-            # TAKEOFF is handled by PX4's native TAKEOFF mode.
-            # OFFBOARD is only engaged later for GPS navigation.
+            # TAKEOFF is handled by OFFBOARD mode (stream Z setpoint).
             self._arm_sent = False
             self.mavlink.arm()
             self._arm_sent = True
 
         elif state == DroneState.TAKEOFF:
-            # Method A: Use PX4 native TAKEOFF mode.
-            # PX4 handles motor ramp-up, attitude control, and climb.
-            # No OFFBOARD setpoints during takeoff — avoids mode conflict.
+            # OFFBOARD takeoff: stream position setpoint Z=-alt.
+            # Keepalive thread monitors MTF-02P AGL and auto-switches to LOITER.
             target_alt = getattr(self.mavlink, "_target_takeoff_alt", config.TAKEOFF_ALTITUDE_M)
-            self.mavlink.takeoff(target_alt)
+            self.mavlink.takeoff_offboard(target_alt)
 
         elif state == DroneState.FLY_TO_PICKUP:
             # Transition from PX4 TAKEOFF → LOITER mode + DO_REPOSITION command
@@ -549,6 +547,7 @@ class MissionManager:
         elif state == DroneState.TAKEOFF:
             if elapsed > TAKEOFF_TIMEOUT_SEC:
                 logger.error("TAKEOFF timeout — transitioning to ERROR")
+                self.mavlink._stop_offboard_keepalive()
                 self.state_machine.transition_to(DroneState.ERROR)
                 return
 
@@ -560,14 +559,22 @@ class MissionManager:
             )
             current_mode = self.mavlink.telemetry.flight_mode
 
-            # Passive observation: Transition when PX4 naturally switches to LOITER/HOLD or altitude threshold is met
-            if current_mode in ("AUTO.LOITER", "HOLD", "AUTO.HOLD", "LOITER") or cur_alt >= target_alt:
+            # OFFBOARD takeoff complete: keepalive thread set the flag and switched to LOITER
+            takeoff_done = (
+                self.mavlink._offboard_takeoff_complete
+                or current_mode in ("AUTO.LOITER", "HOLD", "AUTO.HOLD", "LOITER")
+                or cur_alt >= target_alt
+            )
+
+            if takeoff_done:
                 logger.info(
-                    "✓ PX4 completed TAKEOFF! Mode=%s, Altitude=%.2fm (target=%.1fm)",
+                    "✓ OFFBOARD takeoff complete! Mode=%s, Altitude=%.2fm (target=%.1fm)",
                     current_mode,
                     cur_alt,
                     target_alt,
                 )
+                # Reset flag for next takeoff cycle
+                self.mavlink._offboard_takeoff_complete = False
 
                 if self._mission_active:
                     if self._landing_phase == "pickup":
