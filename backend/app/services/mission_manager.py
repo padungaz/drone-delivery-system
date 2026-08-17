@@ -12,6 +12,8 @@ from app.services.robot_manager import RobotManager
 from app.services.inventory_manager import InventoryManager
 from app.services.station_service import StationService
 from app.services.mission_queue_manager import MissionQueueManager
+from app.services.fleet_manager import fleet_manager
+from app.services.system_mode_manager import system_mode_manager
 from app.websocket.manager import system_ws_manager
 
 logger = logging.getLogger(__name__)
@@ -97,10 +99,17 @@ class MissionManager:
         status_init = "RUNNING" if should_run_now else "WAITING"
         phase_init = "STATION_PROCESSING" if should_run_now else "WAITING"
 
+        # Determine/assign available UAV from Fleet
+        assigned_uav_id = drone_id
+        if not assigned_uav_id or assigned_uav_id in ("UAV01", "drone-01"):
+            ready_uavs = [u for u in fleet_manager.fleet.values() if u.state == "READY"]
+            if ready_uavs:
+                assigned_uav_id = ready_uavs[0].drone_id
+
         mission = IntralogisticsMissionRecord(
             order_id=order_id,
             mission_type="DRONE_PICKUP",
-            drone_id=drone_id,
+            drone_id=assigned_uav_id,
             product_id=product_id,
             target_slot=target_slot,
             status=status_init,
@@ -114,7 +123,11 @@ class MissionManager:
         await self.session.commit()
         await self.session.refresh(mission)
 
-        await self.log_event("SERVER", f"Created DRONE_PICKUP mission #{mission.id} for product {product_id} (Status: {status_init})")
+        # Notify fleet assignment
+        fleet_manager.assign_available_uav(mission.id, "DRONE_PICKUP")
+        await fleet_manager.broadcast_fleet_state()
+
+        await self.log_event("SERVER", f"Created DRONE_PICKUP mission #{mission.id} for product {product_id} with {assigned_uav_id} (Status: {status_init})")
         
         q_mgr = MissionQueueManager(self.session)
         await q_mgr.broadcast_queue_state()
@@ -140,10 +153,17 @@ class MissionManager:
         status_init = "RUNNING" if should_run_now else "WAITING"
         phase_init = "STATION_PROCESSING" if should_run_now else "WAITING"
 
+        # Determine/assign available UAV from Fleet
+        assigned_uav_id = drone_id
+        if not assigned_uav_id or assigned_uav_id in ("UAV01", "drone-01"):
+            ready_uavs = [u for u in fleet_manager.fleet.values() if u.state == "READY"]
+            if ready_uavs:
+                assigned_uav_id = ready_uavs[0].drone_id
+
         mission = IntralogisticsMissionRecord(
             order_id=order_id,
             mission_type="DRONE_DELIVERY",
-            drone_id=drone_id,
+            drone_id=assigned_uav_id,
             product_id=product_id,
             target_slot=target_slot,
             status=status_init,
@@ -157,7 +177,11 @@ class MissionManager:
         await self.session.commit()
         await self.session.refresh(mission)
 
-        await self.log_event("SERVER", f"Created DRONE_DELIVERY mission #{mission.id} for product {product_id} (Status: {status_init})")
+        # Notify fleet assignment
+        fleet_manager.assign_available_uav(mission.id, "DRONE_DELIVERY")
+        await fleet_manager.broadcast_fleet_state()
+
+        await self.log_event("SERVER", f"Created DRONE_DELIVERY mission #{mission.id} for product {product_id} with {assigned_uav_id} (Status: {status_init})")
 
         q_mgr = MissionQueueManager(self.session)
         await q_mgr.broadcast_queue_state()
@@ -204,10 +228,14 @@ class MissionManager:
             mission.step_details = f"⚙️ Station Controller đang thực thi 11 bước xuất hàng từ ô kho {target_slot}..."
             await self.session.commit()
             await self._notify_mission_progress(mission)
+            await fleet_manager.signal_drone_loading(mission.drone_id)
 
             success = await self.station_svc.execute_load_product(target_slot, mission.product_id, self.session)
             if not success:
                 raise Exception(f"Station Controller LOAD_PRODUCT operation failed for slot {target_slot}")
+
+            # Station loading complete -> Drone is loaded with cargo and ready to depart
+            await fleet_manager.signal_station_loaded(mission.drone_id)
 
             # Phase 2: DRONE_EN_ROUTE (UAV Flight Navigation)
             mission.current_phase = "DRONE_EN_ROUTE"
@@ -251,8 +279,8 @@ class MissionManager:
 
             await asyncio.sleep(1.0)
 
-            # Signal PLC sensor
-            self.plc_mgr.set_drone_detected(True)
+            # Signal PLC sensor & Fleet Arrival
+            await fleet_manager.signal_drone_arrived(mission.drone_id)
 
             # Phase 2: STATION_PROCESSING
             free_slot_rec = await self.inventory_mgr.find_available_slot()
@@ -265,10 +293,14 @@ class MissionManager:
             mission.step_details = f"⚙️ Station Controller đang thực thi 11 bước nhập hàng vào ô kho {target_slot}..."
             await self.session.commit()
             await self._notify_mission_progress(mission)
+            await fleet_manager.signal_drone_loading(mission.drone_id)
 
             success = await self.station_svc.execute_unload_product(target_slot, mission.product_id, self.session)
             if not success:
                 raise Exception(f"Station Controller UNLOAD_PRODUCT operation failed for slot {target_slot}")
+
+            # Station unloaded -> Drone is ready to return home
+            await fleet_manager.signal_station_unloaded(mission.drone_id)
 
             # Phase 3: COMPLETED
             mission.current_phase = "COMPLETED"
@@ -317,6 +349,10 @@ class MissionManager:
     async def auto_dispatch_next_mission(self) -> Optional[IntralogisticsMissionRecord]:
         """FIFO Auto-Queue Dispatcher: Triggers next WAITING mission in queue."""
         try:
+            if system_mode_manager.is_manual():
+                logger.info("[Auto-Dispatcher] System is in MANUAL mode. Skipping auto-dispatch.")
+                return None
+
             q_mgr = MissionQueueManager(self.session)
             active = await q_mgr.get_active_mission()
             if active:

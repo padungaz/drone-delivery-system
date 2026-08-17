@@ -174,7 +174,7 @@ class QRScannerService:
             # 2. Broadcast to Drone/Client WS (/ws/client)
             all_slots = await inv_mgr.get_all_slots()
             slots_payload = [
-                StorageSlotResponse.model_validate(s).model_dump(mode="json")
+                StorageSlotResponse.model_validate(s, from_attributes=True).model_dump(mode="json")
                 for s in all_slots
             ]
             await drone_ws_manager.broadcast_to_clients({

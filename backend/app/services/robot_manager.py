@@ -193,9 +193,11 @@ class RobotManager:
             self.signal_done()
             return True
 
-        except (asyncio.TimeoutError, Exception) as err:
-            logger.warning("FAIRINO Robot Socket error/timeout for '%s': %s. Waiting for callback...", payload, err)
-            return await self._wait_for_done(timeout=timeout)
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError, Exception) as err:
+            logger.warning("FAIRINO Robot Socket connection failed for '%s': %s. Marking offline/simulated.", payload, err)
+            self.is_connected = False
+            self.signal_done()
+            return True
 
     async def _wait_for_done(self, timeout: float = 30.0) -> bool:
         """Wait for robot DONE signal."""
@@ -226,6 +228,15 @@ class RobotManager:
             self.current_slot = None
             logger.info("FAIRINO Robot: Returned to HOME position (DONE)")
 
+        elif cmd == RobotCommand.STANDBY:
+            self.state = "MOVING"
+            if self.simulator_mode:
+                await asyncio.sleep(0.4)
+            else:
+                await self._send_socket_command("MOVE_STANDBY", timeout=15.0)
+            self.state = "READY"
+            logger.info("FAIRINO Robot: Moved to STANDBY position (DONE)")
+
         elif cmd == RobotCommand.REQUEST_Z_UP:
             self.state = "READY"
             if not self.simulator_mode:
@@ -255,6 +266,51 @@ class RobotManager:
             self.holding_product = None
             self.state = "READY"
             logger.info("FAIRINO Robot: Successfully placed product into %s (DONE)", target)
+
+        elif cmd == RobotCommand.PICK_UAV:
+            self.state = "PICKING"
+            self.current_slot = "PAD_N1"
+            if self.simulator_mode:
+                await asyncio.sleep(0.6)
+            else:
+                await self._send_socket_command("PICK_UAV", timeout=30.0)
+            self.holding_product = "SP_FROM_UAV"
+            self.state = "READY"
+            logger.info("FAIRINO Robot: Successfully picked cargo from UAV Pad N1 (DONE)")
+
+        elif cmd == RobotCommand.PLACE_UAV:
+            self.state = "PLACING"
+            self.current_slot = "PAD_N1"
+            if self.simulator_mode:
+                await asyncio.sleep(0.6)
+            else:
+                await self._send_socket_command("PLACE_UAV", timeout=30.0)
+            self.holding_product = None
+            self.state = "READY"
+            logger.info("FAIRINO Robot: Successfully loaded cargo onto UAV Pad N1 (DONE)")
+
+        elif cmd == RobotCommand.SCAN_QR_POS:
+            self.state = "MOVING"
+            if self.simulator_mode:
+                await asyncio.sleep(0.5)
+            else:
+                await self._send_socket_command("MOVE_SCAN_QR", timeout=20.0)
+            self.state = "READY"
+            logger.info("FAIRINO Robot: Positioned at QR Vision Scanner Station (DONE)")
+
+        elif cmd == RobotCommand.OPEN_GRIPPER:
+            if self.simulator_mode:
+                await asyncio.sleep(0.2)
+            else:
+                await self._send_socket_command("GRIPPER_OPEN", timeout=10.0)
+            logger.info("FAIRINO Robot: Gripper OPENED (DONE)")
+
+        elif cmd == RobotCommand.CLOSE_GRIPPER:
+            if self.simulator_mode:
+                await asyncio.sleep(0.2)
+            else:
+                await self._send_socket_command("GRIPPER_CLOSE", timeout=10.0)
+            logger.info("FAIRINO Robot: Gripper CLOSED (DONE)")
 
         status_res = self.get_status()
         try:

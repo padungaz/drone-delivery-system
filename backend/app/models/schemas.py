@@ -385,12 +385,18 @@ class PLCStatusResponse(BaseModel):
 
 class RobotCommand(str, Enum):
     MOVE_HOME = "MOVE_HOME"
+    STANDBY = "STANDBY"
     PICK_PRODUCT = "PICK_PRODUCT"
     PLACE_PRODUCT = "PLACE_PRODUCT"
-    REQUEST_Z_UP = "REQUEST_Z_UP"
-    REQUEST_Z_DOWN = "REQUEST_Z_DOWN"
     PICK = "PICK"
     STORE = "STORE"
+    PICK_UAV = "PICK_UAV"
+    PLACE_UAV = "PLACE_UAV"
+    SCAN_QR_POS = "SCAN_QR_POS"
+    OPEN_GRIPPER = "OPEN_GRIPPER"
+    CLOSE_GRIPPER = "CLOSE_GRIPPER"
+    REQUEST_Z_UP = "REQUEST_Z_UP"
+    REQUEST_Z_DOWN = "REQUEST_Z_DOWN"
 
 
 class RobotCommandRequest(BaseModel):

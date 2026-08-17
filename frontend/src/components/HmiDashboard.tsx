@@ -6,7 +6,6 @@ import { SidebarNavigation, type NavTab } from "./layout/SidebarNavigation";
 import { RobotStatusCard } from "./robot/RobotStatusCard";
 import { RobotDigitalTwin } from "./robot/RobotDigitalTwin";
 import { JointControlPanel } from "./robot/JointControlPanel";
-import { JogController } from "./robot/JogController";
 import { WarehouseGrid, type SlotData } from "./warehouse/WarehouseGrid";
 import { TaskMonitor } from "./task/TaskMonitor";
 import { MissionQueuePanel } from "./task/MissionQueuePanel";
@@ -25,6 +24,9 @@ import {
   sendRobotCommand,
   sendPlcCommand,
   getDeviceLogs,
+  getSystemMode,
+  setSystemMode,
+  getMissionQueue,
 } from "../services/api";
 import type { MissionLocations } from "../types/drone";
 
@@ -60,6 +62,80 @@ export function HmiDashboard() {
 
   // Drone Mission Locations state
   const [locations, setLocations] = useState<MissionLocations>(DEFAULT_LOCATIONS);
+
+  // System Global Mode: "AUTO" (Full automation) vs "MANUAL" (Manual override / maintenance)
+  const [systemMode, setSystemModeState] = useState<"AUTO" | "MANUAL">("AUTO");
+
+  // Mission Queue State for next waiting orders
+  const [waitingQueue, setWaitingQueue] = useState<any[]>([]);
+
+  const fetchMissionQueue = async () => {
+    try {
+      const res = await getMissionQueue();
+      if (res.ok) {
+        const data = await res.json();
+        setWaitingQueue(data.waiting_queue || []);
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
+  const fetchSystemMode = async () => {
+    try {
+      const res = await getSystemMode();
+      if (res.ok) {
+        const data = await res.json();
+        if (data.mode) setSystemModeState(data.mode);
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleSystemModeToggle = async (newMode: "AUTO" | "MANUAL") => {
+    try {
+      const res = await setSystemMode(newMode);
+      if (res.ok) {
+        setSystemModeState(newMode);
+        addLog("INFO", `Chế độ hệ thống đã chuyển sang: ${newMode}`);
+      }
+    } catch {
+      addLog("ERROR", "Không thể thay đổi chế độ hệ thống");
+    }
+  };
+
+  useEffect(() => {
+    fetchSystemMode();
+    fetchMissionQueue();
+
+    const interval = setInterval(() => {
+      fetchMissionQueue();
+    }, 3000);
+
+    const handleModeUpdate = (e: any) => {
+      if (e.detail?.mode) {
+        setSystemModeState(e.detail.mode);
+      }
+    };
+
+    const handleQueueUpdate = () => fetchMissionQueue();
+
+    window.addEventListener("system_mode_update", handleModeUpdate);
+    window.addEventListener("mission_queue_update", handleQueueUpdate);
+    window.addEventListener("mission_started", handleQueueUpdate);
+    window.addEventListener("mission_completed", handleQueueUpdate);
+    window.addEventListener("mission_progress", handleQueueUpdate);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("system_mode_update", handleModeUpdate);
+      window.removeEventListener("mission_queue_update", handleQueueUpdate);
+      window.removeEventListener("mission_started", handleQueueUpdate);
+      window.removeEventListener("mission_completed", handleQueueUpdate);
+      window.removeEventListener("mission_progress", handleQueueUpdate);
+    };
+  }, []);
 
   // Device logs state
   const [logs, setLogs] = useState<LogItem[]>([]);
@@ -158,23 +234,29 @@ export function HmiDashboard() {
     if (cmd === "PICK" || cmd === "STORE") {
       setModalData({
         title: "XÁC NHẬN THAO TÁC",
-        actionText: `${cmd} từ/vào ô kho ${slot}?`,
+        actionText: `${cmd === "PICK" ? "Gắp hàng từ" : "Thả hàng vào"} ô kho ${slot}?`,
         productId: `PRD-100${slot}`,
         cmd,
         slot,
       });
       setActiveModal("confirm_action");
     } else {
-      addLog("INFO", `Gửi lệnh phần cứng: ${cmd}`);
+      addLog("INFO", `Gửi lệnh Robot: ${cmd}`);
       try {
         if (cmd === "HOME") {
           await sendRobotCommand("HOME");
-        } else if (cmd === "PLACE_PAD") {
-          await sendRobotCommand("PLACE", "DOCK");
+        } else if (cmd === "STANDBY") {
+          await sendRobotCommand("STANDBY");
+        } else if (cmd === "SCAN_QR_POS") {
+          await sendRobotCommand("SCAN_QR_POS");
+        } else if (cmd === "PICK_UAV") {
+          await sendRobotCommand("PICK_UAV");
+        } else if (cmd === "PLACE_UAV" || cmd === "PLACE_PAD") {
+          await sendRobotCommand("PLACE_UAV");
         } else if (cmd === "OPEN_GRIPPER") {
-          await sendRobotCommand("GRIPPER_OPEN");
+          await sendRobotCommand("OPEN_GRIPPER");
         } else if (cmd === "CLOSE_GRIPPER") {
-          await sendRobotCommand("GRIPPER_CLOSE");
+          await sendRobotCommand("CLOSE_GRIPPER");
         }
       } catch (err) {
         addLog("ERROR", `Lỗi thực thi lệnh ${cmd}: ${err}`);
@@ -206,6 +288,8 @@ export function HmiDashboard() {
         plcOnline={isPlcOnline}
         robotOnline={isRobotOnline}
         cameraOnline={cameraActive}
+        systemMode={systemMode}
+        onModeToggle={handleSystemModeToggle}
         onEStopClick={handleEStopClick}
       />
 
@@ -258,34 +342,22 @@ export function HmiDashboard() {
               <div className="hmi-grid-row row-3-cols">
                 <WarehouseGrid slots={mappedSlots} onSlotClick={handleSlotClick} />
                 <TaskMonitor
-                  taskId={activeMission ? `#MISSION-${activeMission.id}` : "#TASK-READY"}
-                  taskName={
-                    activeMission
-                      ? `${activeMission.mission_type} (${activeMission.target_slot})`
-                      : "NO ACTIVE MISSION"
-                  }
-                  progressPercent={
-                    activeMission?.status === "COMPLETED"
-                      ? 100
-                      : stationOp
-                      ? 50
-                      : 0
-                  }
+                  activeMission={activeMission}
+                  stationOpStep={stationOp?.current_action}
+                  stationOpDetails={stationOp?.message}
+                  waitingQueue={waitingQueue}
                 />
                 <div className="controls-combined-col">
-                  <QuickControlPanel onCommand={handleQuickCommand} />
-                  <div style={{ marginTop: "1rem" }}>
-                    <JogController
-                      onJogCommand={async (axis, step) => {
-                        addLog("INFO", `Jogging ${axis} step=${step}mm`);
-                        try {
-                          await sendRobotCommand("JOG", axis);
-                        } catch {
-                          // Ignore
-                        }
-                      }}
-                    />
-                  </div>
+                  <QuickControlPanel
+                    onCommand={handleQuickCommand}
+                    systemMode={systemMode}
+                    connected={isRobotOnline}
+                    robotState={robot?.status || (isRobotOnline ? "IDLE (AUTO)" : "OFFLINE")}
+                    holdingProduct={robot?.holding_product}
+                    currentSlot={robot?.current_slot || (activeMission ? `Ô ${activeMission.target_slot}` : "STANDBY")}
+                    servoOk={isRobotOnline}
+                    brakeOk={isRobotOnline}
+                  />
                 </div>
               </div>
 
@@ -297,11 +369,13 @@ export function HmiDashboard() {
                   lockClamp={plc?.plc_locked_state ?? true}
                   zLiftUp={plc?.plc_z_is_up ?? true}
                   eStopOk={!(plc?.emergency_stop ?? false)}
+                  systemMode={systemMode}
                 />
                 <CameraVision
                   cameraActive={cameraActive}
                   productId={stationOp?.product_id || activeMission?.product_id || "PRD-TEST-1001"}
                   status={cameraActive ? "DETECTED" : "DETECTED"}
+                  systemMode={systemMode}
                 />
                 <SystemLog initialLogs={logs} />
               </div>

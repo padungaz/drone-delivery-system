@@ -14,6 +14,7 @@ from app.api.mission import mission_router
 from app.api.plc import plc_router
 from app.api.robot import robot_router
 from app.api.station import station_router
+from app.api.fleet import fleet_router
 from app.api.routes import router
 from app.config import settings
 from app.database.repository import async_session, init_db
@@ -23,6 +24,7 @@ from app.services.device_manager import DeviceManager
 from app.services.inventory_manager import InventoryManager
 from app.services.plc_manager import PLCManager
 from app.services.robot_manager import RobotManager
+from app.services.fleet_manager import fleet_manager
 from app.websocket.manager import system_ws_manager
 from app.websocket.handler import manager as drone_ws_manager
 
@@ -81,6 +83,7 @@ async def heartbeat_monitor_task():
                 await system_ws_manager.broadcast("PLC_STATUS", plc_mgr.get_status().model_dump())
                 await system_ws_manager.broadcast("ROBOT_STATUS", robot_mgr.get_status().model_dump())
                 await system_ws_manager.broadcast("CAMERA_STATUS", cam_info)
+                await fleet_manager.broadcast_fleet_state()
 
                 timed_out = await mgr.check_device_timeouts()
                 for dev_name in timed_out:
@@ -146,6 +149,7 @@ app.include_router(robot_router)
 app.include_router(station_router)
 app.include_router(inventory_router)
 app.include_router(mission_router)
+app.include_router(fleet_router)
 
 
 @app.websocket("/ws/system")

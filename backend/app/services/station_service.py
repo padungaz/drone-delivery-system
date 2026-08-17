@@ -110,6 +110,8 @@ class StationService:
         try:
             # 1. Drone Detect
             await self._broadcast_status("1. DRONE_DETECT", "Checking Drone landing at Dock N1...")
+            if not self.plc_mgr.drone_detected and self.plc_mgr.simulator_mode:
+                self.plc_mgr.set_drone_detected(True)
             await self.plc_mgr.wait_for_status("drone_detected", True, timeout_sec=15.0)
 
             # 2. Lock Drone

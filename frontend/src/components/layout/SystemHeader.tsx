@@ -6,6 +6,8 @@ interface Props {
   plcOnline?: boolean;
   robotOnline?: boolean;
   cameraOnline?: boolean;
+  systemMode?: "AUTO" | "MANUAL";
+  onModeToggle?: (mode: "AUTO" | "MANUAL") => void;
   onEStopClick: () => void;
 }
 
@@ -15,6 +17,8 @@ export function SystemHeader({
   plcOnline = true,
   robotOnline = true,
   cameraOnline = true,
+  systemMode = "AUTO",
+  onModeToggle,
   onEStopClick,
 }: Props) {
   const [timeStr, setTimeStr] = useState("");
@@ -30,6 +34,13 @@ export function SystemHeader({
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleToggleMode = () => {
+    const targetMode = systemMode === "AUTO" ? "MANUAL" : "AUTO";
+    if (onModeToggle) {
+      onModeToggle(targetMode);
+    }
+  };
 
   return (
     <header className="hmi-header">
@@ -74,6 +85,26 @@ export function SystemHeader({
       </div>
 
       <div className="hmi-header-right">
+        {/* System Global AUTO / MANUAL Mode Switch */}
+        <div className="system-mode-switch-box">
+          <button
+            type="button"
+            className={`btn-system-mode-toggle ${systemMode === "AUTO" ? "mode-auto" : "mode-manual"}`}
+            onClick={handleToggleMode}
+            title={
+              systemMode === "AUTO"
+                ? "Đang ở chế độ AUTO: Hệ thống tự động thực thi đơn hàng. Bấm để chuyển MANUAL"
+                : "Đang ở chế độ MANUAL: Đơn hàng bị khóa, cho phép thử nghiệm độc lập từng thiết bị. Bấm để chuyển AUTO"
+            }
+          >
+            <span className="mode-icon">{systemMode === "AUTO" ? "⚡" : "🛠️"}</span>
+            <div className="mode-text-group">
+              <span className="mode-label">CHẾ ĐỘ HỆ THỐNG</span>
+              <strong className="mode-value">{systemMode === "AUTO" ? "🤖 AUTO (TỰ ĐỘNG)" : "🎮 MANUAL (THỦ CÔNG)"}</strong>
+            </div>
+          </button>
+        </div>
+
         <div className="hmi-clock-box">
           <span className="hmi-time">{timeStr || "21:17:46"}</span>
           <span className="hmi-date">{dateStr || "16/08/2026"}</span>

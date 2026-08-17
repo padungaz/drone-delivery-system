@@ -2,7 +2,7 @@
 MAVLink controller — Raspberry Pi 5 ↔ Pixhawk 6C (PX4).
 
 Connection: /dev/ttyAMA0 (GPIO UART) hoặc /dev/ttyUSB0 (USB-Serial)
-Baudrate:   57600 hoặc 921600 (cấu hình trong .env)
+Baudrate:   57600 hoặc 921600 (cấu hình trong .env / config.py)
 """
 
 import logging
@@ -24,13 +24,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 COMMAND_COOLDOWN = {
-    "arm":    2.0,
+    "arm":     2.0,
     "takeoff": 3.0,
-    "goto":   2.0,
-    "land":   3.0,
-    "rtl":    2.0,
-    "mode":   1.0,
-    "disarm": 2.0,
+    "goto":    1.0,
+    "land":    3.0,
+    "rtl":     2.0,
+    "mode":    1.0,
+    "disarm":  2.0,
 }
 
 
@@ -43,7 +43,7 @@ class TelemetryData:
     latitude:  float = 0.0
     longitude: float = 0.0
 
-    # PX4 HOME-relative altitude (GLOBAL_POSITION_INT.relative_alt)
+    # Độ cao tương đối mốc cất cánh chuẩn EKF2 (LOCAL_POSITION_NED / ALTITUDE)
     altitude_relative: float = 0.0
 
     # MTF-02P rangefinder AGL (DISTANCE_SENSOR.current_distance)
@@ -74,23 +74,6 @@ class TelemetryData:
 class MavlinkController:
     """
     MAVLink interface for PX4 on Pixhawk 6C via UART.
-
-    Reads telemetry from:
-      - GLOBAL_POSITION_INT  (GPS position + relative altitude)
-      - DISTANCE_SENSOR      (MTF-02P rangefinder AGL)
-      - VFR_HUD              (groundspeed, heading)
-      - SYS_STATUS           (battery)
-      - ATTITUDE             (roll, pitch, yaw)
-      - GPS_RAW_INT          (satellite count, fix type)
-      - HEARTBEAT            (flight mode, armed state)
-
-    Sends commands:
-      - arm / disarm
-      - set_mode / set_mode_offboard
-      - takeoff
-      - goto_location
-      - land / rtl
-      - send_landing_target  (ArUco precision landing)
     """
 
     def __init__(self):
@@ -101,12 +84,13 @@ class MavlinkController:
         self.connection_uri = config.MAVLINK_DEVICE
         self.use_baud = True
         self._send_lock = threading.Lock()
+        
+        # Async COMMAND_ACK tracking
         self._ack_lock = threading.Lock()
         self._pending_acks: dict[int, threading.Event] = {}
         self._ack_results: dict[int, int] = {}
 
-        # OFFBOARD keepalive: PX4 requires continuous setpoint stream
-        # to stay in OFFBOARD mode (COM_OF_LOSS_T timeout ~1-2 s).
+        # OFFBOARD keepalive
         self._offboard_keepalive_running = False
         self._offboard_keepalive_thread: Optional[threading.Thread] = None
 
@@ -143,7 +127,7 @@ class MavlinkController:
                 msg = self.connection.wait_heartbeat(blocking=True, timeout=1.0)
                 if msg is not None:
                     src_sys = msg.get_srcSystem()
-                    if src_sys != 0 and src_sys != 255:
+                    if src_sys not in (0, 255):
                         self.connection.target_system = src_sys
                         self.connection.target_component = msg.get_srcComponent()
                         break
@@ -167,7 +151,7 @@ class MavlinkController:
             return False
 
     def request_data_streams(self) -> None:
-        """Request PX4 to stream telemetry data at a regular rate."""
+        """Request PX4 to stream telemetry data at regular rate (10Hz)."""
         if not self.connection:
             return
         try:
@@ -193,9 +177,7 @@ class MavlinkController:
                 self.connection.mav.heartbeat_send(
                     mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,
                     mavutil.mavlink.MAV_AUTOPILOT_INVALID,
-                    0,
-                    0,
-                    0,
+                    0, 0, 0,
                 )
         except Exception as exc:
             logger.warning("[WARNING] Failed to send companion heartbeat: %s", exc)
@@ -236,17 +218,25 @@ class MavlinkController:
         msg_type = msg.get_type()
         self.telemetry.last_update = time.time()
 
-        # ---- GPS position ----
+        # ---- GPS position (Chỉ lấy Lat, Lon; không lấy relative_alt của GPS) ----
         if msg_type == "GLOBAL_POSITION_INT":
-            self.telemetry.latitude          = msg.lat / 1e7
-            self.telemetry.longitude         = msg.lon / 1e7
-            self.telemetry.altitude_relative = msg.relative_alt / 1000.0
+            self.telemetry.latitude  = msg.lat / 1e7
+            self.telemetry.longitude = msg.lon / 1e7
+
+        # ---- Tọa độ EKF2 Cục bộ (Trục Z NED: -z là độ cao thực tế mốc cất cánh) ----
+        elif msg_type == "LOCAL_POSITION_NED":
+            self.telemetry.altitude_relative = -msg.z
+
+        # ---- Độ cao PX4 EKF2 Tổng hợp ----
+        elif msg_type == "ALTITUDE":
+            if not math.isnan(msg.altitude_relative):
+                self.telemetry.altitude_relative = msg.altitude_relative
 
         # ---- MTF-02P rangefinder AGL ----
         elif msg_type == "DISTANCE_SENSOR":
             distance_cm = msg.current_distance
             if distance_cm > 0:
-                self.telemetry.altitude_agl     = distance_cm / 100.0
+                self.telemetry.altitude_agl      = distance_cm / 100.0
                 self.telemetry.rangefinder_valid = True
                 logger.debug("MTF-02P AGL %.2f m", self.telemetry.altitude_agl)
 
@@ -276,7 +266,6 @@ class MavlinkController:
 
         # ---- Flight mode + armed state ----
         elif msg_type == "HEARTBEAT":
-            # Only process HEARTBEAT from the actual PX4 Autopilot (ignore GCS sysid 255 / companion heartbeats)
             if self.connection and msg.get_srcSystem() != self.connection.target_system:
                 return
             if msg.get_srcComponent() not in (1, mavutil.mavlink.MAV_COMP_ID_AUTOPILOT1):
@@ -286,7 +275,6 @@ class MavlinkController:
                 msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED
             )
 
-            # PX4 custom mode decoding (uint32 bitmask: bits 16-23 = main mode, bits 24-31 = sub mode)
             main_mode = (msg.custom_mode >> 16) & 0xFF
             sub_mode = (msg.custom_mode >> 24) & 0xFF
 
@@ -322,14 +310,14 @@ class MavlinkController:
 
             self.telemetry.flight_mode = mode_str
 
-        # ---- PX4 Status Text & Pre-arm Warnings ----
+        # ---- PX4 Status Text & Warnings ----
         elif msg_type == "STATUSTEXT":
             text = msg.text
             if isinstance(text, bytes):
                 text = text.decode("utf-8", errors="ignore")
             logger.warning("[PX4 STATUSTEXT] %s", text)
 
-        # ---- Command ACK ----
+        # ---- Command ACK (Xử lý bất đồng bộ không nghẽn luồng) ----
         elif msg_type == "COMMAND_ACK":
             cmd = getattr(msg, "command", None)
             result = getattr(msg, "result", None)
@@ -381,7 +369,6 @@ class MavlinkController:
         if upper_mode in px4_modes:
             return px4_modes[upper_mode]
 
-        # Fallback to connection mode mapping if not in explicit dictionary
         mapping = self.connection.mode_mapping() if self.connection else {}
         mode_id = mapping.get(mode) or mapping.get(upper_mode.replace("AUTO.", ""))
         if mode_id is None:
@@ -401,15 +388,15 @@ class MavlinkController:
                 self.connection.target_system,
                 self.connection.target_component,
                 mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-                0,  # confirmation
-                mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,  # param1
-                custom_mode,      # param2: custom mode
-                custom_sub_mode,  # param3: custom sub_mode
+                0,
+                mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                custom_mode,
+                custom_sub_mode,
                 0.0, 0.0, 0.0, 0.0,
             )
 
     def wait_command_ack(self, command_id: int, timeout: float = 3.0) -> bool:
-        """Wait for COMMAND_ACK from PX4 asynchronously without blocking message poll loop."""
+        """Wait for COMMAND_ACK from PX4 asynchronously."""
         ack_event = threading.Event()
         with self._ack_lock:
             self._pending_acks[command_id] = ack_event
@@ -427,17 +414,14 @@ class MavlinkController:
             if result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
                 return True
             else:
-                logger.warning(
-                    "COMMAND_ACK rejected: cmd=%d result=%s",
-                    command_id, result,
-                )
+                logger.warning("COMMAND_ACK rejected: cmd=%d result=%s", command_id, result)
                 return False
         finally:
             with self._ack_lock:
                 self._pending_acks.pop(command_id, None)
 
     def set_mode(self, mode: str, retries: int = 3, force_send: bool = False) -> bool:
-        """Set PX4 flight mode with ACK verification and retry."""
+        """Set PX4 flight mode with ACK verification."""
         if not force_send and not self._can_send("mode"):
             return False
         if force_send:
@@ -448,7 +432,6 @@ class MavlinkController:
                 logger.error("Unknown flight mode: %s", mode)
                 return False
 
-            # Switching away from OFFBOARD → stop keepalive
             self._stop_offboard_keepalive()
 
             for attempt in range(1, retries + 1):
@@ -458,9 +441,7 @@ class MavlinkController:
                     mode, custom_mode, custom_sub_mode, attempt, retries,
                 )
 
-                if self.wait_command_ack(
-                    mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.0,
-                ):
+                if self.wait_command_ack(mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.0):
                     logger.info("Mode %s confirmed by PX4", mode)
                     return True
 
@@ -475,18 +456,11 @@ class MavlinkController:
             return False
 
     # ===================================================================
-    # OFFBOARD control & keepalive (Đã tối ưu dứt điểm Race Condition)
+    # OFFBOARD control & keepalive
     # ===================================================================
 
     def set_mode_offboard(self, retries: int = 3) -> bool:
-        """
-        Switch to OFFBOARD mode for PX4 safely without stream disconnection.
-
-        This method:
-          1. Starts the background keepalive thread IMMEDIATELY at 20 Hz
-          2. Waits 2.0 seconds while the thread streams velocity setpoints
-          3. Sends MAV_CMD_DO_SET_MODE and verifies ACK (stream never drops!)
-        """
+        """Switch to OFFBOARD mode safely with streaming setpoints."""
         if not self.is_connected:
             logger.error("set_mode_offboard: not connected")
             return False
@@ -501,25 +475,15 @@ class MavlinkController:
                 logger.info("PX4 is already in OFFBOARD mode with keepalive running")
                 return True
 
-            # ── Phase 1: Bật luồng Keepalive thread phát setpoint 20Hz NGAY TỪ ĐẦU ──
             logger.info("OFFBOARD: Starting continuous setpoint keepalive thread...")
             self._start_offboard_keepalive()
-
-            # ── Phase 2: Đợi 0.5s cho luồng setpoint đi vào quỹ đạo mượt mà ──
-            logger.info("OFFBOARD: Streaming setpoints for 0.5s before switching mode...")
             time.sleep(0.5)
 
-            # ── Phase 3: Bắn lệnh chuyển mode (Setpoint vẫn đang chảy liên tục 20Hz) ──
             for attempt in range(1, retries + 1):
                 self._send_set_mode_command(custom_mode, custom_sub_mode)
-                logger.info(
-                    "OFFBOARD mode command sent [attempt %d/%d]",
-                    attempt, retries,
-                )
+                logger.info("OFFBOARD mode command sent [attempt %d/%d]", attempt, retries)
 
-                if self.wait_command_ack(
-                    mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.0,
-                ):
+                if self.wait_command_ack(mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.0):
                     logger.info("OFFBOARD mode confirmed by PX4 ✓")
                     return True
 
@@ -537,34 +501,27 @@ class MavlinkController:
             return False
 
     def _send_offboard_position_hold(self) -> None:
-        """Send Offboard setpoint: velocity 0 m/s to hold current position.
-
-        Method A: Takeoff is handled by PX4 TAKEOFF mode.
-        OFFBOARD keepalive only needs to send position-hold setpoints
-        to keep PX4 in OFFBOARD mode during GPS navigation phases.
-        """
+        """Send Offboard setpoint: velocity 0 m/s to hold current position."""
         if not self.is_connected or self.connection is None:
             return
 
-        # Velocity-hold setpoint: vx=0, vy=0, vz=0 (hold position)
         with self._send_lock:
             self.connection.mav.set_position_target_local_ned_send(
                 0,
                 self.connection.target_system,
                 self.connection.target_component,
                 mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-                0b0000_1111_1100_0111,  # Use Velocity X=0, Y=0, Z=0 only
+                0b0000_1111_1100_0111,
                 0, 0, 0,
-                0.0, 0.0, 0.0,          # Velocity: 0 m/s (hold)
+                0.0, 0.0, 0.0,
                 0, 0, 0,
                 0, 0,
             )
 
     def _start_offboard_keepalive(self) -> None:
-        """Start background thread that streams setpoints at 20Hz to keep OFFBOARD alive."""
         self._keepalive_start_time = time.time()
         if self._offboard_keepalive_running:
-            return  # Thread is already running, grace period timer refreshed
+            return
 
         self._offboard_keepalive_running = True
         self._offboard_keepalive_thread = threading.Thread(
@@ -574,7 +531,6 @@ class MavlinkController:
         logger.info("OFFBOARD keepalive thread started")
 
     def _stop_offboard_keepalive(self) -> None:
-        """Stop the OFFBOARD keepalive thread."""
         if self._offboard_keepalive_running:
             self._offboard_keepalive_running = False
             if self._offboard_keepalive_thread and self._offboard_keepalive_thread.is_alive():
@@ -583,32 +539,25 @@ class MavlinkController:
             logger.info("OFFBOARD keepalive thread stopped")
 
     def _offboard_keepalive_loop(self) -> None:
-        """
-        Background loop: send position-hold setpoints at 20 Hz (0.05s).
-        """
-        STARTUP_GRACE_SEC = 5.0   # Bỏ qua kiểm tra flight_mode trong 5s đầu khi vừa bật
+        STARTUP_GRACE_SEC = 5.0
         logger.info("OFFBOARD keepalive loop running (grace period %.1f s)", STARTUP_GRACE_SEC)
 
         while self._offboard_keepalive_running and self.is_connected:
             try:
-                # 1. Luôn bắn gói tin setpoint ngay đầu vòng lặp
                 self._send_offboard_position_hold()
-
-                # 2. Sau thời gian Grace period mới kiểm tra xem PX4 có bị ai đổi sang mode khác không
                 elapsed = time.time() - getattr(self, "_keepalive_start_time", time.time())
                 if elapsed >= STARTUP_GRACE_SEC:
                     if self.telemetry.flight_mode not in ("OFFBOARD", "LOITER", "HOLD", "UNKNOWN"):
                         logger.info(
-                            "OFFBOARD keepalive: PX4 mode is %s (not OFFBOARD), stopping thread",
+                            "OFFBOARD keepalive: PX4 mode is %s, stopping thread",
                             self.telemetry.flight_mode,
                         )
                         break
-
             except Exception as exc:
                 logger.error("OFFBOARD keepalive error: %s", exc)
                 break
 
-            time.sleep(0.05)  # 20 Hz chuẩn PX4 Offboard
+            time.sleep(0.05)  # 20 Hz
 
         self._offboard_keepalive_running = False
         logger.info("OFFBOARD keepalive loop exited")
@@ -627,8 +576,8 @@ class MavlinkController:
                 self.connection.target_component,
                 mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
                 0,
-                1,                            # param1=1 → ARM
-                21196 if force else 0,         # param2=21196 → force arm
+                1,
+                21196 if force else 0,
                 0, 0, 0, 0, 0,
             )
         logger.info("ARM command sent (force=%s)", force)
@@ -636,7 +585,7 @@ class MavlinkController:
         if ack:
             logger.info("ARM command ACCEPTED by PX4 ✓")
         else:
-            logger.warning("ARM command REJECTED/TIMEOUT by PX4 ❌ — check PX4 STATUSTEXT log for Prearm check failure reason")
+            logger.warning("ARM command REJECTED/TIMEOUT by PX4 ❌")
         return ack
 
     def disarm(self, force: bool = False) -> bool:
@@ -648,46 +597,49 @@ class MavlinkController:
                 self.connection.target_component,
                 mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
                 0,
-                0,                        # param1=0 → DISARM
-                21196 if force else 0,     # param2=21196 → force disarm
+                0,
+                21196 if force else 0,
                 0, 0, 0, 0, 0,
             )
         logger.info("DISARM command sent (force=%s)", force)
         return True
 
-    def takeoff(self, altitude_m: float = 2.0) -> bool:
+    def takeoff(self, altitude_m: float = 1.5) -> bool:
+        """Kích hoạt cất cánh tự động qua PX4 AUTO.TAKEOFF mode."""
         if not self._can_send("takeoff"):
             return False
-        self._target_takeoff_alt = altitude_m
         logger.info("Initiating TAKEOFF to %.1fm via PX4 AUTO.TAKEOFF mode...", altitude_m)
-
-        # Switch flight mode to TAKEOFF mode (PX4 automatically initiates climb to altitude)
         ok = self.set_mode("TAKEOFF", force_send=True)
         return ok
 
-    def goto_location(self, lat: float, lon: float, alt_m: float) -> bool:
+    def goto_location(self, lat: float, lon: float, alt_m: float = 1.5) -> bool:
+        """
+        Bay vị trí GPS ở mode LOITER/HOLD chuẩn xác bằng MAV_CMD_DO_REPOSITION.
+        """
         if not self._can_send("goto") or not self.connection:
             return False
-        lat_int = int(lat * 1e7)
-        lon_int = int(lon * 1e7)
-        # Position X, Y, Z target only (mask out velocity, accel, yaw)
-        type_mask = 0b110111111000
+
+        # Đảm bảo drone đang ở LOITER để nhận lệnh DO_REPOSITION
+        if self.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER", "AUTO.HOLD"):
+            logger.info("Chuyển mode sang LOITER trước khi gửi lệnh DO_REPOSITION...")
+            self.set_mode("LOITER", force_send=True)
+            time.sleep(0.2)
 
         with self._send_lock:
-            self.connection.mav.set_position_target_global_int_send(
-                0,  # time_boot_ms
+            self.connection.mav.command_long_send(
                 self.connection.target_system,
                 self.connection.target_component,
-                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
-                type_mask,
-                lat_int,
-                lon_int,
-                float(alt_m),
-                0, 0, 0,  # vx, vy, vz
-                0, 0, 0,  # afx, afy, afz
-                0, 0,     # yaw, yaw_rate
+                mavutil.mavlink.MAV_CMD_DO_REPOSITION,
+                0,
+                -1.0,                             # param1: ground speed (-1 = mặc định PX4)
+                mavutil.mavlink.MAV_DO_REPOSITION_FLAGS_CHANGE_MODE,  # param2: cờ đổi sang LOITER reposition
+                0.0,                              # param3: reserved
+                float("nan"),                     # param4: yaw angle (NaN = giữ nguyên hướng hiện tại)
+                float(lat),                       # param5: latitude (deg)
+                float(lon),                       # param6: longitude (deg)
+                float(alt_m),                     # param7: altitude relative to home (m)
             )
-        logger.info("GOTO (GLOBAL_RELATIVE_ALT): lat=%.7f lon=%.7f alt=%.1f m", lat, lon, alt_m)
+        logger.info("GOTO (DO_REPOSITION): lat=%.7f lon=%.7f alt=%.1f m", lat, lon, alt_m)
         return True
 
     def land(self) -> bool:
@@ -751,17 +703,21 @@ class MavlinkController:
         )
         return 6371000 * 2 * math.asin(math.sqrt(a))
 
-    def is_at_location(self, lat: float, lon: float, radius_m: float) -> bool:
+    def is_at_location(self, lat: float, lon: float, radius_m: float = 1.0) -> bool:
         return self.distance_to(lat, lon) <= radius_m
 
     def is_landed(self) -> bool:
-        if self.telemetry.armed:
-            return False
+        """Kiểm tra drone đã tiếp đất an toàn chưa (tránh deadlock armed state)."""
+        # Nếu tốc độ di chuyển còn lớn -> Chưa tiếp đất
         if self.telemetry.ground_speed > 0.3:
             return False
+
+        # Ưu tiên kiểm tra độ cao Laser MTF-02P
         if self.telemetry.rangefinder_valid:
-            return self.telemetry.altitude_agl < 0.35
-        return abs(self.telemetry.altitude_relative) < 0.5
+            return self.telemetry.altitude_agl < 0.28
+
+        # Fallback theo EKF2 Relative Altitude
+        return abs(self.telemetry.altitude_relative) < 0.3
 
     def move_relative(self, dx: float, dy: float, dz: float) -> bool:
         """
@@ -773,7 +729,7 @@ class MavlinkController:
 
         with self._send_lock:
             self.connection.mav.set_position_target_local_ned_send(
-                0, # time_boot_ms
+                0,
                 self.connection.target_system,
                 self.connection.target_component,
                 mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
@@ -781,7 +737,7 @@ class MavlinkController:
                 dx, dy, dz,
                 0, 0, 0,
                 0, 0, 0,
-                0, 0
+                0, 0,
             )
         self._last_command_time["goto"] = time.time()
         logger.info("Move relative: dx=%.1f, dy=%.1f, dz=%.1f", dx, dy, dz)

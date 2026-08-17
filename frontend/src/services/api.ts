@@ -467,6 +467,86 @@ export async function createMission(data: {
   });
 }
 
+/** Get all UAV Fleet units status. */
+export async function getFleetStatus(): Promise<Response> {
+  return fetch(`${API_BASE}/api/fleet/status`);
+}
+
+/** Signal/Simulate that UAV has arrived & landed at Docking Pad N1. */
+export async function signalDroneArrived(droneId: string): Promise<Response> {
+  return fetch(`${API_BASE}/api/fleet/${droneId}/signal/arrive`, {
+    method: "POST",
+  });
+}
+
+/** Signal/Simulate that UAV has departed and returned to Home pad. */
+export async function signalDroneDepartHome(droneId: string): Promise<Response> {
+  return fetch(`${API_BASE}/api/fleet/${droneId}/signal/depart-home`, {
+    method: "POST",
+  });
+}
+
+/** Signal/Simulate that UAV has departed for Customer Delivery. */
+export async function signalDroneDepartDelivery(droneId: string): Promise<Response> {
+  return fetch(`${API_BASE}/api/fleet/${droneId}/signal/depart-delivery`, {
+    method: "POST",
+  });
+}
+
+/** Set flight mode for a UAV (AUTO or MANUAL). */
+export async function setDroneFlightMode(droneId: string, mode: "AUTO" | "MANUAL"): Promise<Response> {
+  return fetch(`${API_BASE}/api/fleet/${droneId}/mode`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+}
+
+/** Get current System Operation Mode (AUTO or MANUAL). */
+export async function getSystemMode(): Promise<Response> {
+  return fetch(`${API_BASE}/api/system/mode`);
+}
+
+/** Set System Operation Mode (AUTO or MANUAL). */
+export async function setSystemMode(mode: "AUTO" | "MANUAL"): Promise<Response> {
+  return fetch(`${API_BASE}/api/system/mode`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+}
+
+/** Start Camera Vision device stream. */
+export async function startCameraDevice(): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/camera/start`, {
+    method: "POST",
+  });
+}
+
+/** Stop Camera Vision device stream. */
+export async function stopCameraDevice(): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/camera/stop`, {
+    method: "POST",
+  });
+}
+
+/** Trigger manual Camera QR code scan test. */
+export async function triggerCameraQrScan(qrCode: string = "PROD-TEST-1001"): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/camera/qr_scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qr_code: qrCode }),
+  });
+}
+
+/** System Auto Start: Health check + Auto-dispatch FIFO Queue. */
+export async function startSystemAuto(): Promise<Response> {
+  return fetch(`${API_BASE}/api/system/start-auto`, {
+    method: "POST",
+  });
+}
+
+
 
 
 

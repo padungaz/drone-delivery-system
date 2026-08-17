@@ -165,6 +165,27 @@ export function useIntralogisticsWS() {
                   fetchState();
                 }
                 break;
+              case "FLEET_UPDATE":
+                window.dispatchEvent(new CustomEvent("fleet_update", { detail: msg.data }));
+                break;
+              case "MISSION_QUEUE_UPDATE":
+                window.dispatchEvent(new CustomEvent("mission_queue_update", { detail: msg.data }));
+                break;
+              case "MISSION_STARTED":
+                window.dispatchEvent(new CustomEvent("mission_started", { detail: msg.data }));
+                fetchState();
+                break;
+              case "MISSION_COMPLETED":
+                window.dispatchEvent(new CustomEvent("mission_completed", { detail: msg.data }));
+                fetchState();
+                break;
+              case "MISSION_FAILED":
+                window.dispatchEvent(new CustomEvent("mission_failed", { detail: msg.data }));
+                fetchState();
+                break;
+              case "SYSTEM_ALERT":
+                window.dispatchEvent(new CustomEvent("system_alert", { detail: msg.data }));
+                break;
               default:
                 // Unknown event type — ignore
                 break;

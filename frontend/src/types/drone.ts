@@ -165,6 +165,8 @@ export interface RobotState {
   };
   connected?: boolean;
   simulator_mode?: boolean;
+  holding_product?: string | null;
+  current_slot?: string | null;
 }
 
 export type StorageSlotStatus = "EMPTY" | "OCCUPIED" | "RESERVED";

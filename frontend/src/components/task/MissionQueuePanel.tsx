@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { getMissionQueue, cancelMission, createMission } from "../../services/api";
+import { UavFleetControlWidget } from "./UavFleetControlWidget";
 
 export interface MissionItem {
   id: number;
@@ -159,6 +160,13 @@ export function MissionQueuePanel() {
           {msg.text}
         </div>
       )}
+
+      {/* UAV Fleet Controller & Simulation Trigger Widget */}
+      <UavFleetControlWidget
+        activeMissionDroneId={active?.drone_id}
+        activeMissionType={active?.mission_type}
+        onRefreshQueue={fetchQueue}
+      />
 
       {/* Main Grid Layout */}
       <div className="queue-main-grid">

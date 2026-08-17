@@ -3118,44 +3118,87 @@ input {
   filter: brightness(1.2);
 }
 
-/* PLC Monitor Card */
-.plc-layout {
+/* PLC & Robot Industrial Hardware Layouts */
+.plc-layout,
+.robot-auto-status-layout {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
 
-.plc-hardware-visual {
+.plc-hardware-visual,
+.robot-hardware-visual {
   display: grid;
-  grid-template-columns: 100px 1fr;
+  grid-template-columns: 115px 1fr;
   gap: 0.75rem;
   align-items: center;
   background: rgba(8, 14, 28, 0.6);
   padding: 0.5rem;
   border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.plc-device-graphic {
+.plc-device-graphic,
+.robot-device-graphic {
   background: #1e293b;
   border: 2px solid #3b82f6;
   border-radius: 6px;
-  padding: 0.4rem;
+  padding: 0.35rem;
   text-align: center;
 }
 
-.siemens-brand {
+.robot-device-graphic {
+  border-color: #00f0ff;
+}
+
+.plc-brand-banner,
+.robot-brand-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0f172a;
+  border-bottom: 2px solid #00f0ff;
+  padding: 0.25rem 0.3rem;
+  border-radius: 4px 4px 0 0;
+  gap: 0.1rem;
+}
+
+.siemens-brand,
+.fairino-brand {
   font-size: 0.65rem;
   font-weight: 800;
   color: #00f0ff;
+  letter-spacing: 0.05em;
+  line-height: 1;
 }
 
-.plc-model {
-  font-size: 0.75rem;
+.plc-model,
+.robot-model {
+  font-size: 0.65rem;
   font-weight: 700;
   color: #ffffff;
+  line-height: 1;
 }
 
-.plc-db15-indicators {
+.plc-cpu-body,
+.robot-cpu-body {
+  padding: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.plc-specs-list,
+.robot-specs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.68rem;
+}
+
+.plc-db15-indicators,
+.robot-indicators-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 0.4rem;
@@ -4447,6 +4490,1247 @@ input {
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================================
+   UAV FLEET CONTROLLER & HANDSHAKE SIMULATION STYLES
+   ========================================================================= */
+
+.uav-fleet-widget-container {
+  background: linear-gradient(135deg, rgba(8, 14, 28, 0.95), rgba(16, 27, 56, 0.92));
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 0 15px rgba(0, 240, 255, 0.05);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.fleet-title-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fleet-title-row h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-family: var(--font-heading);
+  letter-spacing: 0.05em;
+  color: #00f0ff;
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+}
+
+.btn-auto-start {
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 0.8rem;
+  padding: 0.5rem 1.1rem;
+  border-radius: 6px;
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+
+.btn-auto-start:hover {
+  background: linear-gradient(135deg, #10b981, #34d399);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.8);
+  transform: translateY(-1px);
+}
+
+.fleet-context-action-bar {
+  background: rgba(4, 8, 20, 0.85);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.context-action-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-family: var(--font-mono);
+}
+
+.pulse-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #00f0ff;
+  box-shadow: 0 0 8px #00f0ff;
+  animation: pulse-dot 1.5s infinite;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.9); opacity: 0.6; }
+  50% { transform: scale(1.3); opacity: 1; box-shadow: 0 0 12px #00f0ff; }
+  100% { transform: scale(0.9); opacity: 0.6; }
+}
+
+.context-buttons-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.65rem;
+}
+
+.btn-action-arrive {
+  background: linear-gradient(135deg, rgba(14, 116, 144, 0.4), rgba(6, 182, 212, 0.5));
+  border: 1px solid #06b6d4;
+  color: #cffafe;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.btn-action-arrive:hover {
+  background: #06b6d4;
+  color: #042f2e;
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.6);
+}
+
+.btn-action-depart-home {
+  background: linear-gradient(135deg, rgba(67, 56, 202, 0.4), rgba(99, 102, 241, 0.5));
+  border: 1px solid #6366f1;
+  color: #e0e7ff;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.btn-action-depart-home:hover {
+  background: #6366f1;
+  color: #1e1b4b;
+  box-shadow: 0 0 15px rgba(99, 102, 241, 0.6);
+}
+
+.btn-action-depart-delivery {
+  background: linear-gradient(135deg, rgba(194, 65, 12, 0.4), rgba(249, 115, 22, 0.5));
+  border: 1px solid #f97316;
+  color: #ffedd5;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.btn-action-depart-delivery:hover {
+  background: #f97316;
+  color: #431407;
+  box-shadow: 0 0 15px rgba(249, 115, 22, 0.6);
+}
+
+/* Fleet Cards Grid */
+.fleet-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 0.85rem;
+  padding: 0.85rem 1rem;
+}
+
+.uav-fleet-card {
+  background: rgba(16, 27, 56, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.uav-fleet-card:hover {
+  background: rgba(16, 27, 56, 0.9);
+  border-color: rgba(0, 240, 255, 0.35);
+}
+
+.uav-fleet-card.assigned-active {
+  border-color: #00f0ff;
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.25);
+  background: rgba(14, 30, 65, 0.85);
+}
+
+.uav-id-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.uav-name {
+  font-size: 1rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: #00f0ff;
+}
+
+.uav-type-tag {
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+
+.type-real {
+  background: rgba(245, 158, 11, 0.18);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.type-sim {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.btn-mode-toggle {
+  background: rgba(0, 240, 255, 0.12);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  color: #00f0ff;
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-mode-toggle:hover {
+  background: #00f0ff;
+  color: #040d21;
+}
+
+.mode-auto-tag {
+  font-size: 0.65rem;
+  color: #64748b;
+  font-family: var(--font-mono);
+}
+
+.uav-card-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.uav-status-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+}
+
+.badge-ready { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+.badge-flying { background: rgba(0, 240, 255, 0.15); color: #00f0ff; border: 1px solid rgba(0, 240, 255, 0.3); }
+.badge-landed { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+.badge-depart-ready { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+.badge-offline { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+.uav-mission-ref {
+  font-size: 0.72rem;
+}
+
+.uav-telemetry-mini-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  background: rgba(8, 14, 28, 0.5);
+  padding: 0.4rem 0.6rem;
+  border-radius: 5px;
+}
+
+.mini-cell {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+}
+
+.mini-cell .lbl { color: #94a3b8; }
+.mini-cell .val { font-weight: 600; }
+
+.uav-quick-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
+}
+
+.btn-mini-trigger {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+  font-size: 0.68rem;
+  padding: 0.3rem 0.2rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.btn-mini-trigger:hover {
+  background: rgba(0, 240, 255, 0.2);
+  border-color: #00f0ff;
+  color: #00f0ff;
+}
+
+/* =========================================================================
+   SYSTEM OPERATION MODE SWITCH (AUTO vs MANUAL)
+   ========================================================================= */
+
+.system-mode-switch-box {
+  display: flex;
+  align-items: center;
+}
+
+.btn-system-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid transparent;
+  text-align: left;
+}
+
+.btn-system-mode-toggle.mode-auto {
+  background: linear-gradient(135deg, rgba(5, 150, 105, 0.25), rgba(16, 185, 129, 0.35));
+  border-color: #10b981;
+  color: #34d399;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+}
+
+.btn-system-mode-toggle.mode-auto:hover {
+  background: linear-gradient(135deg, rgba(5, 150, 105, 0.4), rgba(16, 185, 129, 0.5));
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.5);
+  transform: translateY(-1px);
+}
+
+.btn-system-mode-toggle.mode-manual {
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.25), rgba(245, 158, 11, 0.35));
+  border-color: #f59e0b;
+  color: #fbbf24;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.35);
+  animation: pulse-manual 2s infinite;
+}
+
+@keyframes pulse-manual {
+  0% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.6); }
+  100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
+}
+
+.btn-system-mode-toggle.mode-manual:hover {
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.45), rgba(245, 158, 11, 0.55));
+  box-shadow: 0 0 22px rgba(245, 158, 11, 0.8);
+  transform: translateY(-1px);
+}
+
+.mode-icon {
+  font-size: 1.2rem;
+}
+
+.mode-text-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.mode-label {
+  font-size: 0.58rem;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+  font-family: var(--font-mono);
+}
+
+.mode-value {
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-family: var(--font-heading);
+}
+
+/* =========================================================================
+   PLC & CAMERA MANUAL CONTROLS TOOLBARS
+   ========================================================================= */
+
+.plc-manual-controls-section,
+.camera-manual-controls-section {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.manual-section-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.mode-indicator-tag {
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+.mode-indicator-tag.active-manual {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.mode-indicator-tag.auto-locked {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+.manual-feedback-pill {
+  font-size: 0.68rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid #10b981;
+  color: #10b981;
+  border-radius: 4px;
+}
+
+.manual-btn-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+
+.manual-btn-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+}
+
+.btn-manual-plc {
+  background: rgba(16, 27, 56, 0.8);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  color: #e2e8f0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.35rem 0.2rem;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.btn-manual-plc:hover {
+  background: rgba(0, 240, 255, 0.2);
+  border-color: #00f0ff;
+  color: #00f0ff;
+}
+
+.btn-plc-green {
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+.btn-plc-green:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #10b981;
+}
+
+.btn-plc-red {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+.btn-plc-red:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+}
+
+.btn-plc-yellow {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+.btn-plc-yellow:hover {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: #f59e0b;
+}
+
+.manual-sensor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
+.lbl-mini {
+  font-size: 0.68rem;
+  color: #94a3b8;
+}
+
+.sensor-toggle-group {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.btn-sensor-toggle {
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-sensor-toggle.active-detected {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #10b981;
+  color: #34d399;
+  font-weight: 700;
+}
+
+.btn-sensor-toggle.active-empty {
+  background: rgba(148, 163, 184, 0.2);
+  border-color: #94a3b8;
+  color: #f1f5f9;
+}
+
+.camera-manual-actions-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.btn-manual-cam {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.35rem 0.65rem;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-cam-start {
+  background: rgba(16, 185, 129, 0.2);
+  border: 1px solid #10b981;
+  color: #34d399;
+}
+.btn-cam-start:hover {
+  background: #10b981;
+  color: #042f2e;
+}
+
+.btn-cam-stop {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid #ef4444;
+  color: #f87171;
+}
+.btn-cam-stop:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.qr-test-input-group {
+  display: flex;
+  flex: 1;
+  gap: 0.3rem;
+}
+
+.input-qr-test {
+  flex: 1;
+  background: rgba(8, 14, 28, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #00f0ff;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  outline: none;
+}
+
+.input-qr-test:focus {
+  border-color: #00f0ff;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.4);
+}
+
+.btn-manual-scan {
+  background: rgba(0, 240, 255, 0.2);
+  border: 1px solid #00f0ff;
+  color: #00f0ff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-manual-scan:hover {
+  background: #00f0ff;
+  color: #040d21;
+}
+
+/* =========================================================================
+   AUTO MODE STATUS DISPLAY (QUICK ACTIONS & JOG CONTROLLER)
+   ========================================================================= */
+
+.auto-mode-status-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  background: rgba(8, 14, 28, 0.6);
+  border: 1px dashed rgba(16, 185, 129, 0.3);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.auto-status-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.pulse-dot-green {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: pulse-green 1.5s infinite;
+}
+
+@keyframes pulse-green {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 12px #10b981; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+.auto-mode-desc {
+  font-size: 0.73rem;
+  color: #cbd5e1;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.auto-specs-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.4rem 0.6rem;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mini-row {
+  font-size: 0.68rem;
+  color: #94a3b8;
+}
+
+.auto-mode-hint {
+  font-size: 0.68rem;
+  color: #fbbf24;
+  padding: 0.3rem 0.5rem;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 4px;
+  border-left: 2px solid #f59e0b;
+}
+
+/* =========================================================================
+   EXPANDED MANUAL ROBOT QUICK ACTIONS (GROUPS & BUTTONS)
+   ========================================================================= */
+
+.quick-actions-manual-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.manual-action-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: rgba(8, 14, 28, 0.4);
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.subgroup-title {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.btn-row-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+}
+
+.btn-row-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.35rem;
+}
+
+.btn-standby {
+  border-color: rgba(148, 163, 184, 0.3);
+}
+.btn-standby:hover {
+  background: rgba(148, 163, 184, 0.2);
+  border-color: #cbd5e1;
+}
+
+.btn-scan-pos {
+  border-color: rgba(59, 130, 246, 0.3);
+}
+.btn-scan-pos:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: #60a5fa;
+}
+
+.btn-uav-pick {
+  border-color: rgba(168, 85, 247, 0.4);
+  color: #c084fc;
+}
+.btn-uav-pick:hover {
+  background: rgba(168, 85, 247, 0.25);
+  border-color: #c084fc;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+}
+
+.btn-uav-place {
+  border-color: rgba(236, 72, 153, 0.4);
+  color: #f472b6;
+}
+.btn-uav-place:hover {
+  background: rgba(236, 72, 153, 0.25);
+  border-color: #f472b6;
+  box-shadow: 0 0 10px rgba(236, 72, 153, 0.3);
+}
+
+.slot-select-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.lbl-slot-choice {
+  font-size: 0.62rem;
+  color: #94a3b8;
+}
+
+.slot-selector-dropdown-inline {
+  background: rgba(16, 27, 56, 0.9);
+  border: 1px solid #00f0ff;
+  color: #00f0ff;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+
+/* =========================================================================
+   COMPACT SLEEK ROBOT MANUAL CONTROLS (DOCKED BENEATH INDICATORS)
+   ========================================================================= */
+
+.robot-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.robot-manual-controls-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  background: rgba(4, 8, 20, 0.65);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+
+.manual-btn-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+}
+
+.manual-btn-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+
+.robot-manual-slot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: rgba(16, 27, 56, 0.4);
+  padding: 0.3rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.slot-picker-compact {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.lbl-mini {
+  font-size: 0.65rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.slot-action-btn-group {
+  display: flex;
+  gap: 0.35rem;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.btn-uav-pick-btn {
+  border-color: rgba(168, 85, 247, 0.5) !important;
+  color: #c084fc !important;
+}
+
+.btn-uav-pick-btn:hover {
+  background: rgba(168, 85, 247, 0.25) !important;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+}
+
+.btn-uav-place-btn {
+  border-color: rgba(236, 72, 153, 0.5) !important;
+  color: #f472b6 !important;
+}
+
+.btn-uav-place-btn:hover {
+  background: rgba(236, 72, 153, 0.25) !important;
+  box-shadow: 0 0 8px rgba(236, 72, 153, 0.4);
+}
+
+/* =========================================================================
+   DYNAMIC REWRITTEN TASK MONITOR (ORDER INFO, 6-STEP VISUAL, FIFO QUEUE)
+   ========================================================================= */
+
+.dynamic-task-monitor {
+  display: flex;
+  flex-direction: column;
+}
+
+.mission-type-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.25rem 0.55rem;
+  border-radius: 20px;
+  letter-spacing: 0.03em;
+}
+
+.pill-pickup {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+.pill-delivery {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid #f59e0b;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.pill-standby {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.active-order-hero-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  background: rgba(8, 14, 28, 0.5);
+  border: 1px solid rgba(0, 240, 255, 0.15);
+  border-radius: 8px;
+  padding: 0.6rem;
+}
+
+.order-main-header {
+  align-items: center;
+}
+
+.order-title-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.order-badge-id {
+  background: rgba(0, 240, 255, 0.15);
+  color: #00f0ff;
+  border: 1px solid #00f0ff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+}
+
+.order-product-name {
+  font-size: 0.78rem;
+  color: #ffffff;
+}
+
+.order-progress-tag {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.order-specs-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+  background: rgba(16, 27, 56, 0.6);
+  padding: 0.35rem 0.5rem;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.spec-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.64rem;
+}
+
+.spec-pill .lbl {
+  color: #64748b;
+  font-size: 0.6rem;
+}
+
+.pulse-dot-cyan {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #00f0ff;
+  box-shadow: 0 0 6px #00f0ff;
+  display: inline-block;
+  margin-right: 3px;
+  animation: pulse-cyan 1.5s infinite;
+}
+
+@keyframes pulse-cyan {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 8px #00f0ff; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+.pulse-dot-amber {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+  display: inline-block;
+  margin-right: 3px;
+  animation: pulse-amber 1.5s infinite;
+}
+
+@keyframes pulse-amber {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 8px #f59e0b; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+.main-progress-neon {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.animated-stripes-neon {
+  height: 100%;
+  background: linear-gradient(90deg, #00f0ff 0%, #10b981 100%);
+  box-shadow: 0 0 8px #00f0ff;
+  transition: width 0.4s ease;
+}
+
+/* Stepper 6 Steps */
+.task-stepper-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.stepper-section-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.task-stepper-list-6 {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stepper-item-compact {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.45rem;
+  border-radius: 5px;
+  background: rgba(8, 14, 28, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  transition: all 0.2s ease;
+}
+
+.stepper-item-compact.completed {
+  border-color: rgba(16, 185, 129, 0.25);
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.stepper-item-compact.in_progress {
+  border-color: #00f0ff;
+  background: rgba(0, 240, 255, 0.12);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+}
+
+.stepper-item-compact.pending {
+  opacity: 0.6;
+}
+
+.stepper-icon-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.icon-done {
+  color: #10b981;
+}
+
+.icon-pulse {
+  color: #00f0ff;
+  animation: pulse-green 1.5s infinite;
+}
+
+.icon-pending {
+  color: #64748b;
+}
+
+.stepper-text-col {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.stepper-label-bold {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.stepper-item-compact.in_progress .stepper-label-bold {
+  color: #00f0ff;
+}
+
+.stepper-desc-text {
+  font-size: 0.58rem;
+  color: #94a3b8;
+}
+
+.stepper-badge-state {
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.stepper-item-compact.completed .stepper-badge-state {
+  color: #10b981;
+}
+
+.stepper-item-compact.in_progress .stepper-badge-state {
+  color: #00f0ff;
+  font-weight: 800;
+}
+
+.stepper-item-compact.pending .stepper-badge-state {
+  color: #64748b;
+}
+
+/* Empty Standby Box */
+.empty-task-standby-box {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(8, 14, 28, 0.5);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 0.8rem;
+}
+
+.standby-icon {
+  font-size: 1.6rem;
+}
+
+.standby-text h4 {
+  font-size: 0.75rem;
+  color: #00f0ff;
+  margin: 0 0 0.2rem 0;
+}
+
+.standby-text p {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+/* Section 2: Next Orders Queue */
+.next-orders-queue-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: rgba(8, 14, 28, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+
+.queue-section-header {
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+
+.queue-mode-tag {
+  font-size: 0.58rem;
+  color: #00f0ff;
+  background: rgba(0, 240, 255, 0.1);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+}
+
+.next-orders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.next-order-card {
+  align-items: center;
+  gap: 0.45rem;
+  background: rgba(16, 27, 56, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 0.3rem 0.45rem;
+  border-radius: 5px;
+}
+
+.order-rank {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+}
+
+.order-meta-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+}
+
+.order-top-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.order-code {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.order-type-badge-mini {
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 0.08rem 0.3rem;
+  border-radius: 3px;
+}
+
+.badge-in {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+.badge-out {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.order-sub-row {
+  font-size: 0.6rem;
+  color: #94a3b8;
+}
+
+.order-status-pill {
+  display: flex;
+  align-items: center;
+  font-size: 0.6rem;
+  color: #fbbf24;
+  font-family: var(--font-mono);
+}
+
+.empty-queue-mini {
+  font-size: 0.65rem;
+  color: #64748b;
+  text-align: center;
+  padding: 0.4rem;
+  font-style: italic;
+}
+
+
+
+
+
+
 
 
 
