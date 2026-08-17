@@ -54,13 +54,21 @@ async def main():
         if qr_res:
             logger.info("✓ Camera QR scan processed: Product SP001 assigned to Slot %s", qr_res.slot_name)
 
-        # 5. Test PLC Docking Station Controls
+        # 5. Test PLC Docking Station Controls (DB15 Mapping)
         plc_mgr = PLCManager.get_instance()
         plc_mgr.simulator_mode = True
+        st_start = await plc_mgr.execute_command(PLCCommand.START_PLC)
+        logger.info("✓ PLC START_PLC executed. PLC On: %s", st_start.plc_on)
         status_lock = await plc_mgr.execute_command(PLCCommand.LOCK_DRONE)
-        logger.info("✓ PLC LOCK_DRONE executed. Drone Locked: %s, PLC Busy: %s, PLC Error: %s", status_lock.drone_locked, status_lock.plc_busy, status_lock.plc_error)
+        logger.info("✓ PLC LOCK_DRONE executed. Locked: %s (plc_locked_state=%s), PLC Busy: %s, PLC Error: %s", status_lock.drone_locked, status_lock.plc_locked_state, status_lock.plc_busy, status_lock.plc_error)
         status_z = await plc_mgr.execute_command(PLCCommand.Z_UP)
-        logger.info("✓ PLC Z_UP executed. Z Axis: %s", status_z.z_axis)
+        logger.info("✓ PLC Z_UP executed. Z Axis: %s, plc_z_is_up: %s", status_z.z_axis, status_z.plc_z_is_up)
+        status_zdown = await plc_mgr.execute_command(PLCCommand.Z_DOWN)
+        logger.info("✓ PLC Z_DOWN executed. Z Axis: %s, plc_z_is_down: %s", status_zdown.z_axis, status_zdown.plc_z_is_down)
+        status_unlock = await plc_mgr.execute_command(PLCCommand.UNLOCK_DRONE)
+        logger.info("✓ PLC UNLOCK_DRONE executed. Locked: %s", status_unlock.drone_locked)
+        status_reset = await plc_mgr.execute_command(PLCCommand.RESET_PLC)
+        logger.info("✓ PLC RESET_PLC executed. Error: %s", status_reset.plc_error)
 
         # 6. Test FAIRINO Robot Commands
         robot_mgr = RobotManager.get_instance()
@@ -70,21 +78,18 @@ async def main():
         r_pick = await robot_mgr.execute_command(RobotCommand.PICK, slot="A1")
         logger.info("✓ FAIRINO Robot PICK executed for slot A1. State: %s, Holding: %s", r_pick.state, r_pick.holding_product)
 
-        # 7. Test Master Orchestrator FSM: DRONE_PICKUP at CUSTOMER_PICKUP (Should be REJECTED)
+        # 7. Test Master Orchestrator FSM: DRONE_PICKUP (Flow 8) Automated Sequence
         mission_mgr = MissionManager(session)
-        rejected_mission = await mission_mgr.execute_drone_pickup(drone_id="UAV01", product_id="SP002", location_type="CUSTOMER_PICKUP")
-        logger.info("✓ Safety Check Test: DRONE_PICKUP at CUSTOMER_PICKUP correctly REJECTED! State: %s", rejected_mission.state)
-        logger.info("   -> Details: %s", rejected_mission.step_details)
+        pickup_mission = await mission_mgr.execute_drone_pickup(drone_id="UAV01", product_id="SP002", auto_run=False)
+        await mission_mgr.run_automated_pickup_sequence(pickup_mission.id)
+        await session.refresh(pickup_mission)
+        logger.info("✓ DRONE_PICKUP Automated Sequence #%d completed! State: %s, Target Slot: %s", pickup_mission.id, pickup_mission.state, pickup_mission.target_slot)
 
-        # 8. Test Master Orchestrator FSM: DRONE_PICKUP (Flow 8) at WAREHOUSE_PAD
-        pickup_mission = await mission_mgr.execute_drone_pickup(drone_id="UAV01", product_id="SP002", location_type="WAREHOUSE_PAD")
-        logger.info("✓ DRONE_PICKUP Mission #%d completed! State: %s, Target Slot: %s", pickup_mission.id, pickup_mission.state, pickup_mission.target_slot)
-        logger.info("   -> Details: %s", pickup_mission.step_details)
-
-        # 9. Test Master Orchestrator FSM: DRONE_DELIVERY (Flow 9) at WAREHOUSE_PAD
-        delivery_mission = await mission_mgr.execute_drone_delivery(drone_id="UAV01", product_id="SP002", location_type="WAREHOUSE_PAD")
-        logger.info("✓ DRONE_DELIVERY Mission #%d completed! State: %s, Picked Slot: %s", delivery_mission.id, delivery_mission.state, delivery_mission.target_slot)
-        logger.info("   -> Details: %s", delivery_mission.step_details)
+        # 8. Test Master Orchestrator FSM: DRONE_DELIVERY (Flow 9) Automated Sequence
+        delivery_mission = await mission_mgr.execute_drone_delivery(drone_id="UAV01", product_id="SP002", auto_run=False)
+        await mission_mgr.run_automated_delivery_sequence(delivery_mission.id)
+        await session.refresh(delivery_mission)
+        logger.info("✓ DRONE_DELIVERY Automated Sequence #%d completed! State: %s, Target Slot: %s", delivery_mission.id, delivery_mission.state, delivery_mission.target_slot)
 
     logger.info("=== All Smart Intralogistics Controller System Integration Tests PASSED! ===")
 

@@ -13,10 +13,12 @@ from app.api.inventory import inventory_router
 from app.api.mission import mission_router
 from app.api.plc import plc_router
 from app.api.robot import robot_router
+from app.api.station import station_router
 from app.api.routes import router
 from app.config import settings
 from app.database.repository import async_session, init_db
 from app.models.schemas import DeviceHeartbeatRequest, DeviceRegisterRequest, DeviceStatus, DeviceType
+from app.services.camera_manager import CameraManager
 from app.services.device_manager import DeviceManager
 from app.services.inventory_manager import InventoryManager
 from app.services.plc_manager import PLCManager
@@ -51,6 +53,12 @@ async def heartbeat_monitor_task():
                 robot_status = DeviceStatus.ONLINE if (robot_mgr.is_connected or robot_mgr.simulator_mode) else DeviceStatus.OFFLINE
                 await mgr.update_heartbeat(DeviceHeartbeatRequest(name="ROBOT01", status=robot_status))
 
+                # Sync CAM01 heartbeat based on CameraManager state
+                cam_mgr = CameraManager.get_instance()
+                cam_info = cam_mgr.get_status()
+                cam_status = DeviceStatus.ONLINE if cam_info.get("is_active") else DeviceStatus.OFFLINE
+                await mgr.update_heartbeat(DeviceHeartbeatRequest(name="CAM01", status=cam_status))
+
                 # Sync UAV01 heartbeat based on Drone WebSocket connection or simulator mode
                 uav_sim = os.getenv("UAV_SIMULATOR_MODE", "false").lower() in ("true", "1")
                 uav_connected = drone_ws_manager.is_drone_connected("UAV01") or drone_ws_manager.is_drone_connected("drone-01") or uav_sim
@@ -66,8 +74,13 @@ async def heartbeat_monitor_task():
                     "device_name": "ROBOT01",
                     "status": robot_status.value,
                 })
+                await system_ws_manager.broadcast("DEVICE_HEARTBEAT", {
+                    "device_name": "CAM01",
+                    "status": cam_status.value,
+                })
                 await system_ws_manager.broadcast("PLC_STATUS", plc_mgr.get_status().model_dump())
                 await system_ws_manager.broadcast("ROBOT_STATUS", robot_mgr.get_status().model_dump())
+                await system_ws_manager.broadcast("CAMERA_STATUS", cam_info)
 
                 timed_out = await mgr.check_device_timeouts()
                 for dev_name in timed_out:
@@ -84,7 +97,7 @@ async def heartbeat_monitor_task():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    # Seed 9 storage slots & 3 LAN devices (UAV01, PLC01, ROBOT01)
+    # Seed 9 storage slots & 4 LAN devices (UAV01, PLC01, ROBOT01, CAM01)
     async with async_session() as session:
         inventory_mgr = InventoryManager(session)
         await inventory_mgr.init_default_slots()
@@ -94,7 +107,8 @@ async def lifespan(app: FastAPI):
         await dev_mgr.register_device(DeviceRegisterRequest(name="UAV01", type=DeviceType.UAV, ip="192.168.137.88"))
         await dev_mgr.register_device(DeviceRegisterRequest(name="PLC01", type=DeviceType.PLC, ip=plc_ip))
         await dev_mgr.register_device(DeviceRegisterRequest(name="ROBOT01", type=DeviceType.ROBOT, ip="192.168.58.2"))
-        await dev_mgr.remove_device("CAM01")
+        await dev_mgr.register_device(DeviceRegisterRequest(name="CAM01", type=DeviceType.CAMERA, ip="192.168.1.50"))
+
 
     # Start background heartbeat monitor
     monitor = asyncio.create_task(heartbeat_monitor_task())
@@ -129,6 +143,7 @@ app.include_router(device_router)
 app.include_router(drone_router)
 app.include_router(plc_router)
 app.include_router(robot_router)
+app.include_router(station_router)
 app.include_router(inventory_router)
 app.include_router(mission_router)
 

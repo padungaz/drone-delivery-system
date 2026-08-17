@@ -5,6 +5,7 @@ import type {
   RobotState,
   StorageSlot,
   IntralogisticsMission,
+  StationOperation,
 } from "../types/drone";
 import {
   SYSTEM_WS_URL,
@@ -12,23 +13,35 @@ import {
   getPlcStatus,
   getRobotStatus,
   getInventorySlots,
+  getActiveMission,
+  getStationStatus,
 } from "../services/api";
 
 /** Convert raw backend PLCStatusResponse to frontend PLCState with derived fields */
 function mapPlcResponse(raw: Record<string, unknown>): PLCState {
+  const droneDetected = (raw.drone_detected as boolean) ?? false;
+  const lockedState = (raw.plc_locked_state as boolean) ?? (raw.drone_locked as boolean) ?? false;
+  const zAxis = (raw.z_axis as string) ?? "HOME";
+  const zIsUp = (raw.plc_z_is_up as boolean) ?? (zAxis === "UP");
+  const zIsDown = (raw.plc_z_is_down as boolean) ?? (zAxis === "DOWN");
+
   return {
-    // Native backend fields (Handshake Protocol)
-    drone_detected: (raw.drone_detected as boolean) ?? false,
-    drone_locked: (raw.drone_locked as boolean) ?? false,
-    z_axis: (raw.z_axis as string) ?? "HOME",
+    drone_detected: droneDetected,
+    plc_locked_state: lockedState,
+    drone_locked: lockedState,
+    plc_z_is_up: zIsUp,
+    plc_z_is_down: zIsDown,
+    plc_on: (raw.plc_on as boolean) ?? true,
+    plc_error: (raw.plc_error as boolean) ?? false,
     emergency_stop: (raw.emergency_stop as boolean) ?? false,
+    z_axis: zAxis,
     connected: (raw.connected as boolean) ?? true,
     simulator_mode: (raw.simulator_mode as boolean) ?? true,
     plc_busy: (raw.plc_busy as boolean) ?? false,
-    plc_error: (raw.plc_error as boolean) ?? false,
+
     // Derived convenience fields
-    hatch_open: (raw.z_axis as string) === "UP",
-    drone_landed_sensor: (raw.drone_detected as boolean) ?? false,
+    hatch_open: zIsUp,
+    drone_landed_sensor: droneDetected,
   };
 }
 
@@ -54,6 +67,7 @@ export function useIntralogisticsWS() {
   const [robot, setRobot] = useState<RobotState | null>(null);
   const [storage, setStorage] = useState<StorageSlot[]>([]);
   const [activeMission, setActiveMission] = useState<IntralogisticsMission | null>(null);
+  const [stationOp, setStationOp] = useState<StationOperation | null>(null);
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -62,11 +76,13 @@ export function useIntralogisticsWS() {
 
   const fetchState = useCallback(async () => {
     try {
-      const [devRes, plcRes, robotRes, storageRes] = await Promise.all([
+      const [devRes, plcRes, robotRes, storageRes, missionRes, stationRes] = await Promise.all([
         getDevices().catch(() => null),
         getPlcStatus().catch(() => null),
         getRobotStatus().catch(() => null),
         getInventorySlots().catch(() => null),
+        getActiveMission().catch(() => null),
+        getStationStatus().catch(() => null),
       ]);
 
       if (devRes && devRes.ok) {
@@ -84,6 +100,14 @@ export function useIntralogisticsWS() {
       if (storageRes && storageRes.ok) {
         const slots = await storageRes.json();
         setStorage(slots);
+      }
+      if (missionRes && missionRes.ok) {
+        const activeM = await missionRes.json();
+        if (activeM) setActiveMission(activeM);
+      }
+      if (stationRes && stationRes.ok) {
+        const stationData = await stationRes.json();
+        if (stationData) setStationOp(stationData);
       }
     } catch {
       // ignore fetch errors
@@ -123,12 +147,15 @@ export function useIntralogisticsWS() {
                 // Re-fetch device list for full consistency
                 getDevices().then(async (res) => {
                   if (res.ok) setDevices(await res.json());
-                }).catch(() => {});
+                }).catch(() => { });
                 break;
               case "INVENTORY_STATUS":
                 getInventorySlots().then(async (res) => {
                   if (res.ok) setStorage(await res.json());
-                }).catch(() => {});
+                }).catch(() => { });
+                break;
+              case "STATION_STATUS":
+                setStationOp(msg.data as StationOperation);
                 break;
               case "MISSION_PROGRESS":
                 if (msg.data.mission) {
@@ -190,6 +217,7 @@ export function useIntralogisticsWS() {
     robot,
     storage,
     activeMission,
+    stationOp,
     cameraActive,
   };
 }

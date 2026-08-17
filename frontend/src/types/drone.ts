@@ -119,21 +119,33 @@ export interface DeviceInfo {
   device_name: string;
   device_type: DeviceType;
   ip_address: string;
+  port?: number;
+  simulator_mode?: boolean;
+  rack?: number;
+  slot?: number;
+  db_number?: number;
   status: DeviceStatusType;
   last_heartbeat: string;
 }
 
 export interface PLCState {
-  // Backend native fields (from PLCStatusResponse — Handshake Protocol)
-  drone_detected: boolean;
-  drone_locked: boolean;
-  z_axis: string;            // "HOME" | "UP" | "DOWN" | "MOVING"
-  emergency_stop: boolean;
+  // DB15 Byte 2 Status Fields
+  drone_detected: boolean;       // DB15.DBX2.0
+  plc_locked_state: boolean;     // DB15.DBX2.1
+  drone_locked: boolean;         // Alias for plc_locked_state
+  plc_z_is_up: boolean;          // DB15.DBX2.2
+  plc_z_is_down: boolean;        // DB15.DBX2.3
+  plc_on: boolean;               // DB15.DBX2.4
+  plc_error: boolean;            // DB15.DBX2.5
+  emergency_stop: boolean;       // DB15.DBX2.6
+
+  // System & Connection State
+  z_axis: string;                // "HOME" | "UP" | "DOWN" | "MOVING"
   connected: boolean;
   simulator_mode: boolean;
   plc_busy: boolean;
-  plc_error: boolean;
-  // Derived convenience fields (computed on frontend)
+
+  // Derived convenience fields
   hatch_open: boolean;
   drone_landed_sensor: boolean;
 }
@@ -203,13 +215,26 @@ export interface UAVMissionStatus {
   steps: UAVMissionStep[];
 }
 
+export interface StationOperation {
+  station_id: string;
+  operation: string;           // "LOAD_PRODUCT" | "UNLOAD_PRODUCT" | "NONE"
+  status: string;              // "IDLE" | "RUNNING" | "COMPLETED" | "FAILED"
+  current_action: string;      // e.g. "PLC_LOCK_DRONE", "ROBOT_PICK_SLOT"
+  target_slot?: string | null;
+  product_id?: string | null;
+  message: string;
+}
+
 export interface IntralogisticsMission {
   id: number;
+  order_id?: number | null;
   mission_type: "DRONE_PICKUP" | "DRONE_DELIVERY";
   drone_id: string;
   product_id: string;
   target_slot: string;
-  state: string;
+  status: string;              // "QUEUED" | "RUNNING" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELLED"
+  current_phase: string;       // "WAITING" | "STATION_PROCESSING" | "DRONE_EN_ROUTE" | "DELIVERING_CUSTOMER" | "RETURNING_HOME" | "COMPLETED"
+  state: string;               // Alias for status
   step_details: string;
   station_process?: StationProcessStatus | null;
   uav_mission?: UAVMissionStatus | null;
@@ -225,5 +250,16 @@ export interface SystemBroadcastPayload {
   storage: StorageSlot[];
   active_mission: IntralogisticsMission | null;
 }
+
+export interface DeviceCommandLog {
+  id: number;
+  device: string;
+  command: string;
+  target?: string | null;
+  timestamp: string;
+  result: string;
+  message: string;
+}
+
 
 

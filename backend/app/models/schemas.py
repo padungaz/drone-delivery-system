@@ -267,6 +267,11 @@ class DeviceRegisterRequest(BaseModel):
     name: str = Field(..., description="Device name, e.g. UAV01, PLC01, ROBOT01, CAM01")
     type: DeviceType
     ip: str = Field(..., description="IP Address on LAN network")
+    port: Optional[int] = 8090
+    simulator_mode: Optional[bool] = False
+    rack: Optional[int] = 0
+    slot: Optional[int] = 1
+    db_number: Optional[int] = 15
 
 
 class DeviceHeartbeatRequest(BaseModel):
@@ -279,9 +284,74 @@ class DeviceResponse(BaseModel):
     device_name: str
     device_type: str
     ip_address: str
+    port: int = 8090
+    simulator_mode: bool = False
+    rack: int = 0
+    slot: int = 1
+    db_number: int = 15
     status: str
+    error_code: Optional[str] = None
     last_heartbeat: datetime
     created_at: datetime
+
+
+class DeviceConfigUpdateRequest(BaseModel):
+    ip_address: Optional[str] = None
+    port: Optional[int] = None
+    simulator_mode: Optional[bool] = None
+    rack: Optional[int] = None
+    slot: Optional[int] = None
+    db_number: Optional[int] = None
+
+
+class DeviceTestConnectionRequest(BaseModel):
+    device_name: str
+    ip_address: Optional[str] = None
+    port: Optional[int] = None
+    payload: Optional[str] = "STATUS"
+    timeout: Optional[float] = 3.0
+
+
+class DeviceTestConnectionResponse(BaseModel):
+    device_name: str
+    success: bool
+    ip_address: str
+    port: int
+    latency_ms: float = 0.0
+    response_text: str = ""
+    message: str = ""
+
+
+class RawSocketCommandRequest(BaseModel):
+    device_name: str
+    command_text: str  # e.g. "MOVE_HOME", "PICK A1", "STORE B2", "STATUS", "LOCK_DRONE"
+    target: Optional[str] = None
+    timeout: Optional[float] = 10.0
+
+
+class GenericDeviceCommandRequest(BaseModel):
+    command: str
+    target: Optional[str] = None
+
+
+class DeviceCommandResponse(BaseModel):
+    device: str
+    command: str
+    target: Optional[str] = None
+    status: str = "DONE"
+    message: str = ""
+
+
+class DeviceCommandLogResponse(BaseModel):
+    id: int
+    device: str
+    command: str
+    target: Optional[str] = None
+    timestamp: datetime
+    result: str
+    message: str
+
+
 
 
 class PLCCommand(str, Enum):
@@ -289,6 +359,9 @@ class PLCCommand(str, Enum):
     UNLOCK_DRONE = "UNLOCK_DRONE"
     Z_UP = "Z_UP"
     Z_DOWN = "Z_DOWN"
+    STOP_PLC = "STOP_PLC"
+    START_PLC = "START_PLC"
+    RESET_PLC = "RESET_PLC"
 
 
 class PLCCommandRequest(BaseModel):
@@ -296,14 +369,18 @@ class PLCCommandRequest(BaseModel):
 
 
 class PLCStatusResponse(BaseModel):
-    drone_detected: bool = False
-    drone_locked: bool = False
-    z_axis: str = "HOME"        # "HOME", "UP", "DOWN", "MOVING"
-    emergency_stop: bool = False
+    drone_detected: bool = False       # DB15.DBX2.0
+    plc_locked_state: bool = False     # DB15.DBX2.1
+    drone_locked: bool = False         # Alias for plc_locked_state
+    plc_z_is_up: bool = False          # DB15.DBX2.2
+    plc_z_is_down: bool = False        # DB15.DBX2.3
+    plc_on: bool = False               # DB15.DBX2.4
+    plc_error: bool = False            # DB15.DBX2.5
+    emergency_stop: bool = False       # DB15.DBX2.6
+    z_axis: str = "HOME"               # "HOME", "UP", "DOWN", "MOVING"
     connected: bool = True
     simulator_mode: bool = True
     plc_busy: bool = False
-    plc_error: bool = False
 
 
 class RobotCommand(str, Enum):
@@ -341,7 +418,7 @@ class StorageSlotResponse(BaseModel):
     status: str
     product_id: Optional[str] = None
     qr_code: Optional[str] = None
-    updated_time: datetime
+    updated_time: Optional[datetime] = None
 
 
 class StorageSlotUpdateRequest(BaseModel):
@@ -392,6 +469,21 @@ class UAVMissionStatus(BaseModel):
     steps: list[UAVMissionStep] = Field(default_factory=list)
 
 
+class StationOperationType(str, Enum):
+    LOAD_PRODUCT = "LOAD_PRODUCT"      # Export / Delivery flow: Slot -> Dock
+    UNLOAD_PRODUCT = "UNLOAD_PRODUCT"  # Import / Pickup flow: Dock -> Slot
+
+
+class StationOperationResponse(BaseModel):
+    station_id: str = "STATION_WH_001"
+    operation: str                      # "LOAD_PRODUCT" or "UNLOAD_PRODUCT"
+    status: str                         # "IDLE", "RUNNING", "COMPLETED", "FAILED"
+    current_action: str                 # e.g. "PLC_LOCK_DRONE", "ROBOT_PICK_SLOT"
+    target_slot: Optional[str] = None
+    product_id: Optional[str] = None
+    message: str = ""
+
+
 class IntralogisticsMissionType(str, Enum):
     DRONE_PICKUP = "DRONE_PICKUP"
     DRONE_DELIVERY = "DRONE_DELIVERY"
@@ -403,20 +495,36 @@ class IntralogisticsMissionCreate(BaseModel):
     task: Optional[str] = "PICKUP"         # "PICKUP" or "DELIVERY"
     product_id: str
     target_slot: Optional[str] = None
+    order_id: Optional[int] = None
+    priority: Optional[int] = 0
 
 
 class IntralogisticsMissionResponse(BaseModel):
     id: int
+    order_id: Optional[int] = None
     mission_type: str
     drone_id: str
     product_id: str
     target_slot: Optional[str] = None
-    state: str
-    step_details: str
-    station_process: Optional[dict] = None
-    uav_mission: Optional[dict] = None
+    status: str                         # "WAITING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"
+    current_phase: str                  # "WAITING", "STATION_PROCESSING", "DRONE_EN_ROUTE", "COMPLETED"
+    state: str                          # Alias for status
+    priority: int = 0
+    error_reason: Optional[str] = None
+    step_details: str = ""
     created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
     updated_at: datetime
+
+
+class MissionQueueResponse(BaseModel):
+    active_mission: Optional[IntralogisticsMissionResponse] = None
+    waiting_queue: list[IntralogisticsMissionResponse] = Field(default_factory=list)
+    total_waiting: int = 0
+    total_completed: int = 0
+    total_failed: int = 0
+
 
 
 

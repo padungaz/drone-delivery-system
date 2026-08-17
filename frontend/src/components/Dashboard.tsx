@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import type { MissionLocations } from "../types/drone";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useIntralogisticsWS } from "../hooks/useIntralogisticsWS";
-import { CameraPanel } from "./CameraPanel";
 import { ControlButtons } from "./ControlButtons";
 import { DeliveryRequestsPanel } from "./DeliveryRequestsPanel";
 import { MissionForm } from "./MissionForm";
@@ -24,7 +23,7 @@ const DEFAULT_LOCATIONS: MissionLocations = {
 type ActiveTab = "intralogistics" | "dashboard" | "map" | "split";
 
 export function Dashboard() {
-  const { telemetry, droneOnline, lastError, cameraStatus, arucoDetection } =
+  const { telemetry, droneOnline, lastError } =
     useWebSocket();
 
   const {
@@ -34,6 +33,7 @@ export function Dashboard() {
     robot,
     storage,
     activeMission,
+    stationOp,
     cameraActive,
   } = useIntralogisticsWS();
 
@@ -163,6 +163,7 @@ export function Dashboard() {
             robot={robot}
             storage={storage}
             activeMission={activeMission}
+            stationOp={stationOp}
             cameraActive={cameraActive}
           />
         </div>
@@ -211,15 +212,9 @@ export function Dashboard() {
               robot={robot}
               storage={storage}
               activeMission={activeMission}
+              stationOp={stationOp}
               cameraActive={cameraActive}
             />
-            <div style={{ marginTop: "1rem" }}>
-              <CameraPanel
-                cameraStatus={cameraStatus}
-                arucoDetection={arucoDetection}
-                droneOnline={droneOnline}
-              />
-            </div>
             <div style={{ marginTop: "1rem" }}>
               <DeliveryRequestsPanel
                 homeLat={warehouseLat}
@@ -251,16 +246,7 @@ export function Dashboard() {
             />
           </div>
 
-          {/* Row 3: Camera */}
-          <div style={{ marginTop: "1rem" }}>
-            <CameraPanel
-              cameraStatus={cameraStatus}
-              arucoDetection={arucoDetection}
-              droneOnline={droneOnline}
-            />
-          </div>
-
-          {/* Row 4: Delivery Requests */}
+          {/* Row 3: Delivery Requests */}
           <div style={{ marginTop: "1rem" }}>
             <DeliveryRequestsPanel
               homeLat={warehouseLat}

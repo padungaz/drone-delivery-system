@@ -29,23 +29,34 @@ Trước khi vận hành thử nghiệm hoặc bay tự động, bắt buộc ho
 
 Hệ thống cung cấp kịch bản kiểm thử tích hợp tự động cho toàn bộ luồng đa thiết bị (UAV + PLC + FAIRINO Robot + Storage):
 
-### 2.1. Chạy Integration Test tự động (Smart Intralogistics)
-Chạy tập lệnh kiểm thử tích hợp trên máy Backend:
+### 2.1. Chạy Integration Test Kiểm thử Kiến trúc 4 Tầng Decoupled
+Chạy tập lệnh kiểm thử tự động phân tách 4 tầng (`Customer Order` -> `Mission` -> `Station Task` -> `Hardware Execution`):
 
 ```bash
 cd backend
-.\venv\Scripts\python.exe test_smart_intralogistics.py
+python test_decoupled_architecture.py
 ```
 
-**Kịch bản kiểm thử tự động thực hiện 8 bước:**
+### 2.2. Chạy Integration Test Kiểm thử PLC DB15 Commands
+```bash
+cd backend
+python test_smart_intralogistics.py
+```
+
+**Kịch bản kiểm thử tự động thực hiện các bước:**
 1. Khởi tạo Cơ sở Dữ liệu & Bảng lưu trữ.
-2. Đăng ký 4 thiết bị LAN: `UAV01`, `PLC01`, `ROBOT01`, `CAM01`.
+2. Đăng ký 4 thiết bị LAN: `UAV01`, `PLC01` (IP `192.168.58.10`), `ROBOT01` (IP `192.168.58.2`), `CAM01`.
 3. Khởi tạo 9 ô kho thông minh (`A1` đến `C3`).
 4. Mô phỏng quét mã QR `SP001` từ Camera -> Tự động gán ô phù hợp.
-5. Kiểm tra các lệnh PLC Docking (`LOCK_DRONE`, `Z_UP`, `UNLOCK_DRONE`).
-6. Kiểm tra các lệnh Cánh tay Robot FAIRINO (`MOVE_HOME`, `PICK`, `STORE`).
-7. Khởi chạy FSM **Flow 8: DRONE_PICKUP** (Nhập kho tự động khi Drone mang hàng về).
-8. Khởi chạy FSM **Flow 9: DRONE_DELIVERY** (Xuất kho tự động từ ô lưu trữ lên Drone).
+5. Kiểm tra các lệnh PLC DB15 (`START_PLC`, `LOCK_DRONE`, `Z_UP`, `Z_DOWN`, `UNLOCK_DRONE`, `RESET_PLC`).
+### 2.3. Cấu hình Thiết bị & Test Socket Trực tiếp trên GCS UI (Frontend)
+
+Hệ thống đã tích hợp sẵn công cụ quản lý thiết bị và Test Socket trực tiếp vào GCS Frontend (`http://localhost:5173`):
+
+1. Mở giao diện GCS trên trình duyệt tại `http://localhost:5173`.
+2. Trên bảng **Mạng Thiết bị LAN**, nhấn nút **`⚙️ Cấu hình & Test Socket`**.
+3. Tùy chỉnh thông tin kết nối (IP, Port, Mode Sim/Real) của các thiết bị **FAIRINO Robot (Port 8090)**, **PLC Siemens S7-1200 (DB15)**, **UAV Drone**, **Camera QR**.
+4. Sử dụng khung **Console Test Socket Lệnh trực tiếp** để thử nghiệm gửi lệnh LUA (`MOVE_HOME`, `PICK A1`, `STORE B2`, `STATUS`) hoặc lệnh PLC và nhận log phản hồi trực tiếp.
 
 ---
 

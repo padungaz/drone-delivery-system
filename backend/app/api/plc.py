@@ -53,6 +53,30 @@ async def control_plc_lock(req: PLCLockRequest):
     }
 
 
+@plc_router.post("/start")
+async def start_plc():
+    mgr = PLCManager.get_instance()
+    status = await mgr.execute_command(PLCCommand.START_PLC)
+    await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
+    return {"message": "Lệnh Khởi động PLC (START_PLC) thành công!", "status": status.model_dump()}
+
+
+@plc_router.post("/stop")
+async def stop_plc():
+    mgr = PLCManager.get_instance()
+    status = await mgr.execute_command(PLCCommand.STOP_PLC)
+    await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
+    return {"message": "Lệnh Dừng PLC (STOP_PLC) thành công!", "status": status.model_dump()}
+
+
+@plc_router.post("/reset")
+async def reset_plc():
+    mgr = PLCManager.get_instance()
+    status = await mgr.execute_command(PLCCommand.RESET_PLC)
+    await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
+    return {"message": "Lệnh Reset Lỗi PLC (RESET_PLC) thành công!", "status": status.model_dump()}
+
+
 class PLCSensorRequest(BaseModel):
     detected: bool
 

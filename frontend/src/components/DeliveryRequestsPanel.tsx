@@ -4,7 +4,6 @@ import {
   adminUpdateDeliveryStatus,
   adminDeleteDeliveryRequest,
   adminCompleteDeliveryRequest,
-  startAutoBatchMissions,
 } from "../services/api";
 import type { MissionLocations } from "../types/drone";
 
@@ -154,36 +153,20 @@ export function DeliveryRequestsPanel({ onLocationsSelected: _onLocationsSelecte
   };
 
   const handleSelectAndStart = async (req: DeliveryRequest) => {
-    if (!confirm(`🚀 Xác nhận kích hoạt thực thi Đơn hàng #${req.id}?`)) return;
+    if (!confirm(`🚀 Xác nhận phê duyệt Đơn hàng #${req.id}?`)) return;
     setActionLoading(req.id);
     setMessage(null);
     try {
       await adminUpdateDeliveryStatus(req.id, "APPROVED");
-      const res = await startAutoBatchMissions();
-      const data = await res.json();
-      setMessage({ id: req.id, text: data.message || "🚀 Đã kích hoạt đơn hàng thành công!", ok: data.started !== false });
+      setMessage({ id: req.id, text: "🚀 Đã phê duyệt đơn hàng thành công!", ok: true });
       fetchRequests();
     } catch {
-      setMessage({ id: req.id, text: "Lỗi kết nối khi kích hoạt đơn", ok: false });
+      setMessage({ id: req.id, text: "Lỗi kết nối khi duyệt đơn", ok: false });
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleStartAutoBatch = async () => {
-    if (!confirm("🚀 Xác nhận kích hoạt Chạy Tự Động Lần Lượt Toàn Bộ Hàng Chờ (Auto-Batch Execution)?")) return;
-    setLoading(true);
-    try {
-      const res = await startAutoBatchMissions();
-      const data = await res.json();
-      alert(data.message || "Đã kích hoạt tự động chạy hàng chờ!");
-      fetchRequests();
-    } catch {
-      alert("Lỗi kết nối khi kích hoạt tự động hàng chờ");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const sortedRequests = [...requests].sort((a, b) => {
     if (sortBy === "NEWEST") {
@@ -214,15 +197,6 @@ export function DeliveryRequestsPanel({ onLocationsSelected: _onLocationsSelecte
           )}
         </h2>
         <div className="panel-header-actions">
-          <button
-            type="button"
-            className="btn btn-success btn-sm"
-            onClick={handleStartAutoBatch}
-            disabled={loading}
-            title="Kích hoạt tự động chạy lần lượt 100% đơn hàng trong danh sách chờ"
-          >
-            ⚡ CHẠY TỰ ĐỘNG HÀNG CHỜ
-          </button>
           <select
             className="filter-select"
             value={sortBy}

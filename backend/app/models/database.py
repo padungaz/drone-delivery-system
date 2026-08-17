@@ -153,9 +153,29 @@ class DeviceRecord(Base):
     device_name: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     device_type: Mapped[str] = mapped_column(String(32))  # "UAV", "PLC", "ROBOT", "CAMERA"
     ip_address: Mapped[str] = mapped_column(String(64))
-    status: Mapped[str] = mapped_column(String(32), default="OFFLINE")  # "ONLINE", "OFFLINE", "BUSY", "ERROR"
+    port: Mapped[int] = mapped_column(Integer, default=8090)
+    simulator_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    rack: Mapped[int] = mapped_column(Integer, default=0)
+    slot: Mapped[int] = mapped_column(Integer, default=1)
+    db_number: Mapped[int] = mapped_column(Integer, default=15)
+    status: Mapped[str] = mapped_column(String(32), default="OFFLINE")  # "CONNECTED", "DISCONNECTED", "ONLINE", "OFFLINE", "BUSY", "ERROR"
+    error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, default=None)
     last_heartbeat: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+
+class DeviceCommandLogRecord(Base):
+    __tablename__ = "device_command_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device: Mapped[str] = mapped_column(String(64), index=True)  # e.g. "PLC01", "ROBOT01", "CAM01"
+    command: Mapped[str] = mapped_column(String(64), index=True) # e.g. "LOCK_DRONE", "MOVE_HOME", "PICK"
+    target: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, default=None)  # e.g. "A1", "PAD"
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    result: Mapped[str] = mapped_column(String(32), default="SUCCESS")  # "SUCCESS", "FAILED", "DONE"
+    message: Mapped[str] = mapped_column(Text, default="")
+
 
 
 
@@ -175,16 +195,22 @@ class IntralogisticsMissionRecord(Base):
     __tablename__ = "intralogistics_missions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("delivery_requests.id"), nullable=True, index=True)
     mission_type: Mapped[str] = mapped_column(String(32))  # "DRONE_PICKUP" or "DRONE_DELIVERY"
     drone_id: Mapped[str] = mapped_column(String(64), default="UAV01")
     product_id: Mapped[str] = mapped_column(String(64))
     target_slot: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
-    state: Mapped[str] = mapped_column(String(64), default="STARTED")
+    status: Mapped[str] = mapped_column(String(32), default="WAITING")  # "WAITING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"
+    current_phase: Mapped[str] = mapped_column(String(64), default="WAITING")
+    state: Mapped[str] = mapped_column(String(64), default="WAITING")  # Backward compatibility alias for status
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    error_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     step_details: Mapped[str] = mapped_column(Text, default="")
-    station_process_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="")
-    uav_mission_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
 
 

@@ -40,7 +40,7 @@ export function CameraPanel({ cameraStatus, arucoDetection, droneOnline: _droneO
   };
 
   return (
-    <section className="panel camera-panel">
+    <section className="panel">
       <h2>Camera & ArUco</h2>
 
       {/* Status badge */}

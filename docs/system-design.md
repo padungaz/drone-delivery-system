@@ -310,11 +310,14 @@ erDiagram
 
     intralogistics_missions {
         int id PK
+        int order_id FK "delivery_requests.id"
         string mission_type "DRONE_PICKUP / DRONE_DELIVERY"
-        string drone_id
+        string drone_id "UAV01"
         string product_id
-        string target_slot
-        string state "STARTED / MISSION_COMPLETE / ERROR_..."
+        string target_slot "A1..C3"
+        string status "QUEUED / RUNNING / PAUSED / COMPLETED / FAILED"
+        string current_phase "WAITING / STATION_PROCESSING / DRONE_EN_ROUTE / COMPLETED"
+        string state "Alias for status"
         text step_details
         datetime created_at
         datetime updated_at

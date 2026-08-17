@@ -43,6 +43,8 @@ class InventoryManager:
                 if not slot.slot_name and idx < len(SLOT_NAMES):
                     slot.slot_name = SLOT_NAMES[idx]
                     slot.status = slot.status or StorageSlotStatus.EMPTY.value
+                if slot.updated_time is None:
+                    slot.updated_time = now
             await self.session.commit()
 
     async def get_all_slots(self) -> List[StorageSlotRecord]:
@@ -90,7 +92,8 @@ class InventoryManager:
         if not slot:
             return None
 
-        slot.status = status.value
+        status_val = status.value if hasattr(status, "value") else str(status)
+        slot.status = status_val
         if product_id is not None:
             slot.product_id = product_id
         if qr_code is not None:

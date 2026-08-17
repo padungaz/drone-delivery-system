@@ -34,11 +34,80 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-        # Lightweight auto-migration: add missing columns to storage_slots
-        # (SQLAlchemy create_all only creates new tables, not new columns)
+        # Lightweight auto-migration: add missing columns
         await _migrate_storage_slots(conn)
+        await _migrate_devices(conn)
+        await _migrate_intralogistics_missions(conn)
 
     logger.info("Database initialized")
+
+
+async def _migrate_intralogistics_missions(conn) -> None:
+    """Add missing columns to intralogistics_missions table."""
+    def _sync_migrate(sync_conn):
+        raw = sync_conn.connection.dbapi_connection
+        cursor = raw.cursor()
+        cursor.execute("PRAGMA table_info(intralogistics_missions)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+
+        if existing_cols:
+            if "order_id" not in existing_cols:
+                cursor.execute("ALTER TABLE intralogistics_missions ADD COLUMN order_id INTEGER")
+                logger.info("Migrated intralogistics_missions: added column 'order_id'")
+            if "status" not in existing_cols:
+                cursor.execute("ALTER TABLE intralogistics_missions ADD COLUMN status VARCHAR(32) DEFAULT 'WAITING'")
+                logger.info("Migrated intralogistics_missions: added column 'status'")
+            if "current_phase" not in existing_cols:
+                cursor.execute("ALTER TABLE intralogistics_missions ADD COLUMN current_phase VARCHAR(64) DEFAULT 'WAITING'")
+                logger.info("Migrated intralogistics_missions: added column 'current_phase'")
+            if "priority" not in existing_cols:
+                cursor.execute("ALTER TABLE intralogistics_missions ADD COLUMN priority INTEGER DEFAULT 0")
+                logger.info("Migrated intralogistics_missions: added column 'priority'")
+            if "error_reason" not in existing_cols:
+                cursor.execute("ALTER TABLE intralogistics_missions ADD COLUMN error_reason TEXT")
+                logger.info("Migrated intralogistics_missions: added column 'error_reason'")
+            if "started_at" not in existing_cols:
+                cursor.execute("ALTER TABLE intralogistics_missions ADD COLUMN started_at DATETIME")
+                logger.info("Migrated intralogistics_missions: added column 'started_at'")
+            if "completed_at" not in existing_cols:
+                cursor.execute("ALTER TABLE intralogistics_missions ADD COLUMN completed_at DATETIME")
+                logger.info("Migrated intralogistics_missions: added column 'completed_at'")
+
+    await conn.run_sync(_sync_migrate)
+
+
+
+async def _migrate_devices(conn) -> None:
+    """Add missing columns to devices table."""
+    def _sync_migrate(sync_conn):
+        raw = sync_conn.connection.dbapi_connection
+        cursor = raw.cursor()
+        cursor.execute("PRAGMA table_info(devices)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+
+        if existing_cols:
+            if "error_code" not in existing_cols:
+                cursor.execute("ALTER TABLE devices ADD COLUMN error_code VARCHAR(64)")
+                logger.info("Migrated devices: added column 'error_code'")
+            if "port" not in existing_cols:
+                cursor.execute("ALTER TABLE devices ADD COLUMN port INTEGER DEFAULT 8090")
+                logger.info("Migrated devices: added column 'port'")
+            if "simulator_mode" not in existing_cols:
+                cursor.execute("ALTER TABLE devices ADD COLUMN simulator_mode BOOLEAN DEFAULT 0")
+                logger.info("Migrated devices: added column 'simulator_mode'")
+            if "rack" not in existing_cols:
+                cursor.execute("ALTER TABLE devices ADD COLUMN rack INTEGER DEFAULT 0")
+                logger.info("Migrated devices: added column 'rack'")
+            if "slot" not in existing_cols:
+                cursor.execute("ALTER TABLE devices ADD COLUMN slot INTEGER DEFAULT 1")
+                logger.info("Migrated devices: added column 'slot'")
+            if "db_number" not in existing_cols:
+                cursor.execute("ALTER TABLE devices ADD COLUMN db_number INTEGER DEFAULT 15")
+                logger.info("Migrated devices: added column 'db_number'")
+
+    await conn.run_sync(_sync_migrate)
+
+
 
 
 async def _migrate_storage_slots(conn) -> None:

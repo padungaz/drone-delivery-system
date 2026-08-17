@@ -216,6 +216,26 @@ export async function controlPlcLock(lock: boolean): Promise<Response> {
   });
 }
 
+export async function startPlc(): Promise<Response> {
+  return fetch(`${API_BASE}/api/plc/start`, { method: "POST" });
+}
+
+export async function stopPlc(): Promise<Response> {
+  return fetch(`${API_BASE}/api/plc/stop`, { method: "POST" });
+}
+
+export async function resetPlc(): Promise<Response> {
+  return fetch(`${API_BASE}/api/plc/reset`, { method: "POST" });
+}
+
+export async function executePlcCommand(command: string): Promise<Response> {
+  return fetch(`${API_BASE}/api/plc/command`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command }),
+  });
+}
+
 export async function setSimulatedDroneSensor(detected: boolean): Promise<Response> {
   return fetch(`${API_BASE}/api/plc/sensor/drone-detected`, {
     method: "POST",
@@ -317,11 +337,139 @@ export async function overrideMissionQR(productId: string): Promise<Response> {
   });
 }
 
-export async function startAutoBatchMissions(): Promise<Response> {
-  return fetch(`${API_BASE}/api/missions/auto-start`, {
+export async function sendPlcCommand(command: string): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/plc/command`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command }),
+  });
+}
+
+export async function sendRobotCommand(command: string, target?: string): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/robot/command`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command, target: target || null }),
+  });
+}
+
+export async function startDeviceCamera(): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/camera/start`, { method: "POST" });
+}
+
+export async function stopDeviceCamera(): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/camera/stop`, { method: "POST" });
+}
+
+export async function testDeviceCameraQr(qrCode?: string): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/camera/qr_scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qr_code: qrCode || "PROD-TEST-1001" }),
+  });
+}
+
+
+
+export async function getActiveMission(): Promise<Response> {
+  return fetch(`${API_BASE}/api/mission/active`);
+}
+
+export async function getStationStatus(): Promise<Response> {
+  return fetch(`${API_BASE}/api/station/status`);
+}
+
+export async function triggerAutoStartMissions(): Promise<Response> {
+  return fetch(`${API_BASE}/api/mission/auto-start`, { method: "POST" });
+}
+
+export async function getDeviceLogs(limit = 50): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/logs?limit=${limit}`);
+}
+
+export async function updateDeviceConfig(
+  deviceName: string,
+  config: {
+    ip_address?: string;
+    port?: number;
+    simulator_mode?: boolean;
+    rack?: number;
+    slot?: number;
+    db_number?: number;
+  }
+): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/config/${deviceName}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+}
+
+export async function testDeviceConnection(
+  deviceName: string,
+  ipAddress?: string,
+  port?: number,
+  payload?: string
+): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/test-connection`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      device_name: deviceName,
+      ip_address: ipAddress,
+      port: port,
+      payload: payload || "STATUS",
+    }),
+  });
+}
+
+export async function sendRawDeviceCommand(
+  deviceName: string,
+  commandText: string,
+  target?: string
+): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/send-raw-command`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      device_name: deviceName,
+      command_text: commandText,
+      target: target || null,
+    }),
+  });
+}
+
+/** Get current Mission Queue (Active mission + WAITING FIFO list). */
+export async function getMissionQueue(): Promise<Response> {
+  return fetch(`${API_BASE}/api/mission/queue`);
+}
+
+/** Cancel a WAITING mission in queue. */
+export async function cancelMission(missionId: number | string): Promise<Response> {
+  return fetch(`${API_BASE}/api/mission/${missionId}/cancel`, {
     method: "POST",
   });
 }
+
+/** Create a new Mission and add it to Queue. */
+export async function createMission(data: {
+  mission_type: "DRONE_PICKUP" | "DRONE_DELIVERY";
+  product_id: string;
+  drone_id?: string;
+  target_slot?: string;
+  order_id?: number;
+  priority?: number;
+}): Promise<Response> {
+  return fetch(`${API_BASE}/api/mission/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+
+
+
 
 
 
