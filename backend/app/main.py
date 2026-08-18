@@ -3,7 +3,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.customer_routes import customer_router
@@ -33,6 +33,31 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+class RoutinePollingFilter(logging.Filter):
+    """Filter out routine high-frequency polling GET 200 OK requests to keep console logs clean."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        polling_patterns = (
+            "GET /api/device/list",
+            "GET /api/mission/queue",
+            "GET /api/device/logs",
+            "GET /api/inventory/slots",
+            "GET /api/plc/status",
+            "GET /api/robot/status",
+            "GET /api/station/status",
+            "GET /api/fleet",
+            "GET /api/mission/active",
+        )
+        if any(pattern in msg for pattern in polling_patterns) and " 200 " in msg:
+            return False
+        return True
+
+
+# Apply filter to uvicorn access logs
+logging.getLogger("uvicorn.access").addFilter(RoutinePollingFilter())
 
 
 async def heartbeat_monitor_task():
@@ -97,21 +122,31 @@ async def heartbeat_monitor_task():
             logger.error("Error in heartbeat monitor task: %s", exc)
 
 
+from app.services.recovery_manager import RecoveryManager
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Silence routine HTTP access logs from uvicorn so console is clean
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
     await init_db()
     # Seed 9 storage slots & 4 LAN devices (UAV01, PLC01, ROBOT01, CAM01)
     async with async_session() as session:
+        # 1. Run startup recovery for orphaned missions & hardware state check
+        recovery_mgr = RecoveryManager(session)
+        await recovery_mgr.check_and_recover_on_startup()
+
         inventory_mgr = InventoryManager(session)
         await inventory_mgr.init_default_slots()
 
         dev_mgr = DeviceManager(session)
         plc_ip = os.getenv("PLC_IP", "192.168.58.10")
-        await dev_mgr.register_device(DeviceRegisterRequest(name="UAV01", type=DeviceType.UAV, ip="192.168.137.88"))
-        await dev_mgr.register_device(DeviceRegisterRequest(name="PLC01", type=DeviceType.PLC, ip=plc_ip))
-        await dev_mgr.register_device(DeviceRegisterRequest(name="ROBOT01", type=DeviceType.ROBOT, ip="192.168.58.2"))
-        await dev_mgr.register_device(DeviceRegisterRequest(name="CAM01", type=DeviceType.CAMERA, ip="192.168.1.50"))
-
+        robot_ip = os.getenv("ROBOT_IP", "192.168.57.2")
+        await dev_mgr.register_device(DeviceRegisterRequest(name="UAV01", type=DeviceType.UAV, ip="192.168.137.88", port=14550))
+        await dev_mgr.register_device(DeviceRegisterRequest(name="PLC01", type=DeviceType.PLC, ip=plc_ip, port=102))
+        await dev_mgr.register_device(DeviceRegisterRequest(name="ROBOT01", type=DeviceType.ROBOT, ip=robot_ip, port=8090))
+        await dev_mgr.register_device(DeviceRegisterRequest(name="CAM01", type=DeviceType.CAMERA, ip="192.168.58.50", port=80))
 
     # Start background heartbeat monitor
     monitor = asyncio.create_task(heartbeat_monitor_task())
@@ -136,6 +171,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_important_actions(request: Request, call_next):
+    """Log meaningful state-modifying actions while skipping repetitive polling."""
+    method = request.method
+    path = request.url.path
+    if method in ("POST", "PUT", "DELETE", "PATCH"):
+        client_ip = request.client.host if request.client else "unknown"
+        logger.info("👉 [ACTION] %s %s (from %s)", method, path, client_ip)
+    return await call_next(request)
 
 # Existing routers (Backward Compatible)
 app.include_router(router)

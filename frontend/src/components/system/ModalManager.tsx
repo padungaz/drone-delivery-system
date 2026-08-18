@@ -4,6 +4,7 @@ import { TaskDetailModal } from "../modals/TaskDetailModal";
 import { SafetyAlarmModal } from "../modals/SafetyAlarmModal";
 import { HardwareConfigModal } from "../modals/HardwareConfigModal";
 import { InputSlotModal } from "../modals/InputSlotModal";
+import type { DeviceInfo } from "../../types/drone";
 
 export type ModalType =
   | "slot_detail"
@@ -17,6 +18,8 @@ export type ModalType =
 interface Props {
   activeModal: ModalType;
   modalData?: any;
+  devices?: DeviceInfo[];
+  onRefreshDevices?: () => void;
   onClose: () => void;
   onConfirmAction?: (payload: any) => void;
   onResetEStop?: () => void;
@@ -25,6 +28,8 @@ interface Props {
 export function ModalManager({
   activeModal,
   modalData,
+  devices,
+  onRefreshDevices,
   onClose,
   onConfirmAction,
   onResetEStop,
@@ -108,6 +113,8 @@ export function ModalManager({
 
       <HardwareConfigModal
         isOpen={activeModal === "hardware_config"}
+        devices={devices}
+        onRefreshDevices={onRefreshDevices}
         onClose={onClose}
       />
     </>

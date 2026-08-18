@@ -4,13 +4,11 @@ import {
   DROP_OK_ENABLED_STATES,
   FLYING_STATES,
   PICKUP_OK_ENABLED_STATES,
-  START_ENABLED_STATES,
 } from "../types/drone";
 import {
   dropComplete,
   forceRtl,
   pickupComplete,
-  startMission,
   stopMission,
 } from "../services/api";
 
@@ -21,24 +19,24 @@ interface Props {
   onOpenManual: () => void;
 }
 
-type Action = "start" | "pickup_ok" | "drop_ok" | "rtl" | "stop";
+type Action = "pickup_ok" | "drop_ok" | "rtl" | "stop";
 
 // Status banner configs per drone state
 const STATE_BANNERS: Record<string, { text: string; cls: string }> = {
   WAIT_PICKUP_CONFIRM: {
-    text: "📦 Package ready at pickup location — press PICKUP OK when package is secured",
+    text: "📦 Đã tiếp đất điểm Lấy hàng — nhấn XÁC NHẬN LẤY HÀNG (PICKUP OK) khi hàng đã gài an toàn",
     cls: "banner-pickup",
   },
   WAIT_DROP_CONFIRM: {
-    text: "📬 Package delivered at drop location — press DROP OK to confirm delivery",
+    text: "📬 Đã tiếp đất điểm Giao hàng — nhấn XÁC NHẬN GIAO HÀNG (DROP OK) để hoàn tất",
     cls: "banner-drop",
   },
   RETURN_HOME: {
-    text: "🏠 Returning home — START is available for the next delivery",
+    text: "🏠 Drone đang quay về Trạm xuất phát",
     cls: "banner-rtl",
   },
   ERROR: {
-    text: "⚠️ Drone error — check companion logs. Will auto-recover to IDLE.",
+    text: "⚠️ Lỗi FSM Drone — kiểm tra logs companion hoặc nhấn Reset IDLE trong Manual Mode.",
     cls: "banner-error",
   },
 };
@@ -50,7 +48,6 @@ export function ControlButtons({ locations, telemetry, droneOnline, onOpenManual
   const state = telemetry?.drone_state ?? null;
 
   // ── Button enable logic ────────────────────────────────────────────────
-  const canStart = droneOnline && state != null && START_ENABLED_STATES.has(state);
   const canPickupOk = droneOnline && state != null && PICKUP_OK_ENABLED_STATES.has(state);
   const canDropOk = droneOnline && state != null && DROP_OK_ENABLED_STATES.has(state);
   const canRtl = droneOnline && state != null && FLYING_STATES.has(state);
@@ -67,7 +64,6 @@ export function ControlButtons({ locations, telemetry, droneOnline, onOpenManual
     try {
       let res: Response;
       switch (action) {
-        case "start":      res = await startMission(locations);   break;
         case "pickup_ok":  res = await pickupComplete(locations); break;
         case "drop_ok":    res = await dropComplete(locations);   break;
         case "rtl":        res = await forceRtl(locations);       break;
@@ -91,7 +87,12 @@ export function ControlButtons({ locations, telemetry, droneOnline, onOpenManual
 
   return (
     <section className="panel control-buttons">
-      <h2>Controls</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+        <h2>🎮 UAV Flight Controls</h2>
+        <span className={`badge ${droneOnline ? "online" : "offline"}`}>
+          {droneOnline ? "DRONE ONLINE" : "DRONE OFFLINE"}
+        </span>
+      </div>
 
       {/* Contextual status banner */}
       {banner && (
@@ -100,30 +101,15 @@ export function ControlButtons({ locations, telemetry, droneOnline, onOpenManual
         </div>
       )}
 
-      {/* Row 1: primary mission controls */}
-      <div className="button-row">
+      {/* Row 1: Manual flight mode modal trigger & emergency flight commands */}
+      <div className="button-row" style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
         <button
           onClick={onOpenManual}
           className="btn btn-secondary"
-          title="Open manual control interface"
+          style={{ flex: "1.2", background: "linear-gradient(135deg, #1e293b, #0f172a)", borderColor: "#00F0FF", color: "#00F0FF", fontWeight: "bold" }}
+          title="Mở bảng điều khiển kiểm thử thủ công: ARM, Disarm, Chế độ bay, Quy trình 7 bước"
         >
-          🎮 Manual Mode
-        </button>
-
-        <button
-          id="btn-start-mission"
-          className="btn btn-start"
-          disabled={!canStart || loading !== null}
-          onClick={() => handleAction("start")}
-          title={
-            !canStart
-              ? `START requires IDLE or RETURN_HOME state (current: ${state ?? "offline"})`
-              : state === "RETURN_HOME"
-              ? "Queue next delivery (Continuous Delivery Mode)"
-              : "Start delivery mission"
-          }
-        >
-          {loading === "start" ? "Sending…" : "▶ START MISSION"}
+          🎮 Bảng Điều Khiển Thủ Công (Manual Mode)
         </button>
 
         <button
@@ -131,40 +117,9 @@ export function ControlButtons({ locations, telemetry, droneOnline, onOpenManual
           className="btn btn-rtl"
           disabled={!canRtl || loading !== null}
           onClick={() => handleAction("rtl")}
-          title="Emergency: force drone to return home immediately"
+          title="Khẩn cấp: Yêu cầu Drone quay về trạm xuất phát lập tức"
         >
           {loading === "rtl" ? "Sending…" : "🏠 FORCE RETURN HOME"}
-        </button>
-      </div>
-
-      {/* Row 2: user confirm gates */}
-      <div className="button-row">
-        <button
-          id="btn-pickup-ok"
-          className="btn btn-pickup-ok"
-          disabled={!canPickupOk || loading !== null}
-          onClick={() => handleAction("pickup_ok")}
-          title={
-            !canPickupOk
-              ? "Only available when drone has landed at pickup (WAIT_PICKUP_CONFIRM)"
-              : "Confirm package has been secured — drone will proceed to drop"
-          }
-        >
-          {loading === "pickup_ok" ? "Sending…" : "📦 PICKUP OK"}
-        </button>
-
-        <button
-          id="btn-drop-ok"
-          className="btn btn-drop-ok"
-          disabled={!canDropOk || loading !== null}
-          onClick={() => handleAction("drop_ok")}
-          title={
-            !canDropOk
-              ? "Only available when drone has landed at drop (WAIT_DROP_CONFIRM)"
-              : "Confirm package delivered — drone will return home"
-          }
-        >
-          {loading === "drop_ok" ? "Sending…" : "📬 DROP OK"}
         </button>
 
         <button
@@ -174,23 +129,57 @@ export function ControlButtons({ locations, telemetry, droneOnline, onOpenManual
           onClick={() => handleAction("stop")}
           title={
             !canStop
-              ? "STOP only when on ground + disarmed (not IDLE)"
-              : "Stop mission and reset drone to IDLE"
+              ? "DỪNG/RESET chỉ khả dụng khi Drone đã tiếp đất & Disarmed"
+              : "Reset FSM về IDLE"
           }
         >
-          {loading === "stop" ? "Sending…" : "⏹ STOP"}
+          {loading === "stop" ? "Sending…" : "⏹ STOP / RESET"}
+        </button>
+      </div>
+
+      {/* Row 2: User confirmation gates on ground */}
+      <div className="button-row" style={{ display: "flex", gap: "8px" }}>
+        <button
+          id="btn-pickup-ok"
+          className="btn btn-pickup-ok"
+          style={{ flex: 1 }}
+          disabled={!canPickupOk || loading !== null}
+          onClick={() => handleAction("pickup_ok")}
+          title={
+            !canPickupOk
+              ? "Chỉ khả dụng khi Drone đang ở điểm lấy hàng (WAIT_PICKUP_CONFIRM)"
+              : "Xác nhận hàng đã được gài chắc chắn trên Drone"
+          }
+        >
+          {loading === "pickup_ok" ? "Sending…" : "📦 XÁC NHẬN LẤY HÀNG (PICKUP OK)"}
+        </button>
+
+        <button
+          id="btn-drop-ok"
+          className="btn btn-drop-ok"
+          style={{ flex: 1 }}
+          disabled={!canDropOk || loading !== null}
+          onClick={() => handleAction("drop_ok")}
+          title={
+            !canDropOk
+              ? "Chỉ khả dụng khi Drone đang ở điểm giao hàng (WAIT_DROP_CONFIRM)"
+              : "Xác nhận hàng đã giao an toàn cho khách"
+          }
+        >
+          {loading === "drop_ok" ? "Sending…" : "📬 XÁC NHẬN GIAO HÀNG (DROP OK)"}
         </button>
       </div>
 
       {/* Response message */}
-      {message && <p className="action-message">{message}</p>}
+      {message && <p className="action-message" style={{ marginTop: "8px" }}>{message}</p>}
 
       {/* State hint */}
       {telemetry && (
-        <p className="muted hint">
+        <p className="muted hint" style={{ marginTop: "8px" }}>
           State: <strong>{telemetry.drone_state}</strong>
           {" · "}Phase: {telemetry.landing_phase || "—"}
           {" · "}Armed: {telemetry.armed ? "YES" : "NO"}
+          {" · "}Mode: <strong>{telemetry.flight_mode}</strong>
         </p>
       )}
     </section>

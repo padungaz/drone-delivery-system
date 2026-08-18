@@ -136,9 +136,9 @@ class StationService:
             await self.plc_mgr.execute_command(PLCCommand.Z_UP)
             await self.plc_mgr.wait_for_status("plc_z_is_up", True, timeout_sec=5.0)
 
-            # 7. Robot Place Product onto Drone Dock
-            await self._broadcast_status("7. ROBOT_PLACE_DOCK", "Robot placing product onto Drone Dock...")
-            await self.robot_mgr.execute_command(RobotCommand.PLACE_PRODUCT, slot="DOCK")
+            # 7. Robot Place Product onto Drone Dock N1
+            await self._broadcast_status("7. ROBOT_PLACE_DOCK", "Robot placing product onto Drone Dock N1...")
+            await self.robot_mgr.execute_command(RobotCommand.PLACE_PRODUCT, slot="N1")
 
             # 8. Robot Home
             await self._broadcast_status("8. ROBOT_HOME_2", "Robot returning Home position...")
@@ -165,14 +165,14 @@ class StationService:
             return False
 
     async def execute_unload_product(self, target_slot: str, product_id: str, session: AsyncSession) -> bool:
-        """UNLOAD_PRODUCT Operation (Drone Pickup / Import): Drone Dock -> Warehouse Slot.
+        """UNLOAD_PRODUCT Operation (Drone Pickup / Import): Drone Dock N1 -> Warehouse Slot.
 
         11-Step FSM Sequence:
           1. Drone Detect (drone_detected == TRUE)
           2. Lock Drone (cmd_lock_drone -> plc_locked_state == TRUE)
           3. Robot Home (MOVE_HOME)
           4. Z Up (cmd_z_up -> plc_z_is_up == TRUE)
-          5. Robot Pick (PICK DOCK)
+          5. Robot Pick (PICK N1)
           6. Robot Home (MOVE_HOME)
           7. Z Down (cmd_z_down -> plc_z_is_down == TRUE)
           8. QR Scan (Scan product QR code)
@@ -189,6 +189,8 @@ class StationService:
         try:
             # 1. Drone Detect
             await self._broadcast_status("1. DRONE_DETECT", "Checking Drone landing at Dock N1...")
+            if not self.plc_mgr.drone_detected and self.plc_mgr.simulator_mode:
+                self.plc_mgr.set_drone_detected(True)
             await self.plc_mgr.wait_for_status("drone_detected", True, timeout_sec=15.0)
 
             # 2. Lock Drone
@@ -205,9 +207,9 @@ class StationService:
             await self.plc_mgr.execute_command(PLCCommand.Z_UP)
             await self.plc_mgr.wait_for_status("plc_z_is_up", True, timeout_sec=5.0)
 
-            # 5. Robot Pick from Drone Dock
-            await self._broadcast_status("5. ROBOT_PICK_DOCK", "Robot picking product from Drone Dock...")
-            await self.robot_mgr.execute_command(RobotCommand.PICK_PRODUCT, slot="DOCK")
+            # 5. Robot Pick from Drone Dock N1
+            await self._broadcast_status("5. ROBOT_PICK_DOCK", "Robot picking product from Drone Dock N1...")
+            await self.robot_mgr.execute_command(RobotCommand.PICK_PRODUCT, slot="N1")
 
             # 6. Robot Home
             await self._broadcast_status("6. ROBOT_HOME_2", "Robot returning to Home position...")

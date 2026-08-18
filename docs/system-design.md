@@ -1,6 +1,13 @@
 # Thiết kế Hệ thống (System Design v3.0)
 
-Tài liệu này cung cấp cái nhìn tổng quát và chi tiết về kiến trúc hệ thống giao hàng bằng Drone kết hợp Trạm lưu kho thông minh (Smart Intralogistics Controller System), cơ sở dữ liệu v3.0, các giao thức kết nối LAN, máy trạng thái hữu hạn (FSM) và toàn bộ **Lưu đồ Thuật toán (Flowcharts)** tổng hợp cũng như chi tiết từng phân hệ.
+Tài liệu này cung cấp thiết kế kiến trúc tổng thể và chi tiết cho hệ thống **Giao hàng bằng Drone kết hợp Trạm lưu kho thông minh (Smart Intralogistics Controller System v3.0)**, bao gồm:
+* Kiến trúc 4 tầng phân tách (Decoupled 4-Layer Architecture).
+* **Lưu đồ Thuật toán Tổng thể Toàn Hệ thống (Master System Flowchart)**.
+* **Lưu đồ Thuật toán Tổng cho Trạm Kho Đáp Thông Minh (Smart Docking Station Orchestration Flowchart - Gồm PLC, Robot, Camera, Kho 9 ô & Backend)**.
+* **Lưu đồ Thuật toán Chuyên sâu cho UAV (UAV Autonomous Flight & Precision Landing Flowchart)**.
+* Trình tự bắt tay tín hiệu (Sequence Diagrams).
+* Bảng ánh xạ bộ nhớ PLC DB15, giao thức TCP Socket Robot & MAVLink.
+* Thiết kế Cơ sở Dữ liệu (ERD v3.0) & Danh mục API REST / WebSocket.
 
 ---
 
@@ -10,277 +17,466 @@ Tài liệu này cung cấp cái nhìn tổng quát và chi tiết về kiến t
 
 ```mermaid
 graph TD
-    subgraph ClientLayer [Client Applications & Controls]
-        AdminApp["🖥️ Admin Dashboard (React + TS)<br/>Port: 5173 (Kho thông minh + Live Map)"]
-        CustApp["📱 Customer App (React + TS)<br/>Port: 5174"]
+    subgraph ClientLayer [Client Applications & Web Interfaces]
+        AdminApp["🖥️ Admin HMI Dashboard (React + TypeScript)<br/>Port: 5173 (Kho thông minh + Live Map + Device Config)"]
+        CustApp["📱 Customer Web App (React + TypeScript)<br/>Port: 5174 (Tạo đơn hàng, Đặt vị trí nhận/giao)"]
     end
 
-    subgraph ServerLayer [Centralized FastAPI Orchestration Engine]
-        API["⚡ Central FastAPI Web App (v3.0)<br/>Port: 8000"]
+    subgraph ServerLayer [Centralized FastAPI Orchestration Engine (Layer 2 & 3)]
+        API["⚡ Central FastAPI Server (Port: 8000)<br/>REST Endpoints & Hardware Routers"]
         DB[(💾 SQLite Database<br/>drone_delivery.db)]
         WSMgr["🔌 WebSocket Hub<br/>/ws/system & /ws/drone"]
-        Orchestrator["⚙️ Master Intralogistics FSM<br/>(MissionManager)"]
+        StationSvc["🏭 Station Controller Service<br/>(11-Step FSM: LOAD & UNLOAD)"]
+        MissionMgr["🎯 Mission Manager / Dispatcher<br/>(FIFO Queue & Lifecycle Orchestration)"]
     end
 
-    subgraph WarehouseHardware [LAN Hardware & Smart Warehouse]
-        PLC["⚙️ Siemens S7-1200 PLC<br/>(Pad Sensor, Clamps X/Y, Z-Lift)"]
-        ROBOT["🤖 FAIRINO Robot Arm<br/>(Cobot 6-DoF, Pick/Place A1..C3)"]
-        CAM["📷 QR Code Vision Camera<br/>(Auto Scan & Slot Assign)"]
-        GRID["📦 Ô chứa hàng 3x3<br/>(Slots A1..C3 Grid)"]
+    subgraph WarehouseHardware [LAN Smart Docking Station (Layer 4)]
+        PLC["⚡ Siemens S7-1200 PLC (IP: 192.168.58.10:102)<br/>Snap7 DB15: Pad Sensor, Clamps X/Y, Lift Z"]
+        ROBOT["🤖 FAIRINO FR3 Cobot (IP: 192.168.57.2:8090)<br/>TCP Socket: Pick/Store, Gripper, Safe Home"]
+        CAM["📷 QR Code Scanner Camera (IP: 192.168.58.50:80)<br/>OpenCV Vision: Quét mã QR & Gán ô tự động"]
+        GRID["📦 Kệ Kho Thông Minh 9 Ô (3x3 Grid)<br/>Quản lý lưu trữ Slots A1..C3"]
     end
 
-    subgraph UAVHardware [UAV Drone & Flight Control]
-        RPi["🍓 Raspberry Pi 5<br/>(Companion Computer)"]
-        Pixhawk["🛸 Pixhawk 6C<br/>(PX4 Firmware / MAVLink)"]
-        ArUcoCam["📷 RPi USB Cam<br/>(ArUco Precision Landing)"]
+    subgraph UAVHardware [UAV Fleet & Flight Control Unit]
+        RPi["🍓 Companion Computer (Raspberry Pi 5)<br/>IP: 192.168.137.88 (WebSocket /ws/drone)"]
+        Pixhawk["🛸 Flight Controller (Pixhawk 6C)<br/>PX4 Autopilot / MAVLink UART"]
+        ArUcoCam["📷 Downward USB Camera<br/>ArUco Marker Precision Landing (25Hz)"]
     end
 
     CustApp -->|HTTP REST| API
     AdminApp -->|HTTP REST| API
-    AdminApp <-->|WebSockets (/ws/system)| WSMgr
-    WSMgr <-->|WebSockets (/ws/drone)| RPi
+    AdminApp <-->|WebSocket (/ws/system)| WSMgr
+    WSMgr <-->|WebSocket (/ws/drone)| RPi
     
     API <-->|SQLAlchemy Async| DB
-    API <--> Orchestrator
-    Orchestrator -->|PLC Commands| PLC
-    Orchestrator -->|Robot Commands| ROBOT
-    Orchestrator -->|Inventory Logic| GRID
-    CAM -->|QR Payload API| API
+    API <--> MissionMgr
+    MissionMgr <--> StationSvc
+    
+    StationSvc -->|Snap7 ISO-on-TCP DB15| PLC
+    StationSvc -->|CRLF TCP Socket 8090| ROBOT
+    StationSvc -->|QR Scan API / Stream| CAM
+    StationSvc -->|Inventory Update| GRID
 
-    RPi <-->|MAVLink (UART)| Pixhawk
-    RPi --> ArUcoCam
+    RPi <-->|MAVLink Protocol| Pixhawk
+    RPi -->|OpenCV Stream| ArUcoCam
 
-    style AdminApp fill:#2a3a52,stroke:#3b82f6,stroke-width:2px,color:#fff
-    style CustApp fill:#1f2d45,stroke:#8b5cf6,stroke-width:2px,color:#fff
-    style API fill:#111827,stroke:#10b981,stroke-width:2px,color:#fff
-    style DB fill:#111827,stroke:#f59e0b,stroke-width:2px,color:#fff
-    style PLC fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff
-    style ROBOT fill:#701a75,stroke:#c084fc,stroke-width:2px,color:#fff
-    style RPi fill:#800020,stroke:#ef4444,stroke-width:2px,color:#fff
+    style AdminApp fill:#1e293b,stroke:#00f0ff,stroke-width:2px,color:#fff
+    style CustApp fill:#1e293b,stroke:#8b5cf6,stroke-width:2px,color:#fff
+    style API fill:#0f172a,stroke:#10b981,stroke-width:2px,color:#fff
+    style DB fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#fff
+    style StationSvc fill:#1e3a8a,stroke:#38bdf8,stroke-width:2px,color:#fff
+    style MissionMgr fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff
+    style PLC fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#fff
+    style ROBOT fill:#581c87,stroke:#c084fc,stroke-width:2px,color:#fff
+    style CAM fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#fff
+    style GRID fill:#1f2937,stroke:#94a3b8,stroke-width:2px,color:#fff
+    style RPi fill:#831843,stroke:#ec4899,stroke-width:2px,color:#fff
+    style Pixhawk fill:#701a75,stroke:#e879f9,stroke-width:2px,color:#fff
 ```
 
 ---
 
-### 1.2. Lưu đồ Thuật toán Tổng hợp Toàn Hệ thống (Master System Algorithm Flowchart)
+### 1.2. Bảng Thông số Phần cứng & Kết nối Mạng LAN
+
+| Thiết bị | Device Type | IP Mặc định | Cổng (Port) | Giao thức | Chức năng chính |
+| :--- | :--- | :--- | :---: | :--- | :--- |
+| **ROBOT01** | `ROBOT` | `192.168.57.2` | `8090` | TCP Socket (CRLF) | Cánh tay Robot FAIRINO FR3 gắp/đặt hàng hóa giữa ô kho và gá Drone |
+| **PLC01** | `PLC` | `192.168.58.10` | `102` | Siemens Snap7 (DB15) | Điều khiển kẹp khóa Drone X/Y, bàn nâng trục Z, cảm biến tiếp đất |
+| **UAV01** | `UAV` | `192.168.137.88` | `14550` / `8000` | MAVLink / WebSocket | Drone giao nhận hàng tự động kết nối Companion RPi 5 + Pixhawk 6C |
+| **CAM01** | `CAMERA` | `192.168.58.50` | `80` / `554` | HTTP / RTSP Stream | Camera thị giác máy quét mã QR nhận diện sản phẩm nhập/xuất kho |
+
+---
+
+## 2. Lưu đồ Thuật toán Tổng thể Toàn Hệ thống (Master System Flowchart)
+
+Lưu đồ dưới đây mô tả luồng điều phối cấp cao xuyên suốt từ khi Khách hàng gửi đơn hàng, Hệ thống duyệt, Điều phối Drone bay, cho đến khi Trạm kho hoàn tất giao/nhận kiện hàng:
 
 ```mermaid
 flowchart TD
-    Start([🚀 KÍCH HOẠT HỆ THỐNG]) --> UserRequest{Loại yêu cầu}
+    Start([🚀 KHỞI ĐỘNG HỆ THỐNG]) --> ReceiveOrder[Khách hàng tạo Đơn hàng qua Customer App / Admin]
+    ReceiveOrder --> SaveDB[FastAPI lưu DeliveryRequest: Trạng thái PENDING]
+    SaveDB --> DispatchCheck{Auto Dispatch hay Admin Duyệt?}
 
-    %% Luồng 1: Khách hàng đặt đơn nhận/gửi
-    UserRequest -->|1. Đặt đơn giao nhận| CustOrder[Khách hàng gửi yêu cầu qua Customer App]
-    CustOrder --> BackendPending[Backend lưu đơn hàng trạng thái PENDING]
-    BackendPending --> AdminReview{Admin duyệt đơn?}
-    AdminReview -->|Từ chối| OrderCancel[Hủy đơn hàng]
-    AdminReview -->|Phê duyệt| MissionStart[Admin phát lệnh START Chuyến bay / Mission]
+    DispatchCheck -->|Admin Duyệt| ManualApprove[Admin phê duyệt đơn trên Dashboard]
+    DispatchCheck -->|Tự động| AutoQueue[Hệ thống đưa đơn vào Hàng đợi Mission Queue]
 
-    %% Luồng 2: Điều phối Drone bay
-    MissionStart --> UAVTakeoff[UAV Cất cánh & Bay theo tọa độ GPS]
-    UAVTakeoff --> ReachDestination{Đến điểm chỉ định?}
-    ReachDestination -->|Chưa đến| UAVTakeoff
-    ReachDestination -->|Đến vị trí| DetectArUco{Camera quét thấy ArUco?}
-    DetectArUco -->|Có| ArUcoLand[Hạ cánh chính xác bằng ArUco Precision Landing]
-    DetectArUco -->|Không| GPSLand[Hạ cánh khẩn cấp theo GPS]
-    
-    ArUcoLand --> PadTouchdown[UAV tiếp đất sàn Landing Pad]
-    GPSLand --> PadTouchdown
+    ManualApprove --> CreateMission[Tạo Nhiệm vụ IntralogisticsMission: DRONE_PICKUP hoặc DRONE_DELIVERY]
+    AutoQueue --> CreateMission
 
-    %% Luồng 3: Điều phối Trạm Kho thông minh
-    PadTouchdown --> PLCSensor{Cảm biến PLC phát hiện Drone?}
-    PLCSensor -->|Chờ| PadTouchdown
-    PLCSensor -->|Đã phát hiện| PLCLock[PLC đóng kẹp X/Y - LOCK_DRONE]
-    
-    PLCLock --> CheckMissionType{Loại nhiệm vụ kho?}
+    CreateMission --> AssignFleet[FleetManager chỉ định UAV rảnh rỗi - UAV01/UAV02]
+    AssignFleet --> CheckMissionType{Loại Nhiệm vụ?}
 
-    %% Flow 8: DRONE_PICKUP (Nhập kho)
-    CheckMissionType -->|DRONE_PICKUP| RobotHome1[Robot FAIRINO di chuyển về HOME]
-    RobotHome1 --> PLCZUp1[PLC nâng Trục Z - Z_UP]
-    PLCZUp1 --> RobotPickUAV[Robot gắp sản phẩm từ UAV]
-    RobotPickUAV --> RobotHome2[Robot lùi về HOME]
-    RobotHome2 --> PLCZDown1[PLC hạ Trục Z - Z_DOWN]
-    PLCZDown1 --> FindSlot[InventoryManager tìm ô trống A1..C3]
-    FindSlot --> SlotFound{Có ô trống?}
-    SlotFound -->|Không| StoreError[Báo lỗi Kho đầy - ERROR_NO_FREE_SLOT]
-    SlotFound -->|Có| RobotStoreSlot[Robot cất sản phẩm vào ô - OCCUPIED]
-    RobotStoreSlot --> PLCUnlock1[PLC mở kẹp X/Y - UNLOCK_DRONE]
-    PLCUnlock1 --> PickupComplete([✅ HOÀN THÀNH NHẬP KHO])
+    %% Nhánh 1: DRONE_PICKUP (Khách gửi hàng -> Drone lấy hàng về kho)
+    CheckMissionType -->|DRONE_PICKUP| UAVFlyToCustomer[UAV cất cánh bay tới vị trí Khách hàng]
+    UAVFlyToCustomer --> CustomerHandover[Khách đặt hàng lên gá Drone & Xác nhận Hoàn thành]
+    CustomerHandover --> UAVFlyToWarehouse1[UAV bay về Trạm Kho thông minh]
+    UAVFlyToWarehouse1 --> ArUcoLanding1[UAV Hạ cánh chính xác bằng ArUco xuống Dock Pad]
+    ArUcoLanding1 --> StationUnloadProcess[⚡ THỰC THI QUY TRÌNH NHẬP KHO - UNLOAD_PRODUCT]
+    StationUnloadProcess --> MissionPickupDone([✅ HOÀN TẤT NHIỆM VỤ NHẬP KHO])
 
-    %% Flow 9: DRONE_DELIVERY (Xuất kho đi giao)
-    CheckMissionType -->|DRONE_DELIVERY| FindProductSlot[InventoryManager tìm ô chứa hàng product_id]
-    FindProductSlot --> ProdFound{Tìm thấy hàng?}
-    ProdFound -->|Không| DeliveryError[Báo lỗi Không có hàng - ERROR_PRODUCT_NOT_FOUND]
-    ProdFound -->|Có| RobotPickSlot[Robot gắp sản phẩm từ ô - Slot -> EMPTY]
-    RobotPickSlot --> RobotHome3[Robot lùi về HOME giữ hàng]
-    RobotHome3 --> PLCZUp2[PLC nâng Trục Z - Z_UP]
-    PLCZUp2 --> RobotPlaceUAV[Robot đặt sản phẩm lên gá Drone]
-    RobotPlaceUAV --> RobotHome4[Robot lùi về HOME]
-    RobotHome4 --> PLCZDown2[PLC hạ Trục Z - Z_DOWN]
-    PLCZDown2 --> PLCUnlock2[PLC mở kẹp X/Y - UNLOCK_DRONE]
-    PLCUnlock2 --> UAVTakeoffDelivery[Cấp phép UAV cất cánh đi giao hàng]
-    UAVTakeoffDelivery --> DeliveryComplete([✅ HOÀN THÀNH XUẤT KHO & GIAO HÀNG])
+    %% Nhánh 2: DRONE_DELIVERY (Xuất hàng từ kho -> Drone giao tới khách)
+    CheckMissionType -->|DRONE_DELIVERY| StationLoadProcess[⚡ THỰC THI QUY TRÌNH XUẤT KHO - LOAD_PRODUCT]
+    StationLoadProcess --> UAVTakeoffDelivery[Cấp phép UAV cất cánh bay tới điểm giao Khách hàng]
+    UAVTakeoffDelivery --> ArUcoLanding2[UAV tiếp cận điểm giao & Hạ cánh / Thả hàng]
+    ArUcoLanding2 --> CustomerReceive[Khách hàng nhận kiện hàng & Xác nhận Đã nhận]
+    CustomerReceive --> UAVReturnHome[UAV tự động bay quay về bãi đáp Home Base]
+    UAVReturnHome --> MissionDeliveryDone([✅ HOÀN TẤT NHIỆM VỤ GIAO HÀNG])
 
     style Start fill:#10b981,color:#fff
-    style PickupComplete fill:#10b981,color:#fff
-    style DeliveryComplete fill:#10b981,color:#fff
-    style StoreError fill:#ef4444,color:#fff
-    style DeliveryError fill:#ef4444,color:#fff
+    style MissionPickupDone fill:#10b981,color:#fff
+    style MissionDeliveryDone fill:#10b981,color:#fff
+    style StationUnloadProcess fill:#3b82f6,color:#fff
+    style StationLoadProcess fill:#3b82f6,color:#fff
 ```
 
 ---
 
-## 2. Luồng Nghiệp vụ Giao hàng & Kho thông minh
+## 3. ⭐ Lưu đồ Thuật toán Tổng cho Trạm Kho Đáp Thông Minh (Smart Docking Station Master Flowchart)
 
-### 2.1. Luồng Giao hàng Khách hàng (Delivery Flow)
+Lưu đồ này tích hợp toàn diện sự phối hợp giữa **Central Backend (StationService / Layer 3)** với toàn bộ phần cứng tại trạm: **PLC S7-1200 (DB15)**, **Robot FAIRINO FR3 (TCP Socket)**, **Camera QR Scanner (Vision)** và **Kệ kho 9 ô (Slots A1..C3)**:
+
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor Customer as 👤 Khách hàng
-    participant CustApp as 📱 Customer App
-    participant Backend as ⚡ FastAPI Backend
-    actor Admin as 🖥️ Admin Dashboard
-    participant Drone as 🚁 Drone (Companion + PX4)
+flowchart TD
+    StationInit([🏭 TRẠM KHO ĐÁP SẴN SÀNG - IDLE]) --> ListenEvent{Sự kiện Điều phối từ Backend?}
 
-    Customer->>CustApp: Chọn "Nhận/Gửi" & Điền thông tin + Bản đồ
-    CustApp->>Backend: POST /customer/delivery (Tọa độ nhận/gửi)
-    Backend-->>CustApp: Trả về đơn hàng (Status: PENDING)
+    %% -------------------------------------------------------------
+    %% NHÁNH 1: QUY TRÌNH XUẤT KHO - LOAD_PRODUCT
+    %% -------------------------------------------------------------
+    ListenEvent -->|Lệnh LOAD_PRODUCT| CheckStock{Tìm ô chứa mã product_id?}
+    CheckStock -->|Không tìm thấy| ErrorStock[Báo lỗi: PRODUCT_NOT_FOUND -> Hủy nhiệm vụ]
+    CheckStock -->|Tìm thấy ô Target Slot| WaitDroneAtDock1[Chờ Drone đáp & PLC phát hiện drone_detected == TRUE]
+
+    WaitDroneAtDock1 --> PLC_Lock1[1. Backend gửi cmd_lock_drone DBX0.0 -> PLC đóng kẹp X/Y]
+    PLC_Lock1 --> VerifyLocked1{PLC phản hồi plc_locked_state == TRUE?}
+    VerifyLocked1 -->|Timeout/Error| TriggerEStop1[Dừng khẩn cấp & Báo động E-Stop]
+    VerifyLocked1 -->|Xác nhận Khóa| RobotPickStorage[2. Backend gửi lệnh PICK target_slot tới Robot FR3]
+
+    RobotPickStorage --> RobotGripperClose1[Robot di chuyển tới ô kho & Đóng Gripper gắp hàng]
+    RobotGripperClose1 --> RobotHome1[3. Robot di chuyển về vị trí an toàn HOME]
+    RobotHome1 --> CamVerifyQR[4. Camera quét kiểm tra mã QR sản phẩm trên tay Robot]
+    CamVerifyQR --> VerifyOK{Mã QR khớp product_id?}
+    VerifyOK -->|Sai mã| AlarmWrongProduct[Dừng chu trình: Sai hàng hóa]
+    VerifyOK -->|Khớp mã| PLC_ZUp1[5. Backend gửi cmd_z_up DBX0.2 -> PLC nâng Bàn nâng Z]
+
+    PLC_ZUp1 --> VerifyZUp1{PLC phản hồi plc_z_is_up == TRUE?}
+    VerifyZUp1 -->|Xác nhận Z Lên| RobotPlaceDock[6. Robot gửi lệnh PLACE DOCK đặt hàng lên gá Drone]
+    RobotPlaceDock --> RobotGripperOpen1[Robot mở Gripper thả hàng lên Drone Dock]
+    RobotGripperOpen1 --> RobotHome2[7. Robot rút về vị trí an toàn HOME]
+
+    RobotHome2 --> PLC_ZDown1[8. Backend gửi cmd_z_down DBX0.3 -> PLC hạ Bàn nâng Z]
+    PLC_ZDown1 --> VerifyZDown1{PLC phản hồi plc_z_is_down == TRUE?}
+    VerifyZDown1 -->|Xác nhận Z Xuống| PLC_Unlock1[9. Backend gửi cmd_unlock_drone DBX0.1 -> PLC mở kẹp]
     
-    Admin->>Backend: GET /admin/delivery-requests
-    Admin->>Backend: PATCH /admin/delivery-requests/{id}/status (APPROVED)
-    
-    Admin->>Admin: Nhấn "Chọn & START"
-    
-#### A. Trình tự Bắt tay Nhập kho (Flow DRONE_PICKUP)
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Cam as 📷 Camera Vision
-    participant Backend as ⚡ FastAPI (MissionManager)
-    participant Grid as 📦 Ô chứa 3x3
-    participant Robot as 🤖 Robot FAIRINO
-    participant UAV as 🚁 UAV Drone
-    participant PLC as ⚙️ PLC S7-1200
+    PLC_Unlock1 --> VerifyUnlocked1{PLC phản hồi plc_locked_state == FALSE?}
+    VerifyUnlocked1 -->|Mở khóa thành công| UpdateSlotEmpty[10. Cập nhật Ô kho Target Slot -> EMPTY trong DB]
+    UpdateSlotEmpty --> NotifyTakeoffReady[11. Backend phát lệnh MAVLink Cấp phép Cất cánh cho Drone]
+    NotifyTakeoffReady --> LoadComplete([✅ HOÀN THÀNH XUẤT KHO - READY FOR TAKEOFF])
 
-    Note over Cam: Camera OFF khi Drone đến
-    UAV->>PLC: Đáp xuống sàn hạ cánh
-    PLC->>Backend: drone_detected = True
-    Backend->>PLC: Command: LOCK_DRONE
-    PLC->>PLC: Đóng kẹp X & Y (LOCKING -> DONE)
-    PLC-->>Backend: Status: drone_locked = True
+    %% -------------------------------------------------------------
+    %% NHÁNH 2: QUY TRÌNH NHẬP KHO - UNLOAD_PRODUCT
+    %% -------------------------------------------------------------
+    ListenEvent -->|Lệnh UNLOAD_PRODUCT| CheckFreeSlot{Tìm ô kho trống is_empty == TRUE?}
+    CheckFreeSlot -->|Kho đầy 9/9 ô| ErrorFull[Báo lỗi: WAREHOUSE_FULL -> Chờ dọn kho]
+    CheckFreeSlot -->|Cấp phát ô Target Slot| WaitDroneAtDock2[Chờ Drone đáp & PLC phát hiện drone_detected == TRUE]
 
-    Backend->>Robot: Command: REQUEST_Z_UP
-    Backend->>PLC: Command: Z_UP
-    PLC->>PLC: Nâng bàn nâng Z
-    PLC-->>Backend: Status: z_axis = "UP"
+    WaitDroneAtDock2 --> PLC_Lock2[1. Backend gửi cmd_lock_drone DBX0.0 -> PLC đóng kẹp X/Y]
+    PLC_Lock2 --> VerifyLocked2{PLC phản hồi plc_locked_state == TRUE?}
+    VerifyLocked2 -->|Timeout/Error| TriggerEStop2[Dừng khẩn cấp & Báo động E-Stop]
+    VerifyLocked2 -->|Xác nhận Khóa| RobotHome3[2. Robot di chuyển về vị trí chuẩn bị HOME]
 
-    Backend->>Robot: Command: PICK_PRODUCT (from UAV)
-    Robot->>Robot: Gắp sản phẩm từ UAV
-    Robot-->>Backend: Status: holding_product = "SP001"
+    RobotHome3 --> PLC_ZUp2[3. Backend gửi cmd_z_up DBX0.2 -> PLC nâng Bàn nâng Z]
+    PLC_ZUp2 --> VerifyZUp2{PLC phản hồi plc_z_is_up == TRUE?}
+    VerifyZUp2 -->|Xác nhận Z Lên| RobotPickDock[4. Robot gửi lệnh PICK DOCK gắp hàng từ Drone]
+    RobotPickDock --> RobotGripperClose2[Robot đóng Gripper kẹp giữ chắc sản phẩm]
 
-    Backend->>Robot: Command: MOVE_HOME
-    Backend->>Robot: Command: REQUEST_Z_DOWN
-    Backend->>PLC: Command: Z_DOWN
-    PLC->>PLC: Hạ bàn nâng Z về vị trí an toàn
-    PLC-->>Backend: Status: z_axis = "DOWN"
+    RobotGripperClose2 --> RobotHome4[5. Robot rút về vị trí an toàn HOME]
+    RobotHome4 --> PLC_ZDown2[6. Backend gửi cmd_z_down DBX0.3 -> PLC hạ Bàn nâng Z]
+    PLC_ZDown2 --> VerifyZDown2{PLC phản hồi plc_z_is_down == TRUE?}
+    VerifyZDown2 -->|Xác nhận Z Xuống| CamScanInbound[7. Camera Vision quét mã QR sản phẩm nhập kho]
 
-    Backend->>Cam: Turn ON Camera Scanner
-    Cam->>Cam: Quét mã QR sản phẩm trên tay Robot
-    Cam-->>Backend: Xáp nhận ID ("SP001")
-    Backend->>Grid: find_available_slot()
-    Grid-->>Backend: Return slot = "B2"
+    CamScanInbound --> RobotStoreSlot[8. Robot gửi lệnh STORE target_slot cất hàng vào ô chỉ định]
+    RobotStoreSlot --> RobotGripperOpen2[Robot nhả Gripper đặt hàng ngay ngắn trong ô]
+    RobotGripperOpen2 --> RobotHome5[9. Robot quay về vị trí nghỉ HOME]
 
-    Backend->>Robot: Command: STORE (slot="B2")
-    Robot->>Grid: Đặt sản phẩm vào ô B2
-    Grid->>Grid: Cập nhật slot B2 -> OCCUPIED
-    Robot-->>Backend: Status: holding_product = None
+    RobotHome5 --> PLC_Unlock2[10. Backend gửi cmd_unlock_drone DBX0.1 -> PLC mở kẹp]
+    PLC_Unlock2 --> VerifyUnlocked2{PLC phản hồi plc_locked_state == FALSE?}
+    VerifyUnlocked2 -->|Mở khóa thành công| UpdateSlotOccupied[11. Cập nhật Ô kho Target Slot -> OCCUPIED gắn product_id]
+    UpdateSlotOccupied --> NotifyDroneDepart[12. Cấp phép Drone cất cánh rời bãi đáp]
+    NotifyDroneDepart --> UnloadComplete([✅ HOÀN THÀNH NHẬP KHO - STORED IN SLOT])
 
-    Backend->>Cam: Turn OFF Camera Scanner
-    Backend->>PLC: Command: UNLOCK_DRONE
-    PLC->>PLC: Mở kẹp X & Y
-    PLC-->>Backend: Status: drone_locked = False
-```
+    LoadComplete --> StationInit
+    UnloadComplete --> StationInit
 
-#### B. Trình tự Bắt tay Xuất kho (Flow DRONE_DELIVERY)
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Cam as 📷 Camera Vision
-    participant Backend as ⚡ FastAPI (MissionManager)
-    participant Grid as 📦 Ô chứa 3x3
-    participant Robot as 🤖 Robot FAIRINO
-    participant UAV as 🚁 UAV Drone
-    participant PLC as ⚙️ PLC S7-1200
-
-    Note over Cam: Camera OFF ban đầu
-    UAV->>PLC: Đáp lên sàn hạ cánh
-    PLC->>Backend: drone_detected = True
-    Backend->>PLC: Command: LOCK_DRONE
-    PLC-->>Backend: Status: drone_locked = True
-
-    Backend->>Grid: find_slot_by_product_id("SP001")
-    Grid-->>Backend: Return slot = "A3"
-    
-    Backend->>Robot: Command: PICK (slot="A3")
-    Robot->>Grid: Gắp sản phẩm từ ô A3
-    Grid->>Grid: Cập nhật slot A3 -> EMPTY
-    Robot-->>Backend: Status: holding_product = "SP001"
-
-    Backend->>Cam: Turn ON Camera Scanner (holding_product = "SP001")
-    Cam->>Cam: Quét & Xác nhận sản phẩm đang mang ("SP001")
-
-    Backend->>Robot: Command: REQUEST_Z_UP
-    Backend->>PLC: Command: Z_UP
-    PLC-->>Backend: Status: z_axis = "UP"
-
-    Backend->>Robot: Command: PLACE_PRODUCT (onto UAV)
-    Robot->>UAV: Đặt sản phẩm lên gá UAV
-    Robot-->>Backend: Status: holding_product = None
-
-    Backend->>Robot: Command: MOVE_HOME
-    Backend->>Robot: Command: REQUEST_Z_DOWN
-    Backend->>PLC: Command: Z_DOWN
-    PLC-->>Backend: Status: z_axis = "DOWN"
-
-    Backend->>PLC: Command: UNLOCK_DRONE
-    PLC-->>Backend: Status: drone_locked = False
-    Backend->>UAV: Phát lệnh MAVLink Cấp phép Cất cánh
+    style StationInit fill:#0f172a,stroke:#00f0ff,stroke-width:2px,color:#fff
+    style LoadComplete fill:#10b981,color:#fff
+    style UnloadComplete fill:#10b981,color:#fff
+    style ErrorStock fill:#ef4444,color:#fff
+    style ErrorFull fill:#ef4444,color:#fff
+    style TriggerEStop1 fill:#ef4444,color:#fff
+    style TriggerEStop2 fill:#ef4444,color:#fff
 ```
 
 ---
 
-## 3. Quy trình Trạng thái Kho thông minh (Intralogistics FSM)
+## 4. ⭐ Lưu đồ Thuật toán Chuyên sâu cho UAV (UAV Autonomous Flight & Precision Landing Flowchart)
 
-### Flow 8: DRONE_PICKUP (Drone mang hàng về Kho nhập)
-1. **STARTED**: Khởi tạo nhiệm vụ `DRONE_PICKUP`.
-2. **TAKEOFF_AND_FLYING**: Drone di chuyển tới trạm hạ cánh kho.
-3. **TOUCHDOWN**: Drone tiếp đất sàn hạ cánh. Cảm biến PLC nhận diện.
-4. **DRONE_LOCKED**: PLC đóng kẹp cơ khí X & Y khóa chặt chân Drone.
-5. **ROBOT_HOME**: Cánh tay Robot FAIRINO di chuyển về gốc HOME.
-6. **Z_UP**: PLC điều khiển trục Z nâng lên độ cao nhận hàng.
-7. **ROBOT_PICK**: Robot gắp hàng khỏi UAV.
-8. **Z_DOWN**: PLC hạ trục Z về độ cao kho.
-9. **STORE_SLOT**: InventoryManager tìm ô trống (A1..C3), Robot cất hàng vào ô.
-10. **UNLOCK_DRONE**: PLC mở kẹp giải phóng Drone, hoàn tất nhiệm vụ (`MISSION_COMPLETE`).
+Lưu đồ dưới đây mô tả toàn bộ máy trạng thái bay và thuật toán hạ cánh chính xác bằng ArUco Marker trên máy tính nhúng Companion RPi 5 kết hợp Pixhawk 6C:
 
-### Flow 9: DRONE_DELIVERY (Xuất hàng từ Kho lên Drone)
-1. **STARTED**: Khởi tạo nhiệm vụ `DRONE_DELIVERY`.
-2. **FIND_PRODUCT**: Tìm vị trí sản phẩm trong ô lưu trữ (A1..C3).
-3. **ROBOT_PICK_SLOT**: Robot gắp hàng từ ô lưu trữ & chuyển ô sang `EMPTY`.
-4. **DRONE_LOCKED**: Drone tiếp đất & PLC đóng kẹp X/Y.
-5. **Z_UP & PLACE**: Trục Z nâng lên, Robot đặt hàng lên Drone.
-6. **Z_DOWN**: Trục Z hạ xuống, Robot rút về HOME.
-7. **UNLOCK_DRONE**: PLC mở kẹp khóa, phát lệnh cấp phép cất cánh cho Drone (`MISSION_COMPLETE`).
+```mermaid
+flowchart TD
+    UAVPowerOn([🛸 KHỞI ĐỘNG UAV & COMPANION RPi 5]) --> InitConnections[Khởi tạo kết nối: MAVLink UART @ 921600 baud + WebSocket /ws/drone]
+    InitConnections --> HealthCheck{Kiểm tra GPS Fix, Pin, Cảm biến, EKF?}
+    HealthCheck -->|Lỗi/Chưa sẵn sàng| HealthCheck
+    HealthCheck -->|Hệ thống sẵn sàng| State_IDLE[Trạng thái: IDLE - Chờ lệnh từ Central Server]
+
+    State_IDLE --> CheckCmd{Nhận Lệnh Điều Khiển?}
+    CheckCmd -->|Lệnh START_MISSION| ParseCoords[Nạp tọa độ: Home, Pickup, Drop & Đặt target_phase = PICKUP/DELIVERY]
+
+    %% BƯỚC 1: ARMING & TAKEOFF
+    ParseCoords --> State_ARMING[Trạng thái: ARMING]
+    State_ARMING --> SendArm[Gửi lệnh MAVLink: MAV_CMD_COMPONENT_ARM_DISARM]
+    SendArm --> CheckArmed{Pixhawk xác nhận armed == True?}
+    CheckArmed -->|Timeout 30s| ErrorArm[Báo lỗi ARM_TIMEOUT -> Chuyển ERROR]
+    CheckArmed -->|Đã ARM| State_TAKEOFF[Trạng thái: TAKEOFF]
+    
+    State_TAKEOFF --> SendTakeoff[Gửi lệnh MAV_CMD_NAV_TAKEOFF - Độ cao mục tiêu 10m]
+    SendTakeoff --> CheckAltitude{Đạt độ cao >= 8.5m?}
+    CheckAltitude -->|Chưa đạt| SendTakeoff
+    CheckAltitude -->|Đạt độ cao| SwitchOffboard[Chuyển chế độ bay OFFBOARD]
+
+    %% BƯỚC 2: BAY HÀNH TRÌNH OFFBOARD THEO GPS
+    SwitchOffboard --> State_NAVIGATING[Trạng thái: EN_ROUTE_NAVIGATION]
+    State_NAVIGATING --> StreamWaypoints[Phát lệnh SET_POSITION_TARGET_LOCAL_NED tới tọa độ mục tiêu]
+    StreamWaypoints --> CheckArriveZone{Khoảng cách tới điểm đích <= 2.0m?}
+    CheckArriveZone -->|Đang bay hành trình| StreamWaypoints
+    CheckArriveZone -->|Đã tới vùng đích| State_DESCEND[Trạng thái: DESCEND_SEARCH]
+
+    %% BƯỚC 3: HẠ ĐỘ CAO & DÒ TÌM ARUCO MARKER
+    State_DESCEND --> LowerAltitude[Hạ cao độ xuống 3.5m & Bật OpenCV USB Camera Stream]
+    LowerAltitude --> CaptureFrame[Đọc Frame ảnh từ Camera hướng thẳng đứng xuống đất]
+    CaptureFrame --> DetectArUco[Chạy thuật toán cv2.aruco.detectMarkers: Dictionary 4x4_50]
+    DetectArUco --> MarkerFound{Tìm thấy ArUco ID = 0?}
+
+    MarkerFound -->|Không tìm thấy trong 25s| FailsafeGPSLand[Failsafe: Hạ cánh dự phòng theo GPS hoặc Kích hoạt RTL]
+    MarkerFound -->|Tìm thấy Marker| State_PRECLAND[Trạng thái: PRECISION_LANDING]
+
+    %% BƯỚC 4: THUẬT TOÁN ĐIỀU CHỈNH SAI SỐ OFFSET ARUCO (25Hz)
+    State_PRECLAND --> CalcOffset[Tính tọa độ tâm Marker - Sai số Offset X_err, Y_err & Độ cao Z]
+    CalcOffset --> ComputePID[Bộ điều khiển PID tính toán vận tốc ngang Vx, Vy để căn giữa tâm]
+    ComputePID --> SendPreclandTarget[Gửi bản tin MAVLink LANDING_TARGET tần số 25Hz tới Pixhawk]
+    SendPreclandTarget --> CheckBlindZone{Độ cao AGL <= 0.35m? Vùng mù Camera}
+
+    CheckBlindZone -->|Còn trên cao| CalcOffset
+    CheckBlindZone -->|Vào vùng mù sát đất| ForceTouchdown[Chuyển chế độ LAND cố định hướng thẳng đứng]
+
+    %% BƯỚC 5: TIẾP ĐẤT & BẮT TAY TRẠM
+    ForceTouchdown --> CheckDisarmed{Pixhawk báo tiếp đất & armed == False?}
+    CheckDisarmed -->|Đang chạm đất| ForceTouchdown
+    CheckDisarmed -->|Đã Disarm hoàn toàn| State_TOUCHDOWN[Trạng thái: TOUCHDOWN_SUCCESS]
+
+    State_TOUCHDOWN --> SendWsTouchdown[Gửi bản tin WebSocket: TOUCHDOWN_SUCCESS tới Central Server]
+    SendWsTouchdown --> WaitStationHandling[Chờ Trạm Dock hoàn tất xử lý hàng hóa - Gắp/Đặt sản phẩm]
+
+    WaitStationHandling --> NextActionCheck{Tiếp tục nhiệm vụ hay Về Home?}
+    NextActionCheck -->|Tiếp tục giao hàng| NextMissionArm[Nạp tọa độ điểm tiếp theo -> Chuyển ARMING]
+    NextActionCheck -->|Đã xong nhiệm vụ| State_RETURN_HOME[Trạng thái: RETURN_HOME]
+
+    NextMissionArm --> State_ARMING
+
+    %% BƯỚC 6: BAY VỀ HOME & KẾT THÚC
+    State_RETURN_HOME --> ExecRTL[Gửi lệnh MAVLink RTL bay về vị trí Home Base]
+    ExecRTL --> CheckHomeLand{Đã tiếp đất an toàn tại Home?}
+    CheckHomeLand -->|Đang về| ExecRTL
+    CheckHomeLand -->|Đã tiếp đất| MissionFinished([🏁 CHUYẾN BAY HOÀN TẤT - VỀ TRẠNG THÁI IDLE])
+    MissionFinished --> State_IDLE
+
+    %% XỬ LÝ KHẨN CẤP (FAILSAFE)
+    FailsafeGPSLand --> State_RETURN_HOME
+    ErrorArm --> State_IDLE
+
+    style UAVPowerOn fill:#831843,stroke:#ec4899,stroke-width:2px,color:#fff
+    style MissionFinished fill:#10b981,color:#fff
+    style State_PRECLAND fill:#f59e0b,color:#fff
+    style State_TOUCHDOWN fill:#10b981,color:#fff
+    style ErrorArm fill:#ef4444,color:#fff
+    style FailsafeGPSLand fill:#ef4444,color:#fff
+```
 
 ---
 
-## 4. Thiết kế Cơ sở Dữ liệu (ERD v3.0)
+## 5. Trình tự Bắt tay Tín hiệu (Sequence Diagrams)
+
+### 5.1. Trình tự Bắt tay Nhập kho (Flow DRONE_PICKUP / UNLOAD_PRODUCT)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Cam as 📷 Camera QR Vision
+    participant Backend as ⚡ FastAPI (StationService)
+    participant Grid as 📦 Kệ Kho 3x3
+    participant Robot as 🤖 Robot FAIRINO (192.168.57.2)
+    participant UAV as 🚁 Drone UAV01
+    participant PLC as ⚙️ PLC S7-1200 (192.168.58.10)
+
+    Note over UAV,PLC: Drone mang hàng đáp xuống bệ Dock
+    UAV->>PLC: Tiếp đất Landing Pad N1
+    PLC-->>Backend: DB15.DBX2.0: drone_detected = True
+    Backend->>PLC: DB15.DBX0.0: cmd_lock_drone = True
+    PLC->>PLC: Đóng cơ cấu kẹp cố định chân Drone
+    PLC-->>Backend: DB15.DBX2.1: plc_locked_state = True
+
+    Backend->>Robot: TCP Socket 8090: MOVE_HOME
+    Robot-->>Backend: Response: SUCCESS MOVE_HOME
+
+    Backend->>PLC: DB15.DBX0.2: cmd_z_up = True
+    PLC->>PLC: Xilanh nâng Bàn đỡ Z lên vị trí cao
+    PLC-->>Backend: DB15.DBX2.2: plc_z_is_up = True
+
+    Backend->>Robot: TCP Socket 8090: PICK_PRODUCT DOCK
+    Robot->>UAV: Di chuyển tay kẹp & Đóng Gripper gắp hàng từ Drone
+    Robot-->>Backend: Response: SUCCESS PICK DOCK (holding = SP001)
+
+    Backend->>Robot: TCP Socket 8090: MOVE_HOME
+    Robot-->>Backend: Response: SUCCESS MOVE_HOME
+
+    Backend->>PLC: DB15.DBX0.3: cmd_z_down = True
+    PLC->>PLC: Hạ Bàn đỡ Z về vị trí cất cánh
+    PLC-->>Backend: DB15.DBX2.3: plc_z_is_down = True
+
+    Backend->>Cam: Bật Camera Scanner
+    Cam->>Cam: Quét mã QR xác nhận thông tin hàng hóa
+    Cam-->>Backend: Trả về QR Code: "SP001"
+    Backend->>Cam: Tắt Camera Scanner
+
+    Backend->>Grid: Tìm ô kho trống (find_available_slot)
+    Grid-->>Backend: Cấp phát ô trống: "B2"
+
+    Backend->>Robot: TCP Socket 8090: STORE B2
+    Robot->>Grid: Đặt hàng vào ô B2 & Mở Gripper
+    Robot-->>Backend: Response: SUCCESS STORE B2
+    Backend->>Grid: Cập nhật CSDL Slot B2 -> OCCUPIED
+
+    Backend->>Robot: TCP Socket 8090: MOVE_HOME
+    Robot-->>Backend: Response: SUCCESS MOVE_HOME
+
+    Backend->>PLC: DB15.DBX0.1: cmd_unlock_drone = True
+    PLC->>PLC: Mở cơ cấu kẹp giải phóng Drone
+    PLC-->>Backend: DB15.DBX2.1: plc_locked_state = False
+    Backend->>UAV: Cấp phép Drone cất cánh rời trạm
+```
+
+---
+
+### 5.2. Trình tự Bắt tay Xuất kho (Flow DRONE_DELIVERY / LOAD_PRODUCT)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Cam as 📷 Camera QR Vision
+    participant Backend as ⚡ FastAPI (StationService)
+    participant Grid as 📦 Kệ Kho 3x3
+    participant Robot as 🤖 Robot FAIRINO (192.168.57.2)
+    participant UAV as 🚁 Drone UAV01
+    participant PLC as ⚙️ PLC S7-1200 (192.168.58.10)
+
+    Note over UAV,PLC: Drone đáp sẵn sàng nhận hàng xuất kho
+    UAV->>PLC: Tiếp đất Landing Pad N1
+    PLC-->>Backend: DB15.DBX2.0: drone_detected = True
+    Backend->>PLC: DB15.DBX0.0: cmd_lock_drone = True
+    PLC-->>Backend: DB15.DBX2.1: plc_locked_state = True
+
+    Backend->>Grid: Tra cứu vị trí hàng product_id = "SP002"
+    Grid-->>Backend: Vị trí lưu trữ: Ô "A1"
+
+    Backend->>Robot: TCP Socket 8090: PICK A1
+    Robot->>Grid: Gắp hàng từ ô A1 & Đóng Gripper
+    Robot-->>Backend: Response: SUCCESS PICK A1 (holding = SP002)
+
+    Backend->>Robot: TCP Socket 8090: MOVE_HOME
+    Robot-->>Backend: Response: SUCCESS MOVE_HOME
+
+    Backend->>Cam: Bật Camera Scanner kiểm tra
+    Cam->>Cam: Quét mã QR xác thực kiện hàng trên tay Robot
+    Cam-->>Backend: Xác thực đúng mã: "SP002"
+    Backend->>Cam: Tắt Camera Scanner
+
+    Backend->>PLC: DB15.DBX0.2: cmd_z_up = True
+    PLC->>PLC: Nâng Bàn đỡ Z lên vị trí cao
+    PLC-->>Backend: DB15.DBX2.2: plc_z_is_up = True
+
+    Backend->>Robot: TCP Socket 8090: PLACE_PRODUCT DOCK
+    Robot->>UAV: Đặt kiện hàng vào gá chứa trên Drone & Mở Gripper
+    Robot-->>Backend: Response: SUCCESS PLACE DOCK
+
+    Backend->>Robot: TCP Socket 8090: MOVE_HOME
+    Robot-->>Backend: Response: SUCCESS MOVE_HOME
+
+    Backend->>PLC: DB15.DBX0.3: cmd_z_down = True
+    PLC->>PLC: Hạ Bàn đỡ Z về vị trí cất cánh
+    PLC-->>Backend: DB15.DBX2.3: plc_z_is_down = True
+
+    Backend->>PLC: DB15.DBX0.1: cmd_unlock_drone = True
+    PLC->>PLC: Mở cơ cấu kẹp giải phóng Drone
+    PLC-->>Backend: DB15.DBX2.1: plc_locked_state = False
+
+    Backend->>Grid: Cập nhật CSDL Slot A1 -> EMPTY
+    Backend->>UAV: Phát lệnh MAVLink Cấp phép Cất cánh đi giao hàng
+```
+
+---
+
+## 6. Bảng Ánh xạ Giao thức Phần cứng Chi tiết
+
+### 6.1. Bản đồ Ô nhớ PLC Siemens S7-1200 (DB15 Protocol)
+
+```
+Byte 0: Backend -> PLC (Command bits, ghi xung điều khiển)
+  DB15.DBX0.0 : cmd_lock_drone       - Yêu cầu đóng kẹp khóa cố định Drone
+  DB15.DBX0.1 : cmd_unlock_drone     - Yêu cầu mở kẹp giải phóng Drone
+  DB15.DBX0.2 : cmd_z_up             - Yêu cầu nâng trục Z lên độ cao gắp
+  DB15.DBX0.3 : cmd_z_down           - Yêu cầu hạ trục Z về vị trí cất cánh
+  DB15.DBX0.4 : cmd_stop_plc         - Yêu cầu dừng chu kỳ hoạt động
+  DB15.DBX0.5 : cmd_start_plc        - Yêu cầu khởi động / cho phép hệ thống
+  DB15.DBX0.6 : cmd_reset_plc        - Yêu cầu reset lỗi & khôi phục trạng thái
+
+Byte 2: PLC -> Backend (Status bits, đọc trạng thái phản hồi)
+  DB15.DBX2.0 : drone_detected       - Phát hiện Drone đã tiếp đất trên Pad
+  DB15.DBX2.1 : plc_locked_state     - Cơ cấu kẹp khóa Drone đã hoàn thành (1 = Locked)
+  DB15.DBX2.2 : plc_z_is_up          - Trục Z đã nâng đến vị trí trên (1 = Z Top)
+  DB15.DBX2.3 : plc_z_is_down        - Trục Z đã hạ về vị trí ban đầu (1 = Z Bottom)
+  DB15.DBX2.4 : plc_on               - PLC đang hoạt động và sẵn sàng (1 = Ready)
+  DB15.DBX2.5 : plc_error            - PLC phát hiện lỗi vận hành (1 = Error)
+  DB15.DBX2.6 : emergency_stop       - Nút dừng khẩn cấp E-Stop đang kích hoạt (1 = E-Stop)
+```
+
+### 6.2. Giao thức Lệnh TCP Socket Robot FAIRINO FR3 (Port 8090)
+
+* Định dạng gói tin: Chuỗi ký tự ASCII kết thúc bằng ký tự ngắt dòng `\r\n` hoặc `\n`.
+* Danh sách lệnh hỗ trợ:
+  * `MOVE_HOME`: Di chuyển 6 khớp tay về vị trí an toàn HOME (`SUCCESS MOVE_HOME\n`).
+  * `PICK <slot>` (Ví dụ: `PICK A1`): Gắp kiện hàng từ ô kho A1 (`SUCCESS PICK A1\n`).
+  * `STORE <slot>` (Ví dụ: `STORE B2`): Cất kiện hàng vào ô kho B2 (`SUCCESS STORE B2\n`).
+  * `PICK_PRODUCT DOCK`: Gắp hàng từ gá Drone trên bệ Dock (`SUCCESS PICK DOCK\n`).
+  * `PLACE_PRODUCT DOCK`: Đặt hàng lên gá Drone trên bệ Dock (`SUCCESS PLACE DOCK\n`).
+  * `STATUS`: Đọc trạng thái hoạt động hiện tại (`STATE:IDLE BUSY:FALSE POSITION:HOME\n`).
+  * `STOP` / `ESTOP`: Dừng khẩn cấp mọi chuyển động của Robot (`STOP SUCCESS\n`).
+
+---
+
+## 7. Thiết kế Cơ sở Dữ liệu (ERD v3.0)
 
 ```mermaid
 erDiagram
     devices {
         int id PK
-        string device_name UK
-        string device_type "UAV / PLC / ROBOT / CAMERA"
-        string ip_address
+        string device_name UK "ROBOT01 / PLC01 / UAV01 / CAM01"
+        string device_type "ROBOT / PLC / UAV / CAMERA"
+        string ip_address "192.168.57.2 / 192.168.58.10 ..."
+        int port "8090 / 102 / 14550 / 80"
+        bool simulator_mode
+        int rack "0"
+        int slot "1"
+        int db_number "15"
         string status "ONLINE / OFFLINE / BUSY / ERROR"
         datetime last_heartbeat
         datetime created_at
@@ -312,7 +508,7 @@ erDiagram
         int id PK
         int order_id FK "delivery_requests.id"
         string mission_type "DRONE_PICKUP / DRONE_DELIVERY"
-        string drone_id "UAV01"
+        string drone_id "UAV01 / UAV02"
         string product_id
         string target_slot "A1..C3"
         string status "QUEUED / RUNNING / PAUSED / COMPLETED / FAILED"
@@ -331,6 +527,21 @@ erDiagram
         datetime created_at
     }
 
+    delivery_requests {
+        int id PK
+        int customer_id FK
+        string customer_name
+        string customer_phone
+        string delivery_type "PICKUP / DELIVERY"
+        float pickup_lat
+        float pickup_lon
+        float drop_lat
+        float drop_lon
+        string status "PENDING / APPROVED / REJECTED / IN_PROGRESS / COMPLETED"
+        int mission_id FK
+        datetime created_at
+    }
+
     customers {
         int id PK
         string name
@@ -338,366 +549,43 @@ erDiagram
         datetime created_at
     }
 
-    customer_addresses {
-        int id PK
-        int customer_id FK
-        string address_type
-        string address_name
-        string address_text
-        float latitude
-        float longitude
-        datetime created_at
-    }
-
-    delivery_requests {
-        int id PK
-        int customer_id FK
-        string customer_name
-        string customer_phone
-        string delivery_type
-        float pickup_lat
-        float pickup_lon
-        float drop_lat
-        float drop_lon
-        string status
-        int mission_id FK
-        datetime created_at
-    }
-
-    warehouse_config {
-        int id PK
-        string name
-        float latitude
-        float longitude
-        string address_text
-        datetime updated_at
-    }
-
-    customers ||--o{ customer_addresses : "has"
-    customers ||--o{ delivery_requests : "places"
+    customers ||--o{ delivery_requests : "creates"
     products ||--o| storage_slots : "stored in"
+    delivery_requests ||--o| intralogistics_missions : "generates"
 ```
 
 ---
 
-## 5. Tài liệu API (RESTful Endpoints & WebSocket)
+## 8. Danh mục API REST & WebSocket Hub
 
-### 5.1. Smart Intralogistics API (v1 Router)
-* **`GET /api/v1/devices`**: Danh sách tất cả thiết bị phần cứng trong mạng LAN.
-* **`POST /api/v1/devices/register`**: Đăng ký thiết bị phần cứng mới.
-* **`POST /api/v1/devices/heartbeat`**: Gửi heartbeat báo trạng thái Online.
-* **`GET /api/v1/plc/status`**: Lấy trạng thái hiện tại của PLC (cảm biến sàn, kẹp X/Y, vị trí Z).
-* **`POST /api/v1/plc/command`**: Gửi lệnh điều khiển PLC (`LOCK_DRONE`, `UNLOCK_DRONE`, `Z_UP`, `Z_DOWN`).
-* **`GET /api/v1/robot/status`**: Lấy trạng thái Robot FAIRINO (State, slot, holding product).
-* **`POST /api/v1/robot/command`**: Gửi lệnh Robot (`MOVE_HOME`, `PICK`, `STORE`, `REQUEST_Z_UP`, `REQUEST_Z_DOWN`).
-* **`GET /api/v1/inventory/slots`**: Lấy thông tin 9 ô chứa hàng 3x3 (A1..C3).
-* **`PUT /api/v1/inventory/slots/{slot_name}`**: Cập nhật trạng thái ô hàng.
-* **`POST /api/v1/inventory/qr-scan`**: Nhận dữ liệu quét mã QR từ camera & tự động gán ô.
-* **`POST /api/v1/missions/drone-pickup`**: Khởi chạy quy trình FSM DRONE_PICKUP (Flow 8).
-* **`POST /api/v1/missions/drone-delivery`**: Khởi chạy quy trình FSM DRONE_DELIVERY (Flow 9).
-* **`GET /api/v1/missions/active`**: Lấy thông tin nhiệm vụ FSM đang hoạt động.
+### 8.1. API Quản lý Thiết bị & Điều khiển (`/api/device`)
+* `GET /api/device/list`: Lấy danh sách thông số và trạng thái kết nối toàn bộ thiết bị LAN.
+* `PUT /api/device/config/{device_name}`: Cập nhật IP, Port, DB, Rack, Slot, Simulator mode.
+* `POST /api/device/test-connection`: Thực hiện socket test ping đo độ trễ tới thiết bị.
+* `POST /api/device/send-raw-command`: Gửi lệnh raw socket kiểm tra phần cứng.
 
-### 5.2. WebSocket Realtime Hub
-* **`WS /ws/system`**: Kênh Broadcast thông tin trạng thái toàn bộ hệ thống (Realtime Telemetry, PLC, Robot, ô chứa 3x3, và tiến trình FSM).
-* **`WS /ws/drone/{drone_id}`**: Kênh WebSocket giao tiếp hai chiều với Companion Raspberry Pi trên Drone.
+### 8.2. API Điều khiển PLC Docking (`/api/plc`)
+* `GET /api/plc/status`: Đọc trạng thái I/O DB15 hiện thời.
+* `POST /api/plc/command`: Gửi lệnh điều khiển PLC (`LOCK_DRONE`, `UNLOCK_DRONE`, `Z_UP`, `Z_DOWN`, `START_PLC`, `STOP_PLC`, `RESET_PLC`).
+* `POST /api/plc/hatch`: Điều khiển bàn nâng Z (`OPEN` = Z_UP, `CLOSE` = Z_DOWN).
+* `POST /api/plc/lock`: Điều khiển cơ cấu kẹp khóa Drone (`LOCK` / `UNLOCK`).
+* `POST /api/plc/sensor/drone-detected`: Mô phỏng cảm biến tiếp đất Drone.
 
----
+### 8.3. API Điều khiển Robot FAIRINO (`/api/robot`)
+* `GET /api/robot/status`: Đọc trạng thái tay kẹp, vị trí và tác vụ hiện tại.
+* `POST /api/robot/command`: Thực thi lệnh gắp/đặt (`MOVE_HOME`, `PICK`, `STORE`, `PICK_PRODUCT`, `PLACE_PRODUCT`).
 
-## 6. Máy Trạng thái Chuyến bay (Flight Control FSM)
+### 8.4. API Quản lý Kho & Thị giác Máy (`/api/inventory`)
+* `GET /api/inventory/slots`: Lấy danh sách và trạng thái 9 ô kho 3x3 (A1..C3).
+* `POST /api/inventory/qr-scan`: Nhận mã QR từ Camera và tự động gán vào ô trống khả dụng.
 
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE : Power On
-    IDLE --> TAKEOFF : Launch Command (Admin)
-    TAKEOFF --> FLY_TO_PICKUP : Reach Alt Limit
-    
-    state FLY_TO_PICKUP {
-        [*] --> NavigateGPS
-        NavigateGPS --> ArUcoPrecisionLanding : ArUco detected
-    }
-    
-    FLY_TO_PICKUP --> WAIT_PICKUP_CONFIRM : Disarm (At Pickup Location)
-    WAIT_PICKUP_CONFIRM --> FLY_TO_DROP : Confirm Load (Admin/User)
-    
-    state FLY_TO_DROP {
-        [*] --> NavigateGPSDrop
-        NavigateGPSDrop --> ArUcoPrecisionLandingDrop : ArUco detected
-    }
-    
-    FLY_TO_DROP --> WAIT_DROP_CONFIRM : Disarm (At Drop Location)
-    WAIT_DROP_CONFIRM --> RETURN_HOME : Confirm Unload (Admin/User)
-    
-    RETURN_HOME --> LAND : Arrived Home Coords
-    LAND --> IDLE : Disarmed (Completed)
-    
-    IDLE --> RTL : RTL Triggered (Any State)
-    FLY_TO_PICKUP --> RTL : Battery Low / Failsafe
-    FLY_TO_DROP --> RTL : Battery Low / Failsafe
-    RTL --> LAND
-```
+### 8.5. API Điều phối Nhiệm vụ & Trạm (`/api/station` & `/api/mission`)
+* `GET /api/station/status`: Lấy trạng thái hoạt động và bước FSM của Trạm Kho.
+* `POST /api/station/load-product`: Kích hoạt chu trình 11 bước xuất kho (`LOAD_PRODUCT`).
+* `POST /api/station/unload-product`: Kích hoạt chu trình 11 bước nhập kho (`UNLOAD_PRODUCT`).
+* `GET /api/mission/queue`: Lấy hàng đợi nhiệm vụ FIFO.
+* `POST /api/mission/create`: Khởi tạo nhiệm vụ mới đưa vào hàng đợi điều phối tự động.
 
----
-
-## 7. Các Lưu đồ Thuật toán Chi tiết Từng Phân hệ (Detailed Component Flowcharts)
-
-### 7.1. Lưu đồ Thuật toán Điều khiển PLC Siemens S7-1200 Docking Station
-
-```mermaid
-flowchart TD
-    PLCStart([⚙️ KHỞI ĐỘNG VÒNG LẶP PLC S7-1200]) --> ReadSensors[Đọc trạng thái cảm biến Pad & Công tắc hành trình]
-    ReadSensors --> WaitCmd{Nhận Lệnh từ Central Backend?}
-    
-    WaitCmd -->|Không| ReadSensors
-    WaitCmd -->|Có: LOCK_DRONE| LockProcess[Cấp nguồn Xilanh Kẹp X & Y]
-    LockProcess --> CheckClamps{Kẹp X & Y đã đóng hết hành trình?}
-    CheckClamps -->|Đang đóng| LockProcess
-    CheckClamps -->|Xác nhận DONE| SetLocked[Gán drone_locked = True & Phản hồi Backend]
-
-    WaitCmd -->|Có: UNLOCK_DRONE| UnlockProcess[Thu xilanh Kẹp X & Y về vị trí MỞ]
-    UnlockProcess --> SetUnlocked[Gán drone_locked = False, drone_detected = False]
-
-    WaitCmd -->|Có: Z_UP| ZUpProcess[Bật Động cơ/Xilanh nâng Bàn Z lên vị trí cao]
-    ZUpProcess --> CheckZUp{Đạt công tắc hành trình Z_UP?}
-    CheckZUp -->|Đang nâng| ZUpProcess
-    CheckZUp -->|Đã tới| SetZUp[Gán z_axis = UP & Phản hồi Backend]
-
-    WaitCmd -->|Có: Z_DOWN| ZDownProcess[Hạ Bàn Z về vị trí thấp/HOME]
-    ZDownProcess --> CheckZDown{Đạt công tắc hành trình Z_DOWN?}
-    CheckZDown -->|Đang hạ| ZDownProcess
-    CheckZDown -->|Đã tới| SetZDown[Gán z_axis = DOWN & Phản hồi Backend]
-
-    SetLocked --> ReadSensors
-    SetUnlocked --> ReadSensors
-    SetZUp --> ReadSensors
-    SetZDown --> ReadSensors
-
-    style PLCStart fill:#1e3a8a,color:#fff
-    style SetLocked fill:#10b981,color:#fff
-    style SetUnlocked fill:#10b981,color:#fff
-    style SetZUp fill:#10b981,color:#fff
-    style SetZDown fill:#10b981,color:#fff
-```
-
----
-
-### 7.2. Lưu đồ Thuật toán Điều khiển Cánh tay Robot FAIRINO (Cobot 6-DoF)
-
-```mermaid
-flowchart TD
-    RobotStart([🤖 KHỞI ĐỘNG ROBOT FAIRINO]) --> RobotIdle[Trạng thái READY / IDLE - Kiểm tra kết nối TCP/IP]
-    RobotIdle --> WaitRobotCmd{Nhận Lệnh Điều khiển?}
-
-    WaitRobotCmd -->|Không| RobotIdle
-
-    %% Lệnh MOVE_HOME
-    WaitRobotCmd -->|MOVE_HOME| ExecHome[Chạy thuật toán quy hoạch quỹ đạo đến điểm HOME]
-    ExecHome --> CheckHome{Đã về điểm HOME?}
-    CheckHome -->|Đang di chuyển| ExecHome
-    CheckHome -->|Đã tới| SetStateReady[Cập nhật state = READY, current_slot = None]
-
-    %% Lệnh PICK / PICK_PRODUCT
-    WaitRobotCmd -->|PICK / PICK_PRODUCT| CheckSource{Gắp từ đâu?}
-    CheckSource -->|Gắp từ UAV| PickUAVPos[Di chuyển Tay kẹp đến vị trí gá UAV]
-    CheckSource -->|Gắp từ Ô Slot| PickSlotPos[Di chuyển Tay kẹp đến vị trí Ô A1..C3]
-    PickUAVPos --> CloseGripper[Kích hoạt Tay kẹp Hút / Gắp sản phẩm]
-    PickSlotPos --> CloseGripper
-    CloseGripper --> SetHolding[Gán holding_product = SP_ID & state = READY]
-
-    %% Lệnh STORE / PLACE_PRODUCT
-    WaitRobotCmd -->|STORE / PLACE_PRODUCT| CheckDest{Đặt vào đâu?}
-    CheckDest -->|Đặt vào Ô Slot| PlaceSlotPos[Di chuyển Tay kẹp tới vị trí Ô A1..C3]
-    CheckDest -->|Đặt lên UAV| PlaceUAVPos[Di chuyển Tay kẹp tới gá chứa UAV]
-    PlaceSlotPos --> OpenGripper[Nhả Tay kẹp giải phóng sản phẩm]
-    PlaceUAVPos --> OpenGripper
-    OpenGripper --> ClearHolding[Gán holding_product = None & state = READY]
-
-    SetStateReady --> RobotIdle
-    SetHolding --> RobotIdle
-    ClearHolding --> RobotIdle
-
-    style RobotStart fill:#701a75,color:#fff
-    style SetStateReady fill:#10b981,color:#fff
-    style SetHolding fill:#10b981,color:#fff
-    style ClearHolding fill:#10b981,color:#fff
-```
-
----
-
-### 7.3. Lưu đồ Thuật toán Companion Raspberry Pi 5 & Hạ cánh chính xác ArUco
-
-```mermaid
-flowchart TD
-    RPiStart([🍓 KHỞI ĐỘNG DRONE COMPANION]) --> InitMAVLink[Mở Cổng UART kết nối MAVLink Pixhawk 6C]
-    InitMAVLink --> InitWS[Mở Kết nối WebSocket với Backend Central /ws/drone]
-    InitWS --> CameraLoop[Mở OpenCV USB Camera Video Stream]
-
-    CameraLoop --> ReadFrame[Đọc Frame Hình ảnh từ Camera]
-    ReadFrame --> DetectArUco[Chạy cv2.aruco.detectMarkers]
-    DetectArUco --> MarkerFound{Phát hiện ArUco Marker?}
-
-    MarkerFound -->|Không| StandardFlight[Tiếp tục bay điều hướng GPS thông thường]
-    MarkerFound -->|Có| CalcOffset[Tính toán Tọa độ Tâm Marker & Sai số Offset X, Y, Z]
-
-    CalcOffset --> CheckThreshold{Sai số Offset < Ngưỡng cho phép?}
-    CheckThreshold -->|Còn lệch| SendVelocityCmd[Gửi lệnh MAVLink SET_POSITION_TARGET_LOCAL_NED điều chỉnh vận tốc ngang]
-    CheckThreshold -->|Đã căn giữa| SendLandCmd[Gửi lệnh MAVLink LAND hạ cánh thẳng đứng xuống Landing Pad]
-
-    SendVelocityCmd --> ReadFrame
-    SendLandCmd --> CheckTouchdown{Pixhawk báo Disarmed / Touchdown?}
-    CheckTouchdown -->|Chưa| SendLandCmd
-    CheckTouchdown -->|Đã tiếp đất| ReportBackend[Gửi WebSocket Notify: TOUCHDOWN_SUCCESS]
-
-    StandardFlight --> ReadFrame
-    ReportBackend --> CameraLoop
-
-    style RPiStart fill:#800020,color:#fff
-    style ReportBackend fill:#10b981,color:#fff
-```
-
----
-
-### 7.4. Lưu đồ Thuật toán Quản lý & Gán ô Kho 3x3 (Inventory QR Vision Slot Allocation)
-
-```mermaid
-flowchart TD
-    InvStart([📦 KHỞI ĐỘNG INVENTORY MANAGER]) --> ScanQR[Camera quét mã QR trên Hàng hóa nhập kho]
-    ScanQR --> ExtractPayload[Trích xuất QR Payload: product_id, sender, address]
-    ExtractPayload --> QueryDB{Kiểm tra Sản phẩm trong CSDL?}
-
-    QueryDB -->|Đã tồn tại| CheckStatus[Đọc trạng thái hiện tại của Product]
-    QueryDB -->|Mới| CreateProduct[Tạo mới bản ghi Product trong DB]
-
-    CreateProduct --> FindSlot[Duyệt ma trận 9 ô storage_slots A1..C3]
-    CheckStatus --> FindSlot
-
-    FindSlot --> CheckEmptySlot{Tìm thấy ô có is_empty = True?}
-    CheckEmptySlot -->|Không có ô trống| ReturnFullError[Trả về Lỗi: WAREHOUSE_FULL]
-    CheckEmptySlot -->|Tìm thấy ô slot_name| AssignSlot[Gán sản phẩm vào ô slot_name & đổi status = RESERVED / OCCUPIED]
-
-    AssignSlot --> UpdateDB[Cập nhật SQLite DB & Phát WebSocket Broadcast /ws/system]
-    UpdateDB --> InvDone([✅ GÁN Ô KHO THÀNH CÔNG])
-
-    ReturnFullError --> InvFail([❌ GÁN Ô THẤT BẠI])
-
-    style InvStart fill:#f59e0b,color:#fff
-    style InvDone fill:#10b981,color:#fff
-    style InvFail fill:#ef4444,color:#fff
-```
-
----
-
-### 7.5. Lưu đồ Thuật toán Điều khiển Bay & Máy Trạng thái Drone (Drone Flight Control FSM Algorithm)
-
-```mermaid
-flowchart TD
-    Start([🚀 KHỞI ĐỘNG DRONE CONTROL FSM]) --> IdleState[Trạng thái IDLE - Chờ lệnh từ Server/Backend]
-    IdleState --> CmdCheck{Nhận lệnh điều khiển?}
-
-    %% Khởi chạy đơn hàng
-    CmdCheck -->|Lệnh START / START_MISSION| InitMission[Nạp tọa độ Home, Pickup, Drop & Đặt landing_phase = pickup]
-    InitMission --> ArmingState[Chuyển trạng thái: ARMING]
-
-    %% Trạng thái ARMING
-    ArmingState --> SendArmCmd[Gửi lệnh MAVLink: ARM]
-    SendArmCmd --> CheckArmed{Pixhawk xác nhận armed = True?}
-    CheckArmed -->|Quá 30s Timeout| ArmError[Báo lỗi ARM Timeout -> Transition ERROR]
-    CheckArmed -->|Chưa armed| CheckArmed
-    CheckArmed -->|Đã armed| TakeoffState[Chuyển trạng thái: TAKEOFF]
-
-    %% Trạng thái TAKEOFF
-    TakeoffState --> ExecTakeoff[Gửi lệnh PX4 TAKEOFF altitude = 10m]
-    ExecTakeoff --> CheckAlt{Đạt altitude >= 85% target?}
-    CheckAlt -->|Quá 30s Timeout| TakeoffError[Báo lỗi Takeoff Timeout -> Transition ERROR]
-    CheckAlt -->|Chưa đạt| CheckAlt
-    CheckAlt -->|Đạt độ cao| CheckPhase{Kiểm tra landing_phase}
-
-    CheckPhase -->|phase = pickup| FlyPickupState[Chuyển trạng thái: FLY_TO_PICKUP]
-    CheckPhase -->|phase = enroute_drop| FlyDropState[Chuyển trạng thái: FLY_TO_DROP]
-    CheckPhase -->|phase = rtl| ReturnHomeState[Chuyển trạng thái: RETURN_HOME]
-
-    %% Trạng thái FLY_TO_PICKUP
-    FlyPickupState --> SwitchOffboard1[Chuyển chế độ OFFBOARD]
-    SwitchOffboard1 --> NavPickup[Gửi vị trí target_pickup_lat, lon, alt]
-    NavPickup --> CheckArrivedPickup{Đến vị trí Pickup? radius <= 1.5m}
-    CheckArrivedPickup -->|Chưa tới| NavPickup
-    CheckArrivedPickup -->|Đã tới| DescendPickup[Chuyển trạng thái: DESCEND - landing_phase = pickup]
-
-    %% Trạng thái FLY_TO_DROP
-    FlyDropState --> SwitchOffboard2[Chuyển chế độ OFFBOARD]
-    SwitchOffboard2 --> NavDrop[Gửi vị trí target_drop_lat, lon, alt]
-    NavDrop --> CheckArrivedDrop{Đến vị trí Drop? radius <= 1.5m}
-    CheckArrivedDrop -->|Chưa tới| NavDrop
-    CheckArrivedDrop -->|Đã tới| DescendDrop[Chuyển trạng thái: DESCEND - landing_phase = drop]
-
-    %% Trạng thái DESCEND
-    DescendPickup --> ExecDescend[Hạ độ cao xuống DESCEND_ALTITUDE = 3m]
-    DescendDrop --> ExecDescend
-    ExecDescend --> CheckDescendAlt{Đạt độ cao dò ArUco? altitude <= 4m}
-    CheckDescendAlt -->|Chưa tới| ExecDescend
-    CheckDescendAlt -->|Đã đạt| SearchArucoState[Chuyển trạng thái: SEARCH_ARUCO]
-
-    %% Trạng thái SEARCH_ARUCO
-    SearchArucoState --> InitVision[Kích hoạt OpenCV Camera Stream & ArucoLandingService]
-    InitVision --> CheckArUco{Camera phát hiện ArUco Marker?}
-    CheckArUco -->|Quá Timeout 30s| SearchError[Báo lỗi Không tìm thấy ArUco -> Transition ERROR / RTL]
-    CheckArUco -->|Phát hiện Marker| PrecLandState[Chuyển trạng thái: PRECISION_LANDING]
-
-    %% Trạng thái PRECISION_LANDING
-    PrecLandState --> SetModePrecland[Kích hoạt PX4 PRECLAND & Phát tin MAVLink LANDING_TARGET @ 25Hz]
-    SetModePrecland --> CheckBlindZone{Độ cao AGL < 0.4m? Vùng mù Camera}
-    CheckBlindZone -->|Chưa| AlignAndDescend[Tiếp tục căn chỉnh sai số Offset X/Y & hạ cao độ]
-    AlignAndDescend --> CheckBlindZone
-    CheckBlindZone -->|Vào vùng mù| ForceLand[Chuyển chế độ LAND hạ cánh thẳng đứng & giữ hướng]
-    ForceLand --> CheckLanded{Pixhawk báo is_landed = True & armed = False?}
-    CheckLanded -->|Chưa| ForceLand
-    CheckLanded -->|Đã tiếp đất & Disarm| CheckLandPhase{Kiểm tra landing_phase}
-
-    CheckLandPhase -->|phase = pickup| WaitPickupState[Chuyển trạng thái: WAIT_PICKUP_CONFIRM]
-    CheckLandPhase -->|phase = drop| WaitDropState[Chuyển trạng thái: WAIT_DROP_CONFIRM]
-
-    %% Trạng thái WAIT_PICKUP_CONFIRM
-    WaitPickupState --> StopVision1[Tắt Camera Stream & Phát tin WS: waiting_pickup_confirm]
-    StopVision1 --> WaitPickupCmd{Nhận lệnh PICKUP_COMPLETE?}
-    WaitPickupCmd -->|Chờ| WaitPickupCmd
-    WaitPickupCmd -->|Nhận lệnh| SetPhaseDrop[Đặt landing_phase = enroute_drop & Chuyển trạng thái ARMING]
-    SetPhaseDrop --> ArmingState
-
-    %% Trạng thái WAIT_DROP_CONFIRM
-    WaitDropState --> StopVision2[Tắt Camera Stream & Phát tin WS: waiting_drop_confirm]
-    StopVision2 --> WaitDropCmd{Nhận lệnh DROP_COMPLETE?}
-    WaitDropCmd -->|Chờ| WaitDropCmd
-    WaitDropCmd -->|Nhận lệnh| SetPhaseRTL[Đặt landing_phase = rtl & Chuyển trạng thái ARMING]
-    SetPhaseRTL --> ArmingState
-
-    %% Trạng thái RETURN_HOME
-    ReturnHomeState --> ExecRTL[Dừng OFFBOARD keepalive & Gửi lệnh MAVLink RTL]
-    ExecRTL --> CheckHomeTouchdown{PX4 auto-land & auto-disarm tại Home?}
-    CheckHomeTouchdown -->|Chưa| ExecRTL
-    CheckHomeTouchdown -->|Đã về Home| CheckPending{Có đơn hàng chờ? Pending Mission}
-    CheckPending -->|Có đơn chờ Continuous Delivery| ContinuousStart[Nạp đơn mới -> Set landing_phase = pickup -> ARMING]
-    ContinuousStart --> ArmingState
-    CheckPending -->|Không có| CompleteMission([✅ HOÀN THÀNH TOÀN BỘ CHUYẾN BAY -> IDLE])
-    CompleteMission --> IdleState
-
-    %% Xử lý Khẩn cấp & Lỗi (Failsafe)
-    CmdCheck -->|Lệnh FORCE_RTL| ForceRTLAction[Kích hoạt RTL khẩn cấp -> Transition RETURN_HOME]
-    ForceRTLAction --> ReturnHomeState
-    
-    ArmError --> RecoverIdle[Chờ 5s tự ngắt -> Return IDLE]
-    TakeoffError --> RecoverIdle
-    SearchError --> ForceRTLAction
-    RecoverIdle --> IdleState
-
-    style Start fill:#10b981,color:#fff
-    style CompleteMission fill:#10b981,color:#fff
-    style ArmError fill:#ef4444,color:#fff
-    style TakeoffError fill:#ef4444,color:#fff
-    style SearchError fill:#ef4444,color:#fff
-    style ArmingState fill:#3b82f6,color:#fff
-    style TakeoffState fill:#3b82f6,color:#fff
-    style FlyPickupState fill:#8b5cf6,color:#fff
-    style FlyDropState fill:#8b5cf6,color:#fff
-    style PrecLandState fill:#f59e0b,color:#fff
-    style ReturnHomeState fill:#6366f1,color:#fff
-```
-```
+### 8.6. WebSocket Realtime Endpoints
+* **`WS /ws/system`**: Kênh phát sóng đồng bộ trạng thái thời gian thực toàn hệ thống tới Dashboard HMI (Heartbeat thiết bị, Telemetry Drone, PLC DB15, Robot State, Kho 9 ô, Mission Queue).
+* **`WS /ws/drone/{drone_id}`**: Kênh truyền thông hai chiều giữa Central Backend và máy tính nhúng Companion RPi 5 trên UAV.

@@ -92,7 +92,7 @@ export function UavFleetControlWidget({
 
   useEffect(() => {
     fetchFleet();
-    const interval = setInterval(fetchFleet, 3000);
+    const interval = setInterval(fetchFleet, 8000);
 
     const handleFleetUpdate = (e: any) => {
       if (e.detail?.fleet) {

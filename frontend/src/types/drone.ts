@@ -68,11 +68,6 @@ export interface WsMessage {
 }
 
 // Button enable/disable logic helpers
-export const START_ENABLED_STATES: ReadonlySet<DroneState> = new Set([
-  "IDLE",
-  "RETURN_HOME",
-]);
-
 export const PICKUP_OK_ENABLED_STATES: ReadonlySet<DroneState> = new Set([
   "WAIT_PICKUP_CONFIRM",
 ]);

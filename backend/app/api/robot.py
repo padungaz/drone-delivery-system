@@ -1,9 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
 from app.models.schemas import RobotCommand, RobotCommandRequest, RobotStatusResponse
 from app.services.robot_manager import RobotManager
+from app.services.device_lock_manager import device_lock_manager
 from app.websocket.manager import system_ws_manager
 
 robot_router = APIRouter(prefix="/api/robot", tags=["FAIRINO Robot Control"])
@@ -15,6 +16,12 @@ class RobotSlotRequest(BaseModel):
 
 @robot_router.post("/command", response_model=RobotStatusResponse)
 async def execute_robot_command(req: RobotCommandRequest):
+    if device_lock_manager.is_device_locked("ROBOT01"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
+        )
+
     mgr = RobotManager.get_instance()
     status = await mgr.execute_command(req.command, slot=req.slot)
 
@@ -25,6 +32,12 @@ async def execute_robot_command(req: RobotCommandRequest):
 
 @robot_router.post("/pick")
 async def robot_pick(req: RobotSlotRequest):
+    if device_lock_manager.is_device_locked("ROBOT01"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
+        )
+
     mgr = RobotManager.get_instance()
     status = await mgr.execute_command(RobotCommand.PICK, slot=req.slot)
 
@@ -37,6 +50,12 @@ async def robot_pick(req: RobotSlotRequest):
 
 @robot_router.post("/store")
 async def robot_store(req: RobotSlotRequest):
+    if device_lock_manager.is_device_locked("ROBOT01"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
+        )
+
     mgr = RobotManager.get_instance()
     status = await mgr.execute_command(RobotCommand.STORE, slot=req.slot)
 
@@ -49,6 +68,12 @@ async def robot_store(req: RobotSlotRequest):
 
 @robot_router.post("/home")
 async def robot_home():
+    if device_lock_manager.is_device_locked("ROBOT01"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
+        )
+
     mgr = RobotManager.get_instance()
     status = await mgr.execute_command(RobotCommand.MOVE_HOME)
 
@@ -61,6 +86,12 @@ async def robot_home():
 
 @robot_router.post("/place")
 async def robot_place(req: RobotSlotRequest):
+    if device_lock_manager.is_device_locked("ROBOT01"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
+        )
+
     mgr = RobotManager.get_instance()
     status = await mgr.execute_command(RobotCommand.PLACE_PRODUCT, slot=req.slot)
 

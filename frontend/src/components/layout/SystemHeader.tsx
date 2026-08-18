@@ -7,7 +7,11 @@ interface Props {
   robotOnline?: boolean;
   cameraOnline?: boolean;
   systemMode?: "AUTO" | "MANUAL";
+  autoState?: "STANDBY" | "RUNNING" | "PAUSED" | "ERROR";
+  isLoadingAuto?: boolean;
   onModeToggle?: (mode: "AUTO" | "MANUAL") => void;
+  onStartAuto?: () => void;
+  onPauseAuto?: () => void;
   onEStopClick: () => void;
 }
 
@@ -18,7 +22,11 @@ export function SystemHeader({
   robotOnline = true,
   cameraOnline = true,
   systemMode = "AUTO",
+  autoState = "STANDBY",
+  isLoadingAuto = false,
   onModeToggle,
+  onStartAuto,
+  onPauseAuto,
   onEStopClick,
 }: Props) {
   const [timeStr, setTimeStr] = useState("");
@@ -93,8 +101,8 @@ export function SystemHeader({
             onClick={handleToggleMode}
             title={
               systemMode === "AUTO"
-                ? "Đang ở chế độ AUTO: Hệ thống tự động thực thi đơn hàng. Bấm để chuyển MANUAL"
-                : "Đang ở chế độ MANUAL: Đơn hàng bị khóa, cho phép thử nghiệm độc lập từng thiết bị. Bấm để chuyển AUTO"
+                ? "Đang ở chế độ AUTO: Bấm để chuyển MANUAL (Thủ công)"
+                : "Đang ở chế độ MANUAL: Bấm để chuyển AUTO (Tự động)"
             }
           >
             <span className="mode-icon">{systemMode === "AUTO" ? "⚡" : "🛠️"}</span>
@@ -103,6 +111,60 @@ export function SystemHeader({
               <strong className="mode-value">{systemMode === "AUTO" ? "🤖 AUTO (TỰ ĐỘNG)" : "🎮 MANUAL (THỦ CÔNG)"}</strong>
             </div>
           </button>
+        </div>
+
+        {/* Station AUTO Start / Pause Master Control */}
+        <div className="system-auto-control-box">
+          {systemMode === "MANUAL" ? (
+            <button
+              type="button"
+              className="btn-auto-action mode-disabled"
+              disabled
+              title="Chuyển sang chế độ AUTO để khởi động tự động toàn bộ kho trạm"
+            >
+              <span className="action-icon">🔒</span>
+              <div className="action-text-group">
+                <span className="action-label">KHO TRẠM</span>
+                <strong className="action-value">KHÓA TỰ ĐỘNG</strong>
+              </div>
+            </button>
+          ) : autoState === "RUNNING" ? (
+            <div className="auto-running-controls">
+              <div className="auto-running-badge">
+                <span className="pulse-dot"></span>
+                <span className="running-text">AUTO RUNNING</span>
+              </div>
+              <button
+                type="button"
+                className="btn-auto-action action-pause"
+                onClick={onPauseAuto}
+                title="Tạm dừng xử lý hàng đợi tự động"
+              >
+                <span className="action-icon">⏸️</span>
+                <span className="action-text">TẠM DỪNG</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className={`btn-auto-action action-start pulse-start ${isLoadingAuto ? "loading" : ""}`}
+              onClick={onStartAuto}
+              disabled={isLoadingAuto}
+              title="Kiểm tra tiền khởi động, đưa Robot về Home & chạy hàng đợi FIFO"
+            >
+              <span className="action-icon">{isLoadingAuto ? "⏳" : "▶️"}</span>
+              <div className="action-text-group">
+                <span className="action-label">KHO TRẠM</span>
+                <strong className="action-value">
+                  {isLoadingAuto
+                    ? "ĐANG KHỞI ĐỘNG..."
+                    : autoState === "PAUSED"
+                    ? "TIẾP TỤC CHẠY"
+                    : "START KHO TRẠM"}
+                </strong>
+              </div>
+            </button>
+          )}
         </div>
 
         <div className="hmi-clock-box">
@@ -121,3 +183,4 @@ export function SystemHeader({
     </header>
   );
 }
+

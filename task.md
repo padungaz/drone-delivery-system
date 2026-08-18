@@ -1,53 +1,95 @@
 # Hệ Thống Kho Thông Minh & Trạm Giao Nhận Drone (Smart Intralogistics & UAV Fleet System)
 ## Báo Cáo Tiến Độ Dự Án & Kế Hoạch Triển Khai (task.md)
 
-Cập nhật lần cuối: **17/08/2026**
+Cập nhật lần cuối: **18/08/2026**
 
 ---
 
 ## 🎯 1. Tổng Quan Hệ Thống
-Hệ thống tự động hóa kho thông minh kết hợp giao nhận bằng máy bay không người lái (UAV) gồm 4 tầng kiến trúc:
-1. **Khách hàng & Đơn hàng**: Quản lý đơn hàng xuất/nhập kho (Inbound / Outbound).
-2. **Điều phối Nhiệm vụ (Mission Orchestrator - Layer 2)**: Quản lý hàng chờ FIFO, tự động gán UAV và kích hoạt quy trình trạm Docking.
-3. **Trạm Docking & Phần Cứng**: Điều khiển tự động/thủ công Cánh tay Robot FAIRINO FR3 (LUA TCP Socket Port 8090), PLC Siemens S7-1200 (Profinet/Snap7), Camera Vision quét mã QR (CAM01), Bãi đáp Drone Pad N1.
-4. **Hệ Thống Đội Bay UAV (UAV Fleet System)**: Quản lý trạng thái đội bay (UAV01, UAV02, UAV03...) liên lạc qua tín hiệu Event-Driven độc lập với trạm kho.
+Hệ thống tự động hóa kho thông minh kết hợp giao nhận bằng máy bay không người lái (UAV) gồm 4 tầng kiến trúc tách biệt (**4-Layer Decoupled Architecture**):
+1. **Khách hàng & Đơn hàng (Customer Order Layer)**: Quản lý yêu cầu xuất/nhập kho (`DeliveryRequestRecord`), trạng thái đơn hàng (`PENDING`, `PROCESSING`, `DELIVERED`, `FAILED`).
+2. **Điều phối Nhiệm vụ (Mission Orchestrator - Layer 2)**: Quản lý vòng đời nhiệm vụ (`IntralogisticsMissionRecord`), điều phối hàng đợi FIFO (`MissionQueueManager`), tự động gán UAV và đồng bộ hóa tiến trình trạm.
+3. **Trạm Docking & Dịch Vụ Phần Cứng (Station Task Service - Layer 3)**: Chuỗi FSM 11 bước tự động điều khiển Cánh tay Robot FAIRINO FR3 (LUA TCP Socket Port 8090), PLC Siemens S7-1200 (Profinet DB15 Snap7), Camera Vision quét mã QR (CAM01), Bãi đáp Drone Pad N1.
+4. **Hệ Thống Đội Bay UAV (UAV Fleet System - Layer 4)**: Quản lý trạng thái đội bay (`UAV01`, `UAV02`, `UAV03`...) liên lạc qua tín hiệu Event-Driven độc lập với trạm kho (`signal_drone_arrived`, `signal_drone_depart_home`, `signal_drone_depart_delivery`).
 
 ---
 
-## ✅ 2. Những Gì ĐÃ LÀM ĐƯỢC (Work Accomplished)
+## ✅ 2. Những Gì ĐÃ LÀM ĐƯỢC (Work Accomplished - Cập nhật 18/08/2026)
 
-### 🎛️ 2.1. Quản Lý Chế Độ Toàn Cục Hệ Thống (`🤖 AUTO` $\leftrightarrow$ `🎮 MANUAL`)
-- [x] **Backend Singleton `SystemModeManager`**: Quản lý chế độ toàn cục (`AUTO` | `MANUAL`), cung cấp `GET /api/system/mode` và `POST /api/system/mode`, phát realtime qua WebSocket `/ws/system`.
-- [x] **Khóa An Toàn FSM (Handshake Safety Lock)**: Khi ở `MANUAL`, tự động chặn `auto_dispatch_next_mission()` để kỹ sư can thiệp độc lập từng thiết bị mà không bị xung đột với quy trình tự động.
-- [x] **Công Tắc Chuyển Đổi Trên Header**: Bổ sung nút bấm Cyber Emerald/Amber Glow Pulse trên `SystemHeader.tsx` đồng bộ tức thì trên toàn giao diện.
+### 🛡️ 2.1. Cơ Chế Khóa An Toàn Độc Lập (Safety Interlock Manager)
+- [x] **Singleton Service `DeviceLockManager` ([device_lock_manager.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/device_lock_manager.py))**:
+  - Tự động khóa trạm và thiết bị (`PLC01`, `ROBOT01`) khi có Auto Mission đang thực thi chu trình phần cứng (`STATION_PROCESSING`).
+  - Toàn bộ các API manual điều khiển chuyển động (`POST /api/plc/lock`, `POST /api/plc/hatch`, `POST /api/robot/pick`, `POST /api/robot/store`, `POST /api/device/send-raw-command`...) tự động chặn và trả về **`HTTP 409 Conflict`** kèm mã Mission đang giữ khóa.
+  - **Ngoại lệ An toàn**: Các lệnh Dừng Khẩn Cấp (`STOP_PLC`, `EMERGENCY_STOP`, `RESET_PLC`) luôn được phép can thiệp tức thì.
+  - Cung cấp API `GET /api/device/lock-status` để HMI giám sát trạng thái khóa trạm theo thời gian thực.
 
-### 🛡️ 2.2. Giao Diện & Thao Tác Thủ Công An Toàn Theo Chế Độ
-- [x] **PLC Siemens S7-1200 (`PLCMonitor.tsx`)**:
-  - `AUTO`: Ẩn hoàn toàn bảng điều khiển thủ công, hiển thị card giám sát chuẩn công nghiệp.
-  - `MANUAL`: Mở khóa toolbar thủ công (Khóa/Mở ngàm Drone, Nâng/Hạ trục Z, Start/Stop/Reset nguồn PLC, Cảm biến Drone đáp/Bãi trống).
-- [x] **Camera Vision QR Scanner (`CameraVision.tsx`)**:
-  - `AUTO`: Ẩn thanh công cụ quét thủ công.
-  - `MANUAL`: Mở khóa nút bật/tắt RTSP Stream, ô nhập mã QR test và nút kích hoạt quét barcode.
-- [x] **Cánh Tay Robot FAIRINO FR3 (`QuickControlPanel.tsx`)**:
-  - Tái cấu trúc chuẩn giao diện công nghiệp đồng bộ 100% với PLC (Khối phần cứng Controller Fairino FR3, dàn LED `SERVO`, `BRAKE`, `AUTO/MANUAL`, chân IO Terminal, bảng thông số kết nối TCP Socket `192.168.58.2:8090`, và **4 Indicator Boxes**: `Mode`, `Gripper`, `Target Pos`, `Servo Safety`).
-  - **Giữ nguyên trạng thái ở cả 2 chế độ**: Khi chuyển sang `MANUAL`, không bị ẩn bảng thông số mà hiển thị thanh điều khiển thủ công gọn gàng docked ngay bên dưới.
-  - Bổ sung trọn bộ lệnh Robot: `🏠 Vị trí HOME`, `⏸️ Vị trí STANDBY`, `📷 Vị trí Soi QR`, `📤 Gắp Ô [A1..C3]`, `📥 Thả Ô [A1..C3]`, `🛬 Gắp Từ UAV`, `🚀 Thả Lên UAV`, `🔓 Mở Kẹp`, `🔒 Đóng Kẹp`.
-- [x] **Tối Ưu Bố Cục**: Loại bỏ hoàn toàn bảng `🕹️ JOG CONTROLLER` để tạo bố cục hàng giữa 3 cột cân đối, thoáng mắt và chuẩn công nghiệp.
+---
 
-### 📋 2.3. Tái Cấu Trúc Hoàn Toàn Thẻ `CURRENT TASK MONITOR`
-- [x] **Thông Tin Đơn Hàng Đang Thực Thi**: Hiển thị rõ ràng Mã Đơn (`#ORD-XXXX / #MISSION-XX`), Tên sản phẩm (`PRD-XXXX`), Ô kho đích (`Ô [A2]`), Phương tiện (`UAV-01`), Trạng thái (`RUNNING`).
-- [x] **Phân Định Loại Nhiệm Vụ Rõ Ràng**:
-  - Badge dạ quang: **`📥 NHẬN HÀNG (INBOUND)`** (Emerald Green) vs **`📤 GIAO HÀNG (OUTBOUND)`** (Amber / Rose).
-- [x] **Danh Sách 6 Bước Trực Quan Động Theo Nghiệp Vụ**:
-  - **Khi Nhận hàng (Inbound)**: `UAV tiếp cận & đáp Pad N1` $\rightarrow$ `PLC khóa ngàm & hạ trục Z` $\rightarrow$ `Robot gắp kiện hàng từ UAV` $\rightarrow$ `Robot đưa hàng soi mã QR CAM01` $\rightarrow$ `Robot cất hàng vào Ô Kho [Slot]` $\rightarrow$ `Robot về Home / Hoàn tất`.
-  - **Khi Giao hàng (Outbound)**: `Robot gắp hàng từ Ô Kho [Slot]` $\rightarrow$ `Robot quét mã QR kiểm tra hàng` $\rightarrow$ `Robot đặt kiện hàng lên lưng UAV N1` $\rightarrow$ `PLC nâng trục Z & mở ngàm sẵn sàng` $\rightarrow$ `UAV cất cánh rời trạm đi giao` $\rightarrow$ `Robot & Trạm về trạng thái Chờ (Ready)`.
-  - Hiển thị icon trạng thái từng bước: `✓` Hoàn thành, `🔵` Đang xử lý (nhấp nháy neon), `○` Chờ.
-- [x] **Danh Sách Đơn Hàng Tiếp Theo (FIFO Queue)**:
-  - Tự động lấy danh sách hàng đợi thời gian thực, hiển thị thứ tự `#1, #2, #3`, mã đơn, loại đơn, ô kho đích, UAV và trạng thái `Chờ lượt`.
+### ⚡ 2.2. Chuẩn Hóa Chế Độ Hệ Thống & Nút Khởi Động Kho Trạm (AUTO Start Routine)
+- [x] **FSM Trạng Thái Vận Hành ([system_mode_manager.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/system_mode_manager.py))**:
+  - Phân tách rõ ràng giữa **Chọn chế độ (Mode Selection)** và **Phát lệnh vận hành (System Start)**.
+  - Quản lý 4 trạng thái con của AUTO: `STANDBY` (Đèn vàng chờ Start) $\rightarrow$ `RUNNING` (Đèn xanh chạy tự động) $\rightarrow$ `PAUSED` (Tạm dừng) $\rightarrow$ `ERROR`.
+  - Khi chuyển sang `MANUAL`: Toàn bộ Dispatcher tự động ngắt, đơn hàng mới vào hàng chờ `WAITING`.
+  - Khi chuyển sang `AUTO`: Mặc định vào trạng thái `STANDBY` an toàn (chưa tự ý kích hoạt chuyển động cơ khí).
+- [x] **Quy Trình Tiền Khởi Động 5 Bước (Pre-flight Diagnostic & Homing Routine)**:
+  - Endpoint `POST /api/system/start-auto` ([fleet.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/api/fleet.py)):
+    1. Kiểm tra an toàn E-Stop & Safety Interlock.
+    2. PLC S7-1200: Gửi lệnh `START_PLC`, reset lỗi DB15, đưa thang nâng Z về vị trí an toàn `Z_DOWN`.
+    3. FAIRINO Robot: Gửi lệnh `MOVE_HOME` đưa tay máy về tư thế chuẩn an toàn.
+    4. Chuyển trạng thái `auto_state = "RUNNING"`, kích hoạt Scheduler.
+    5. Quét và tự động nạp đơn hàng đầu tiên từ hàng đợi FIFO.
+  - Endpoint `POST /api/system/pause-auto`: Tạm dừng hệ thống tự động an toàn mà không cần thoát chế độ AUTO.
+  - Endpoint `POST /api/system/resume-queue`: Cho phép Operator tiếp tục xử lý hàng đợi sau khi kiểm tra thiết bị.
+- [x] **Giao Diện HMI Header Thông Minh ([SystemHeader.tsx](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/frontend/src/components/layout/SystemHeader.tsx), [styles.css](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/frontend/src/styles.css))**:
+  - `MANUAL`: Nút hiển thị `🔒 KHÓA TỰ ĐỘNG` (disabled).
+  - `AUTO (STANDBY)`: Nút **`▶ START KHO TRẠM`** màu xanh lục Neon với hiệu ứng nhịp đập (**Pulse Glow Animation**) thu hút Operator bấm.
+  - `AUTO (RUNNING)`: Badge **`🟢 AUTO RUNNING`** (đèn xanh nhấp nháy) kèm nút **`⏸️ TẠM DỪNG`**.
+  - `AUTO (PAUSED)`: Nút **`▶ TIẾP TỤC CHẠY`** màu hổ phách.
 
-### 🚁 2.4. Đội Bay UAV (UAV Fleet System) & Mô Phỏng Chuỗi Đơn
-- [x] Quản lý đội bay nhiều Drone (`UAV01`, `UAV02`, `UAV03`...) với các trạng thái (`READY`, `FLYING_TO_WAREHOUSE`, `LANDED`, `LOADING`, `FLYING_DELIVERY`, `RETURN_HOME`, `OFFLINE`).
-- [x] Bộ nút mô phỏng điều khiển UAV linh hoạt: *Mô phỏng UAV 1 đáp bãi N1, UAV 1 về Home, UAV 2 đáp bãi, UAV 2 rời bãi đi giao hàng*.
+---
+
+### 📦 2.3. Sửa Triệt Để Lỗi Hàng Đợi FIFO & Cơ Chế Fail-Safe Khi Sự Cố
+- [x] **Sửa Deadlock Hàng Đợi ([mission_manager.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/mission_manager.py))**:
+  - Sửa phương thức `get_active_mission()`: Chỉ xét nhiệm vụ có trạng thái `RUNNING` là active. Loại bỏ hoàn toàn lỗi nhiệm vụ `WAITING` bị đếm nhầm khiến hàng chờ bị nghẽn (deadlock).
+- [x] **Cơ Chế Fail-Safe Ngắt Chuỗi Lỗi Dây Chuyền**:
+  - Khi nhiệm vụ gặp lỗi phần cứng (`_abort_mission`), hệ thống đánh dấu `FAILED`, giải phóng khóa interlock, phát cảnh báo `SYSTEM_ALERT` qua WebSocket và **dừng hàng đợi tự động** (không tự ý đẩy tiếp đơn tiếp theo vào vòng lặp lỗi).
+
+---
+
+### 🤖 2.4. Chuẩn Hóa Giao Thức Robot FAIRINO LUA & PLC DB15
+- [x] **Chuẩn Hóa Vị Trí Dock N1 ([robot_manager.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/robot_manager.py), `code-robot.lua`)**:
+  - Tự động map toàn bộ các alias `"DOCK"`, `"PAD"`, `"PAD_N1"` thành vị trí `"N1"` chuẩn theo script Lua của Robot FR3 (Port 8090).
+  - `PICK_UAV` $\rightarrow$ payload `"PICK N1"`, `PLACE_UAV` $\rightarrow$ payload `"STORE N1"`.
+  - Khắc phục lỗi Socket: Khi mất kết nối hoặc nhận phản hồi `FAILED`/`BUSY`, set `state = "ERROR"` và raise Exception để FSM rollback an toàn thay vì nuốt lỗi.
+- [x] **Chuẩn Hóa PLC DB15 & Cảm Biến Landing ([plc_manager.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/plc_manager.py))**:
+  - Lệnh `UNLOCK_DRONE` không làm mất trạng thái `drone_detected = True`. Cảm biến chỉ chuyển về `False` khi UAV thực sự cất cánh rời trạm (`signal_drone_depart_home` / `signal_drone_depart_delivery` trong `fleet_manager.py`).
+- [x] **Chuẩn Hóa Station Service FSM ([station_service.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/station_service.py))**:
+  - Đổi toàn bộ vị trí gắp/đặt từ `"DOCK"` sang `"N1"` ở cả 2 chu trình: `execute_load_product` (Xuất kho) và `execute_unload_product` (Nhập kho).
+
+---
+
+### 🔄 2.5. Hệ Thống Tự Động Thu Hồi Sau Khởi Động (Startup Recovery Manager)
+- [x] **Dịch Vụ `RecoveryManager` ([recovery_manager.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/recovery_manager.py), [main.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/main.py))**:
+  - Tích hợp vào `lifespan` khi Backend khởi động lại.
+  - Tự động quét và thu hồi các nhiệm vụ mồ côi bị dở dang (`RUNNING` / `STATION_PROCESSING`) chuyển thành `FAILED` với lý do `SYSTEM_RESTART_ORPHANED_TASK`.
+  - Reset toàn bộ khóa interlock trong RAM và kiểm tra trạng thái an toàn cơ khí (kẹp PLC, tay gắp Robot).
+
+---
+
+### 🧪 2.6. Bộ Test Tự Động (Automated Test Suites - 100% Passed)
+- [x] **`test_interlock_and_failsafe.py` (5/5 PASSED)**:
+  - Test 1: Safety Interlock chặn lệnh manual điều khiển PLC/Robot khi Auto Mission đang chạy (HTTP 409). Cho phép lệnh STOP khẩn cấp (HTTP 200).
+  - Test 2: Chế độ MANUAL ngăn chặn Auto Dispatcher và giữ đơn mới ở hàng chờ WAITING.
+  - Test 3: Fairino Robot tự động chuyển đổi vị trí Dock thành `N1` chuẩn giao thức Lua.
+  - Test 4: Lệnh PLC UNLOCK bảo toàn tín hiệu Drone Landing (`drone_detected = True`) cho tới khi cất cánh.
+  - Test 5: Recovery Manager tự động phát hiện và thu hồi nhiệm vụ mồ côi khi khởi động server.
+- [x] **`test_auto_start_feature.py` (4/4 PASSED)**:
+  - Test 1: Chuyển sang AUTO mặc định ở trạng thái STANDBY an toàn.
+  - Test 2: Nút `start-auto` kích hoạt quy trình Homing thiết bị (PLC Z-Down, Robot Home), chuyển sang `RUNNING` và tự động dispatch đơn hàng FIFO.
+  - Test 3: Nút `pause-auto` tạm dừng Scheduler và `resume-queue` kích hoạt lại.
+  - Test 4: Chuyển sang MANUAL vô hiệu hóa hoàn toàn Auto Scheduler.
+- [x] **`test_smart_intralogistics.py` & `test_decoupled_architecture.py` (PASSED)**:
+  - Toàn bộ chu trình Nhập kho (`DRONE_PICKUP`) và Xuất kho (`DRONE_DELIVERY`) 11 bước và kiến trúc 4 tầng hoạt động trơn tru.
 
 ---
 
@@ -57,7 +99,7 @@ Hệ thống tự động hóa kho thông minh kết hợp giao nhận bằng m�
 - [ ] **Báo cáo thống kê hiệu suất ca làm việc (OEE Analytics)**:
   - Lưu trữ thời gian chu kỳ (Cycle Time) từng bước vào database để vẽ biểu đồ thống kê số lượng đơn xử lý theo giờ/ngày.
 - [ ] **Âm thanh cảnh báo (Audio Alerts)**:
-  - Chưa tích hợp âm thanh tiếng bíp khi Robot hoàn thành đơn hoặc khi PLC kích hoạt dừng khẩn cấp (E-Stop).
+  - Tích hợp âm thanh tiếng bíp / còi còi khi Robot hoàn thành đơn, khi trạm Start Auto, hoặc khi phát hiện Dừng Khẩn Cấp (E-Stop).
 
 ---
 

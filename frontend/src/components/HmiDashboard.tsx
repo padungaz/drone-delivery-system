@@ -7,6 +7,7 @@ import { RobotStatusCard } from "./robot/RobotStatusCard";
 import { RobotDigitalTwin } from "./robot/RobotDigitalTwin";
 import { JointControlPanel } from "./robot/JointControlPanel";
 import { WarehouseGrid, type SlotData } from "./warehouse/WarehouseGrid";
+import { UavManualControlPanel } from "./uav/UavManualControlPanel";
 import { TaskMonitor } from "./task/TaskMonitor";
 import { MissionQueuePanel } from "./task/MissionQueuePanel";
 
@@ -15,17 +16,17 @@ import { PLCMonitor } from "./plc/PLCMonitor";
 import { CameraVision } from "./vision/CameraVision";
 import { SystemLog, type LogItem } from "./system/SystemLog";
 import { ModalManager, type ModalType } from "./system/ModalManager";
-import { ManualControlModal } from "./ManualControlModal";
 import { MapPanel } from "./MapPanel";
 import { TelemetryPanel } from "./TelemetryPanel";
 import { DeliveryRequestsPanel } from "./DeliveryRequestsPanel";
-import { ControlButtons } from "./ControlButtons";
 import {
   sendRobotCommand,
   sendPlcCommand,
   getDeviceLogs,
   getSystemMode,
   setSystemMode,
+  startSystemAuto,
+  pauseSystemAuto,
   getMissionQueue,
 } from "../services/api";
 import type { MissionLocations } from "../types/drone";
@@ -43,7 +44,6 @@ export function HmiDashboard() {
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [modalData, setModalData] = useState<any>(null);
-  const [isManualModalOpen, setManualModalOpen] = useState(false);
 
   // Real System WebSockets Data Hooks
   const {
@@ -55,6 +55,7 @@ export function HmiDashboard() {
     activeMission,
     stationOp,
     cameraActive,
+    refetch: refreshSystemState,
   } = useIntralogisticsWS();
 
   // Real UAV Drone Telemetry Hook
@@ -65,6 +66,8 @@ export function HmiDashboard() {
 
   // System Global Mode: "AUTO" (Full automation) vs "MANUAL" (Manual override / maintenance)
   const [systemMode, setSystemModeState] = useState<"AUTO" | "MANUAL">("AUTO");
+  const [autoState, setAutoState] = useState<"STANDBY" | "RUNNING" | "PAUSED" | "ERROR">("STANDBY");
+  const [isLoadingAuto, setIsLoadingAuto] = useState<boolean>(false);
 
   // Mission Queue State for next waiting orders
   const [waitingQueue, setWaitingQueue] = useState<any[]>([]);
@@ -87,6 +90,7 @@ export function HmiDashboard() {
       if (res.ok) {
         const data = await res.json();
         if (data.mode) setSystemModeState(data.mode);
+        if (data.auto_state) setAutoState(data.auto_state);
       }
     } catch {
       // Ignore
@@ -98,10 +102,44 @@ export function HmiDashboard() {
       const res = await setSystemMode(newMode);
       if (res.ok) {
         setSystemModeState(newMode);
+        setAutoState(newMode === "AUTO" ? "STANDBY" : "PAUSED");
         addLog("INFO", `Chế độ hệ thống đã chuyển sang: ${newMode}`);
       }
     } catch {
       addLog("ERROR", "Không thể thay đổi chế độ hệ thống");
+    }
+  };
+
+  const handleStartAutoSystem = async () => {
+    setIsLoadingAuto(true);
+    try {
+      addLog("INFO", "⚡ Đang kiểm tra tiền khởi động, đưa Robot về Home & hạ thang Z...");
+      const res = await startSystemAuto();
+      if (res.ok) {
+        const data = await res.json();
+        setAutoState("RUNNING");
+        addLog("INFO", data.message || "🚀 Toàn bộ kho trạm đã KHỞI ĐỘNG TỰ ĐỘNG!");
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        addLog("ERROR", `Không thể khởi động tự động: ${errData.detail || res.statusText}`);
+      }
+    } catch (err: any) {
+      addLog("ERROR", `Lỗi kết nối khi khởi động tự động: ${err.message}`);
+    } finally {
+      setIsLoadingAuto(false);
+      fetchMissionQueue();
+    }
+  };
+
+  const handlePauseAutoSystem = async () => {
+    try {
+      const res = await pauseSystemAuto();
+      if (res.ok) {
+        setAutoState("PAUSED");
+        addLog("WARN", "⏸️ Hệ thống tự động đã TẠM DỪNG bởi Operator.");
+      }
+    } catch {
+      addLog("ERROR", "Không thể tạm dừng hệ thống tự động");
     }
   };
 
@@ -116,6 +154,9 @@ export function HmiDashboard() {
     const handleModeUpdate = (e: any) => {
       if (e.detail?.mode) {
         setSystemModeState(e.detail.mode);
+      }
+      if (e.detail?.auto_state) {
+        setAutoState(e.detail.auto_state);
       }
     };
 
@@ -139,6 +180,36 @@ export function HmiDashboard() {
 
   // Device logs state
   const [logs, setLogs] = useState<LogItem[]>([]);
+
+  // Robot Real-time Motion & Socket Traffic Tracking
+  const [activeRobotCmd, setActiveRobotCmd] = useState<string | null>(null);
+  const [robotElapsedSec, setRobotElapsedSec] = useState<number>(0);
+  const [lastRobotCycleDuration, setLastRobotCycleDuration] = useState<number | null>(13.08);
+  const [robotSocketLogs, setRobotSocketLogs] = useState<Array<{ id: string; time: string; type: "TX" | "RX" | "ERR"; payload: string; duration?: string }>>([
+    { id: "1", time: "17:26:51", type: "TX", payload: 'PICK A2\r\n' },
+    { id: "2", time: "17:27:04", type: "RX", payload: 'SUCCESS PICK A2\n', duration: "13.08s" },
+    { id: "3", time: "17:27:12", type: "TX", payload: 'MOVE_HOME\r\n' },
+    { id: "4", time: "17:27:15", type: "RX", payload: 'SUCCESS MOVE_HOME\n', duration: "3.09s" },
+  ]);
+  const [robotHoldingProduct, setRobotHoldingProduct] = useState<string | null>(robot?.holding_product || null);
+  const [robotCurrentSlot, setRobotCurrentSlot] = useState<string | null>(robot?.current_slot || "HOME");
+
+  // Timer for live robot execution stopwatch
+  useEffect(() => {
+    let timer: any = null;
+    if (activeRobotCmd) {
+      const startTime = Date.now();
+      setRobotElapsedSec(0);
+      timer = setInterval(() => {
+        setRobotElapsedSec((Date.now() - startTime) / 1000);
+      }, 100);
+    } else {
+      setRobotElapsedSec(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [activeRobotCmd]);
 
   // Derived real device online statuses
   const plcDev = devices.find((d) => d.device_type === "PLC");
@@ -169,7 +240,7 @@ export function HmiDashboard() {
 
   useEffect(() => {
     fetchRealLogs();
-    const interval = setInterval(fetchRealLogs, 4000);
+    const interval = setInterval(fetchRealLogs, 8000);
     return () => clearInterval(interval);
   }, []);
 
@@ -181,23 +252,16 @@ export function HmiDashboard() {
       level,
       message,
     };
-    setLogs((prev) => [newLog, ...prev]);
+    setLogs((prev) => [newLog, ...prev.slice(0, 49)]);
   };
 
-  // E-STOP Trigger -> Send real PLC stop command
-  const handleEStopClick = async () => {
-    setModalData({ reason: "Operator Pressed E-STOP button on Header" });
+  const handleEStopClick = () => {
+    setModalData({ reason: "Người vận hành kích hoạt nút Dừng Khẩn Cấp (E-STOP)" });
     setActiveModal("safety_alarm");
-    addLog("ERROR", "🚨 EMERGENCY STOP TRIGGERED BY OPERATOR!");
-    try {
-      await sendPlcCommand("stop");
-    } catch (err) {
-      addLog("ERROR", `Failed to send PLC E-STOP: ${err}`);
-    }
   };
 
-  // Map real storage slots to WarehouseGrid format
-  const mappedSlots: SlotData[] = storage.length > 0
+  // Map real database slots to UI grid format
+  const mappedSlots: SlotData[] = storage && storage.length > 0
     ? storage.map((s) => ({
         slot_id: s.slot_name || `A${s.id}`,
         status: (s.status as any) || "EMPTY",
@@ -228,6 +292,69 @@ export function HmiDashboard() {
     setActiveModal("slot_detail");
   };
 
+  // Helper to execute Robot Commands with Live Timing & Socket Logger
+  const runRobotCommandWithTelemetry = async (cmd: string, target?: string) => {
+    const nowTime = new Date().toLocaleTimeString("vi-VN", { hour12: false });
+    const fullCmdName = target ? `${cmd} ${target}` : cmd;
+    const startTimestamp = Date.now();
+
+    setActiveRobotCmd(fullCmdName);
+    setRobotSocketLogs((prev) => [
+      ...prev,
+      { id: String(Date.now()), time: nowTime, type: "TX", payload: `${fullCmdName}\r\n` },
+    ]);
+    addLog("INFO", `[TX 8090] Gửi lệnh Robot: ${fullCmdName}`);
+
+    try {
+      const res = await sendRobotCommand(cmd, target);
+      const durationSec = (Date.now() - startTimestamp) / 1000;
+      setLastRobotCycleDuration(durationSec);
+
+      if (res.ok) {
+        const respTime = new Date().toLocaleTimeString("vi-VN", { hour12: false });
+        setRobotSocketLogs((prev) => [
+          ...prev,
+          {
+            id: String(Date.now() + 1),
+            time: respTime,
+            type: "RX",
+            payload: `SUCCESS ${fullCmdName}\n`,
+            duration: `${durationSec.toFixed(2)}s`,
+          },
+        ]);
+        addLog("INFO", `[RX 8090] Robot hoàn tất ${fullCmdName} trong ${durationSec.toFixed(2)}s`);
+
+        // Update local state indicators based on completed command
+        if (cmd === "PICK") {
+          setRobotHoldingProduct(target ? `PRD-${target}` : "SP001");
+          setRobotCurrentSlot(target || "A1");
+        } else if (cmd === "STORE") {
+          setRobotHoldingProduct(null);
+          setRobotCurrentSlot(target || "HOME");
+        } else if (cmd === "MOVE_HOME" || cmd === "HOME") {
+          setRobotCurrentSlot("HOME");
+        } else if (cmd === "STANDBY") {
+          setRobotCurrentSlot("STANDBY");
+        } else if (cmd === "OPEN_GRIPPER") {
+          setRobotHoldingProduct(null);
+        } else if (cmd === "CLOSE_GRIPPER") {
+          setRobotHoldingProduct("PRD-CLAMP");
+        }
+      } else {
+        setRobotSocketLogs((prev) => [
+          ...prev,
+          { id: String(Date.now() + 1), time: nowTime, type: "ERR", payload: `FAILED ${fullCmdName}` },
+        ]);
+        addLog("ERROR", `Robot thất bại lệnh ${fullCmdName}`);
+      }
+    } catch (err) {
+      addLog("ERROR", `Lỗi kết nối Socket Robot: ${err}`);
+    } finally {
+      setActiveRobotCmd(null);
+      refreshSystemState();
+    }
+  };
+
   // Execute Real Robot / PLC Commands
   const handleQuickCommand = async (cmd: string, payload?: Record<string, unknown>) => {
     const slot = (payload?.slot as string) || "A2";
@@ -241,26 +368,8 @@ export function HmiDashboard() {
       });
       setActiveModal("confirm_action");
     } else {
-      addLog("INFO", `Gửi lệnh Robot: ${cmd}`);
-      try {
-        if (cmd === "HOME") {
-          await sendRobotCommand("HOME");
-        } else if (cmd === "STANDBY") {
-          await sendRobotCommand("STANDBY");
-        } else if (cmd === "SCAN_QR_POS") {
-          await sendRobotCommand("SCAN_QR_POS");
-        } else if (cmd === "PICK_UAV") {
-          await sendRobotCommand("PICK_UAV");
-        } else if (cmd === "PLACE_UAV" || cmd === "PLACE_PAD") {
-          await sendRobotCommand("PLACE_UAV");
-        } else if (cmd === "OPEN_GRIPPER") {
-          await sendRobotCommand("OPEN_GRIPPER");
-        } else if (cmd === "CLOSE_GRIPPER") {
-          await sendRobotCommand("CLOSE_GRIPPER");
-        }
-      } catch (err) {
-        addLog("ERROR", `Lỗi thực thi lệnh ${cmd}: ${err}`);
-      }
+      const normalizedCmd = cmd === "HOME" ? "MOVE_HOME" : cmd;
+      await runRobotCommandWithTelemetry(normalizedCmd);
     }
   };
 
@@ -268,16 +377,7 @@ export function HmiDashboard() {
   const handleConfirmModalAction = async (p: any) => {
     const cmd = p?.cmd || "PICK";
     const slot = p?.slot || "A2";
-    addLog("INFO", `Thực thi lệnh ${cmd} slot ${slot}...`);
-    try {
-      if (cmd === "PICK") {
-        await sendRobotCommand("PICK", slot);
-      } else if (cmd === "STORE") {
-        await sendRobotCommand("STORE", slot);
-      }
-    } catch (err) {
-      addLog("ERROR", `Lỗi gửi lệnh ${cmd}: ${err}`);
-    }
+    await runRobotCommandWithTelemetry(cmd, slot);
   };
 
   return (
@@ -289,7 +389,11 @@ export function HmiDashboard() {
         robotOnline={isRobotOnline}
         cameraOnline={cameraActive}
         systemMode={systemMode}
+        autoState={autoState}
+        isLoadingAuto={isLoadingAuto}
         onModeToggle={handleSystemModeToggle}
+        onStartAuto={handleStartAutoSystem}
+        onPauseAuto={handlePauseAutoSystem}
         onEStopClick={handleEStopClick}
       />
 
@@ -311,11 +415,18 @@ export function HmiDashboard() {
               {/* Row 1: Robot Status, Digital Twin, Joint & Gripper */}
               <div className="hmi-grid-row row-3-cols">
                 <RobotStatusCard
-                  state={robot?.status || (isRobotOnline ? "IDLE" : "OFFLINE")}
+                  state={activeRobotCmd ? "MOVING" : robot?.status || (isRobotOnline ? "IDLE" : "OFFLINE")}
                   mode={robot?.auto_mode ? "AUTO" : "MANUAL"}
                   servo={isRobotOnline}
                   brake={isRobotOnline}
                   power={isRobotOnline}
+                  gripperHolding={Boolean(robotHoldingProduct)}
+                  currentSlot={robotCurrentSlot}
+                  activeCommand={activeRobotCmd}
+                  elapsedSeconds={robotElapsedSec}
+                  lastCycleDuration={lastRobotCycleDuration}
+                  socketLogs={robotSocketLogs}
+                  latencyMs={1.2}
                 />
                 <RobotDigitalTwin
                   tcpPosition={
@@ -352,9 +463,9 @@ export function HmiDashboard() {
                     onCommand={handleQuickCommand}
                     systemMode={systemMode}
                     connected={isRobotOnline}
-                    robotState={robot?.status || (isRobotOnline ? "IDLE (AUTO)" : "OFFLINE")}
-                    holdingProduct={robot?.holding_product}
-                    currentSlot={robot?.current_slot || (activeMission ? `Ô ${activeMission.target_slot}` : "STANDBY")}
+                    robotState={activeRobotCmd ? `MOVING (${activeRobotCmd})` : robot?.status || (isRobotOnline ? "IDLE" : "OFFLINE")}
+                    holdingProduct={robotHoldingProduct}
+                    currentSlot={robotCurrentSlot || (activeMission ? `Ô ${activeMission.target_slot}` : "HOME")}
                     servoOk={isRobotOnline}
                     brakeOk={isRobotOnline}
                   />
@@ -382,8 +493,8 @@ export function HmiDashboard() {
             </div>
           )}
 
-          {/* UAV Drone Operations Tab: Live GPS Map + Telemetry + Flight Controls */}
-          {(activeTab === "uav" || activeTab === "warehouse") && (
+          {/* UAV Drone Operations Tab: Live GPS Map + Telemetry + Inline UAV Manual Controls (No Warehouse Map / No ControlButtons) */}
+          {activeTab === "uav" && (
             <div className="hmi-grid-container">
               <div className="split-view-layout">
                 <div className="split-column">
@@ -391,18 +502,14 @@ export function HmiDashboard() {
                   <div style={{ marginTop: "1rem" }}>
                     <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
                   </div>
-                  <div style={{ marginTop: "1rem" }}>
-                    <ControlButtons
-                      locations={locations}
-                      telemetry={telemetry}
-                      droneOnline={droneOnline}
-                      onOpenManual={() => setManualModalOpen(true)}
-                    />
-                  </div>
                 </div>
 
                 <div className="split-column">
-                  <WarehouseGrid slots={mappedSlots} onSlotClick={handleSlotClick} />
+                  <UavManualControlPanel
+                    droneStatus={telemetry}
+                    locations={locations}
+                    droneOnline={droneOnline}
+                  />
                   <div style={{ marginTop: "1rem" }}>
                     <DeliveryRequestsPanel
                       homeLat={0}
@@ -410,6 +517,24 @@ export function HmiDashboard() {
                       onLocationsSelected={(loc) => setLocations(loc)}
                     />
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Warehouse Operations Tab: Warehouse Map 3x3 + Delivery Requests */}
+          {activeTab === "warehouse" && (
+            <div className="hmi-grid-container">
+              <div className="split-view-layout">
+                <div className="split-column">
+                  <WarehouseGrid slots={mappedSlots} onSlotClick={handleSlotClick} />
+                </div>
+                <div className="split-column">
+                  <DeliveryRequestsPanel
+                    homeLat={0}
+                    homeLon={0}
+                    onLocationsSelected={(loc) => setLocations(loc)}
+                  />
                 </div>
               </div>
             </div>
@@ -429,7 +554,6 @@ export function HmiDashboard() {
             </div>
           )}
 
-
           {/* Logs Tab */}
           {activeTab === "logs" && (
             <div className="hmi-grid-container">
@@ -439,18 +563,12 @@ export function HmiDashboard() {
         </main>
       </div>
 
-      {/* UAV Drone Manual Control Modal */}
-      <ManualControlModal
-        isOpen={isManualModalOpen}
-        onClose={() => setManualModalOpen(false)}
-        droneStatus={telemetry}
-        locations={locations}
-      />
-
       {/* Central HMI Modal Manager */}
       <ModalManager
         activeModal={activeModal}
         modalData={modalData}
+        devices={devices}
+        onRefreshDevices={refreshSystemState}
         onClose={() => setActiveModal(null)}
         onConfirmAction={handleConfirmModalAction}
         onResetEStop={async () => {

@@ -51,7 +51,7 @@ Toàn bộ các thiết bị giao tiếp với Central FastAPI Backend Server th
 |----------|-------------------|-------------|-----------|-----------------|
 | **UAV01** | `UAV` | `192.168.137.88` | WebSocket / MAVLink | Máy bay không người lái giao/nhận hàng |
 | **PLC01** | `PLC` | `192.168.58.10` | Snap7 DB15 Protocol | Điều khiển Kẹp X/Y, Cảm biến Landing Pad, Trục Z |
-| **ROBOT01** | `ROBOT` | `192.168.58.2:8090` | TCP/IP Socket (CRLF) | Cánh tay Robot gắp/đặt sản phẩm (Lua Server Port 8090, Slots A1..C3) |
+| **ROBOT01** | `ROBOT` | `192.168.57.2:8090` | TCP/IP Socket (CRLF) | Cánh tay Robot gắp/đặt sản phẩm (Lua Server Port 8090, Slots A1..C3) |
 | **CAM01** | `CAMERA` | `192.168.58.50` | RTSP Stream / REST API | Camera quét mã QR sản phẩm nhập kho |
 
 ---

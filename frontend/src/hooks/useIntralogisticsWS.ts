@@ -144,15 +144,41 @@ export function useIntralogisticsWS() {
               case "DEVICE_STATUS":
               case "DEVICE_HEARTBEAT":
               case "DEVICE_TIMEOUT":
-                // Re-fetch device list for full consistency
-                getDevices().then(async (res) => {
-                  if (res.ok) setDevices(await res.json());
-                }).catch(() => { });
+                if (msg.data?.device_name) {
+                  setDevices((prev) => {
+                    const exists = prev.some((d) => d.device_name === msg.data.device_name);
+                    if (!exists) {
+                      return [
+                        ...prev,
+                        {
+                          device_name: msg.data.device_name,
+                          device_type: msg.data.device_type || "DEVICE",
+                          ip_address: msg.data.ip_address || "0.0.0.0",
+                          port: msg.data.port || 0,
+                          status: msg.data.status || "ONLINE",
+                          last_heartbeat: new Date().toISOString(),
+                          simulator_mode: msg.data.simulator_mode || false,
+                        },
+                      ];
+                    }
+                    return prev.map((d) =>
+                      d.device_name === msg.data.device_name
+                        ? {
+                            ...d,
+                            status: msg.data.status || d.status,
+                            last_heartbeat: new Date().toISOString(),
+                          }
+                        : d
+                    );
+                  });
+                }
                 break;
               case "INVENTORY_STATUS":
-                getInventorySlots().then(async (res) => {
-                  if (res.ok) setStorage(await res.json());
-                }).catch(() => { });
+                if (Array.isArray(msg.data)) {
+                  setStorage(msg.data);
+                } else if (msg.data && Array.isArray(msg.data.slots)) {
+                  setStorage(msg.data.slots);
+                }
                 break;
               case "STATION_STATUS":
                 setStationOp(msg.data as StationOperation);
@@ -221,7 +247,7 @@ export function useIntralogisticsWS() {
   useEffect(() => {
     fetchState();
     connect();
-    const interval = setInterval(fetchState, 10000);
+    const interval = setInterval(fetchState, 30000);
     return () => {
       clearInterval(interval);
       clearTimeout(reconnectTimer.current);
@@ -240,5 +266,6 @@ export function useIntralogisticsWS() {
     activeMission,
     stationOp,
     cameraActive,
+    refetch: fetchState,
   };
 }

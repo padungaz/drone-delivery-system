@@ -69,11 +69,12 @@ class DeviceManager:
                 device.db_number = req.db_number
             logger.info("Device re-registered: %s (%s) at IP %s:%d", req.name, req.type.value, req.ip, device.port)
         else:
+            default_port = 14550 if req.type == DeviceType.UAV else (102 if req.type == DeviceType.PLC else (8090 if req.type == DeviceType.ROBOT else 80))
             device = DeviceRecord(
                 device_name=req.name,
                 device_type=req.type.value,
                 ip_address=req.ip,
-                port=req.port or 8090,
+                port=req.port or default_port,
                 simulator_mode=req.simulator_mode if req.simulator_mode is not None else False,
                 rack=req.rack or 0,
                 slot=req.slot or 1,

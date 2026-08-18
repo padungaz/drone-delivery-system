@@ -42,8 +42,6 @@ class DroneState(str, Enum):
 
 
 class MissionAction(str, Enum):
-    START = "START"
-    START_MISSION = "START_MISSION"
     PICKUP_COMPLETE = "PICKUP_COMPLETE"
     DROP_COMPLETE = "DROP_COMPLETE"
     FORCE_RTL = "FORCE_RTL"
@@ -397,6 +395,24 @@ class RobotCommand(str, Enum):
     CLOSE_GRIPPER = "CLOSE_GRIPPER"
     REQUEST_Z_UP = "REQUEST_Z_UP"
     REQUEST_Z_DOWN = "REQUEST_Z_DOWN"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_upper = value.upper().strip()
+            aliases = {
+                "HOME": cls.MOVE_HOME,
+                "MOVE_HOME": cls.MOVE_HOME,
+                "STANDBY": cls.STANDBY,
+                "MOVE_STANDBY": cls.STANDBY,
+                "SCAN_QR": cls.SCAN_QR_POS,
+                "SCAN_QR_POS": cls.SCAN_QR_POS,
+                "PICK_PAD": cls.PICK_UAV,
+                "PLACE_PAD": cls.PLACE_UAV,
+            }
+            if val_upper in aliases:
+                return aliases[val_upper]
+        return super()._missing_(value)
 
 
 class RobotCommandRequest(BaseModel):

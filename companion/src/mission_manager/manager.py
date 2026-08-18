@@ -90,9 +90,6 @@ class MissionManager:
         # ARM safety: send command only once per ARMING entry
         self._arm_sent = False
 
-        # Continuous Delivery: a new START arrived while drone is RETURN_HOME
-        self._pending_mission: Optional[MissionLocations] = None
-
         # Camera test service — controlled from frontend (uses shared vision_service)
         self._camera_service = CameraService(
             on_camera_status=self._on_camera_status_sync,
@@ -118,10 +115,7 @@ class MissionManager:
         action = payload.get("action", "")
         logger.info("Received command: %s", action)
 
-        if action in ("START", "START_MISSION"):
-            self._handle_start(payload)
-
-        elif action == "PICKUP_COMPLETE":
+        if action == "PICKUP_COMPLETE":
             self._handle_pickup_complete()
 
         elif action == "DROP_COMPLETE":
@@ -287,50 +281,6 @@ class MissionManager:
         logger.info("Manual DISARM command sent (force=%s)", force)
         self.mavlink.disarm(force=force)
 
-    def _handle_start(self, payload: dict) -> None:
-        try:
-            new_locations = MissionLocations(
-                home_lat=float(payload.get("home_lat", 0.0) or 0.0),
-                home_lon=float(payload.get("home_lon", 0.0) or 0.0),
-                pickup_lat=float(payload.get("pickup_lat", 0.0) or 0.0),
-                pickup_lon=float(payload.get("pickup_lon", 0.0) or 0.0),
-                drop_lat=float(payload.get("drop_lat", 0.0) or 0.0),
-                drop_lon=float(payload.get("drop_lon", 0.0) or 0.0),
-            )
-        except (ValueError, TypeError) as exc:
-            logger.error("Invalid START command payload parameters: %s", exc)
-            return
-
-        current = self.state_machine.state
-
-        if current == DroneState.IDLE:
-            # Normal start
-            self.locations = new_locations
-            self._mission_active = True
-            self._force_rtl = False
-            self._stop_requested = False
-            self._landing_phase = "pickup"
-
-            if self.mavlink.telemetry.armed:
-                # Drone is ALREADY ARMED on ground (e.g. manually armed via dashboard)
-                logger.info("Drone is ALREADY ARMED on ground — proceeding directly to TAKEOFF phase")
-                self._arm_sent = True
-                self.state_machine.transition_to(DroneState.TAKEOFF)
-            else:
-                logger.info("Drone is DISARMED — initiating ARMING phase")
-                self._arm_sent = False
-                self.state_machine.transition_to(DroneState.ARMING)
-
-        elif current == DroneState.RETURN_HOME:
-            logger.info("Continuous Delivery: queuing next mission during RETURN_HOME")
-            self._pending_mission = new_locations
-
-        else:
-            logger.warning(
-                "START rejected: drone is in state %s (must be IDLE or RETURN_HOME)",
-                current.name,
-            )
-
     def _handle_pickup_complete(self) -> None:
         if self.state_machine.state != DroneState.WAIT_PICKUP_CONFIRM:
             logger.warning(
@@ -360,7 +310,6 @@ class MissionManager:
     def _handle_force_rtl(self) -> None:
         self._force_rtl = True
         self._mission_active = False
-        self._pending_mission = None
         self.mavlink.rtl()
         self.state_machine.force_state(DroneState.RETURN_HOME)
         logger.warning("FORCE_RTL activated")
@@ -371,7 +320,6 @@ class MissionManager:
             return
         self._mission_active = False
         self._stop_requested = True
-        self._pending_mission = None
         self.state_machine.reset()
         logger.info("Mission stopped, reset to IDLE")
 
@@ -725,19 +673,8 @@ class MissionManager:
         elif state == DroneState.RETURN_HOME:
             # Wait for PX4 auto-land + auto-disarm at home
             if self.mavlink.is_landed() and not self.mavlink.telemetry.armed:
-                if self._pending_mission is not None:
-                    # Continuous Delivery: immediately start next mission
-                    logger.info("Continuous Delivery: starting pending mission")
-                    self.locations = self._pending_mission
-                    self._pending_mission = None
-                    self._landing_phase = "pickup"
-                    self._aruco_detected = False
-                    self._arm_sent = False
-                    self._mission_active = True
-                    self.state_machine.transition_to(DroneState.ARMING)
-                else:
-                    self.state_machine.transition_to(DroneState.IDLE)
-                    self._force_rtl = False
+                self.state_machine.transition_to(DroneState.IDLE)
+                self._force_rtl = False
 
         # ── ERROR ──────────────────────────────────────────────────────────
         elif state == DroneState.ERROR:

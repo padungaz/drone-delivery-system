@@ -66,7 +66,7 @@ export function IntralogisticsPanel({
 
   useEffect(() => {
     fetchLogs();
-    const interval = setInterval(fetchLogs, 3000);
+    const interval = setInterval(fetchLogs, 8000);
     return () => clearInterval(interval);
   }, []);
 

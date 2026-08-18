@@ -533,8 +533,8 @@ class PLCManager:
             elif cmd == PLCCommand.UNLOCK_DRONE:
                 self.plc_locked_state = False
                 self.drone_locked = False
-                self.drone_detected = False
-                logger.info("PLC Real (DB15): Drone unlocked via DB15.DBX0.1")
+                # Note: drone_detected remains TRUE because drone is still sitting on dock until takeoff/departure event
+                logger.info("PLC Real (DB15): Drone unlocked via DB15.DBX0.1 (drone_detected maintained until departure)")
             elif cmd == PLCCommand.Z_UP:
                 self.z_axis = "UP"
                 self.plc_z_is_up = True
@@ -593,7 +593,7 @@ class PLCManager:
         elif cmd == PLCCommand.UNLOCK_DRONE:
             self.plc_locked_state = False
             self.drone_locked = False
-            self.drone_detected = False
+            # Note: drone_detected remains TRUE until UAV departure event
             logger.info("PLC [Sim]: Drone unlocked and clamps released")
 
         elif cmd == PLCCommand.Z_UP:

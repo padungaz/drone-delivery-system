@@ -37,24 +37,6 @@ async def get_mission_history(repo: Repository = Depends(get_repo)):
     return await mission_service.get_history(repo)
 
 
-@router.post("/missions/start")
-async def start_mission(command: MissionCommand, repo: Repository = Depends(get_repo)):
-    if not manager.is_drone_connected(command.drone_id):
-        raise HTTPException(status_code=503, detail=f"Drone {command.drone_id} not connected")
-
-    start_cmd = mission_service.build_start_command(command)
-    record = await repo.create_mission(start_cmd)
-
-    sent = await forward_mission_to_drone(start_cmd)
-    if not sent:
-        await repo.update_mission_status(record.id, "FAILED")
-        raise HTTPException(status_code=503, detail="Failed to send mission to drone")
-
-    await repo.update_mission_status(record.id, "ACTIVE")
-    logger.info("Mission started for drone %s", command.drone_id)
-    return {"status": "START_MISSION sent", "mission_id": record.id}
-
-
 @router.post("/missions/pickup-complete")
 async def pickup_complete(command: MissionCommand, repo: Repository = Depends(get_repo)):
     """Operator confirms package has been picked up.

@@ -62,7 +62,7 @@ export function MissionQueuePanel() {
 
   useEffect(() => {
     fetchQueue();
-    const interval = setInterval(fetchQueue, 3000);
+    const interval = setInterval(fetchQueue, 8000);
 
     const handleQueueUpdate = () => fetchQueue();
     window.addEventListener("mission_queue_update", handleQueueUpdate);

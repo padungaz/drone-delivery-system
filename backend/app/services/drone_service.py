@@ -32,12 +32,6 @@ FLYING_STATES = {
     DroneState.RTL,
 }
 
-# States where the START button should be enabled on the frontend
-START_ENABLED_STATES = {
-    DroneState.IDLE,
-    DroneState.RETURN_HOME,  # Continuous Delivery Mode
-}
-
 
 class DroneService:
     def __init__(self):
@@ -85,27 +79,8 @@ class DroneService:
                 detail="Drone is already IDLE",
             )
 
-    def can_start(self, telemetry: Optional[TelemetryPayload]) -> bool:
-        """Returns True if START command should be accepted."""
-        if telemetry is None:
-            return False
-        return telemetry.drone_state in START_ENABLED_STATES
-
 
 class MissionService:
-    @staticmethod
-    def build_start_command(command: MissionCommand) -> MissionCommand:
-        return MissionCommand(
-            action=MissionAction.START_MISSION,
-            home_lat=command.home_lat,
-            home_lon=command.home_lon,
-            pickup_lat=command.pickup_lat,
-            pickup_lon=command.pickup_lon,
-            drop_lat=command.drop_lat,
-            drop_lon=command.drop_lon,
-            drone_id=command.drone_id,
-        )
-
     @staticmethod
     async def get_history(repo: Repository) -> list[MissionHistoryItem]:
         records = await repo.get_mission_history()

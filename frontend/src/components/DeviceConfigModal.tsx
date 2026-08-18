@@ -11,7 +11,7 @@ interface Props {
 
 export function DeviceConfigModal({ isOpen, onClose, devices, onRefreshDevices }: Props) {
   const [selectedDeviceName, setSelectedDeviceName] = useState<string>("ROBOT01");
-  const [ipAddress, setIpAddress] = useState<string>("192.168.58.2");
+  const [ipAddress, setIpAddress] = useState<string>("192.168.57.2");
   const [port, setPort] = useState<number>(8090);
   const [simMode, setSimMode] = useState<boolean>(false);
   const [dbNumber, setDbNumber] = useState<number>(15);
@@ -26,7 +26,7 @@ export function DeviceConfigModal({ isOpen, onClose, devices, onRefreshDevices }
     setSelectedDeviceName(name);
     const dev = devices.find((d) => d.device_name === name);
     if (dev) {
-      setIpAddress(dev.ip_address || "192.168.58.2");
+      setIpAddress(dev.ip_address || "192.168.57.2");
       setPort(dev.port || (name.includes("PLC") ? 102 : 8090));
       setSimMode(dev.simulator_mode ?? false);
       setDbNumber(dev.db_number || 15);
@@ -121,7 +121,7 @@ export function DeviceConfigModal({ isOpen, onClose, devices, onRefreshDevices }
                 className="form-control"
                 value={ipAddress}
                 onChange={(e) => setIpAddress(e.target.value)}
-                placeholder="VD: 192.168.58.2"
+                placeholder="VD: 192.168.57.2"
               />
             </div>
 

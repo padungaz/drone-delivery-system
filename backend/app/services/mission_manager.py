@@ -14,6 +14,7 @@ from app.services.station_service import StationService
 from app.services.mission_queue_manager import MissionQueueManager
 from app.services.fleet_manager import fleet_manager
 from app.services.system_mode_manager import system_mode_manager
+from app.services.device_lock_manager import device_lock_manager
 from app.websocket.manager import system_ws_manager
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,8 @@ class MissionManager:
     3. Station Task Service (StationService)  : Docking Station hardware execution (LOAD/UNLOAD)
     4. Device Managers Layer (PLC/Robot/UAV)  : Device drivers & Socket/Snap7 communication
 
-    The Mission layer maintains clean DB records (NO mixed FSM step blobs) and coordinates
-    high-level phases:
-      - QUEUED → STATION_PROCESSING → DRONE_EN_ROUTE → COMPLETED
+    The Mission layer coordinates high-level phases:
+      - WAITING → STATION_PROCESSING → DRONE_EN_ROUTE → COMPLETED
     """
 
     def __init__(self, session: AsyncSession):
@@ -91,7 +91,7 @@ class MissionManager:
     ) -> IntralogisticsMissionRecord:
         """Flow Nhập Kho (DRONE_PICKUP) — Layer 2 Mission Orchestration & Queue Manager."""
         active = await self.get_active_mission()
-        should_run_now = auto_run and (active is None)
+        should_run_now = auto_run and (active is None) and system_mode_manager.is_auto()
 
         free_slot_rec = await self.inventory_mgr.find_available_slot()
         target_slot = free_slot_rec.slot_name if free_slot_rec else "A1"
@@ -133,6 +133,7 @@ class MissionManager:
         await q_mgr.broadcast_queue_state()
 
         if should_run_now:
+            device_lock_manager.lock_station(mission.id, reason=f"Executing DRONE_PICKUP Mission #{mission.id}")
             await system_ws_manager.broadcast("MISSION_STARTED", self._serialize_mission(mission))
             asyncio.create_task(MissionManager._run_pickup_task_with_new_session(mission.id))
 
@@ -143,7 +144,7 @@ class MissionManager:
     ) -> IntralogisticsMissionRecord:
         """Flow Xuất Kho (DRONE_DELIVERY) — Layer 2 Mission Orchestration & Queue Manager."""
         active = await self.get_active_mission()
-        should_run_now = auto_run and (active is None)
+        should_run_now = auto_run and (active is None) and system_mode_manager.is_auto()
 
         slot_record = await self.inventory_mgr.find_slot_by_product_id(product_id)
         if not slot_record:
@@ -187,6 +188,7 @@ class MissionManager:
         await q_mgr.broadcast_queue_state()
 
         if should_run_now:
+            device_lock_manager.lock_station(mission.id, reason=f"Executing DRONE_DELIVERY Mission #{mission.id}")
             await system_ws_manager.broadcast("MISSION_STARTED", self._serialize_mission(mission))
             asyncio.create_task(MissionManager._run_delivery_task_with_new_session(mission.id))
 
@@ -219,6 +221,7 @@ class MissionManager:
             return
 
         try:
+            device_lock_manager.lock_station(mission_id, reason=f"Executing DRONE_DELIVERY Mission #{mission.id}")
             target_slot = mission.target_slot or "A1"
 
             # Phase 1: STATION_PROCESSING (11-Step Station Hardware Sequence)
@@ -234,7 +237,8 @@ class MissionManager:
             if not success:
                 raise Exception(f"Station Controller LOAD_PRODUCT operation failed for slot {target_slot}")
 
-            # Station loading complete -> Drone is loaded with cargo and ready to depart
+            # Station loading complete -> Release station lock for drone flight
+            device_lock_manager.unlock_station()
             await fleet_manager.signal_station_loaded(mission.drone_id)
 
             # Phase 2: DRONE_EN_ROUTE (UAV Flight Navigation)
@@ -283,6 +287,7 @@ class MissionManager:
             await fleet_manager.signal_drone_arrived(mission.drone_id)
 
             # Phase 2: STATION_PROCESSING
+            device_lock_manager.lock_station(mission_id, reason=f"Executing DRONE_PICKUP Mission #{mission.id}")
             free_slot_rec = await self.inventory_mgr.find_available_slot()
             if not free_slot_rec:
                 raise Exception("Kho hàng đã đầy! Không còn Ô kho trống (ERROR_NO_FREE_SLOT).")
@@ -299,7 +304,8 @@ class MissionManager:
             if not success:
                 raise Exception(f"Station Controller UNLOAD_PRODUCT operation failed for slot {target_slot}")
 
-            # Station unloaded -> Drone is ready to return home
+            # Station unloaded -> Release station lock
+            device_lock_manager.unlock_station()
             await fleet_manager.signal_station_unloaded(mission.drone_id)
 
             # Phase 3: COMPLETED
@@ -320,6 +326,7 @@ class MissionManager:
     async def _complete_and_auto_dispatch(self, mission: IntralogisticsMissionRecord) -> None:
         """Helper to update DeliveryRequest status, update Queue state and auto dispatch next waiting mission."""
         try:
+            device_lock_manager.unlock_station()
             if mission.order_id:
                 linked_req = await self.session.get(DeliveryRequestRecord, mission.order_id)
                 if linked_req:
@@ -330,8 +337,9 @@ class MissionManager:
             q_mgr = MissionQueueManager(self.session)
             await q_mgr.broadcast_queue_state()
 
-            # Auto-Dispatch next WAITING mission from FIFO Queue
-            asyncio.create_task(MissionManager._auto_dispatch_with_new_session())
+            # Auto-Dispatch next WAITING mission from FIFO Queue if AUTO mode
+            if system_mode_manager.is_auto():
+                asyncio.create_task(MissionManager._auto_dispatch_with_new_session())
         except Exception as e:
             logger.error("Error in _complete_and_auto_dispatch: %s", e)
 
@@ -349,8 +357,8 @@ class MissionManager:
     async def auto_dispatch_next_mission(self) -> Optional[IntralogisticsMissionRecord]:
         """FIFO Auto-Queue Dispatcher: Triggers next WAITING mission in queue."""
         try:
-            if system_mode_manager.is_manual():
-                logger.info("[Auto-Dispatcher] System is in MANUAL mode. Skipping auto-dispatch.")
+            if not system_mode_manager.can_auto_dispatch():
+                logger.info("[Auto-Dispatcher] System is in MANUAL mode or Scheduler inactive. Skipping auto-dispatch.")
                 return None
 
             q_mgr = MissionQueueManager(self.session)
@@ -369,11 +377,12 @@ class MissionManager:
 
             next_mission.status = "RUNNING"
             next_mission.state = "RUNNING"
-            next_mission.current_phase = "STATION_PROCESSING"
+            next_mission.current_phase = "STATION_PROCESSING" if next_mission.mission_type == "DRONE_DELIVERY" else "DRONE_EN_ROUTE"
             next_mission.started_at = datetime.utcnow()
             next_mission.step_details = f"🚀 Tự động thực thi Đơn hàng FIFO #{next_mission.id} ({next_mission.mission_type})..."
             await self.session.commit()
 
+            device_lock_manager.lock_station(next_mission.id, reason=f"Auto-dispatching Mission #{next_mission.id}")
             await system_ws_manager.broadcast("MISSION_STARTED", self._serialize_mission(next_mission))
             await q_mgr.broadcast_queue_state()
 
@@ -388,8 +397,10 @@ class MissionManager:
         return None
 
     async def _abort_mission(self, mission: IntralogisticsMissionRecord, reason: str) -> IntralogisticsMissionRecord:
-        """Safely abort mission on error or timeout, broadcast MISSION_FAILED, and process next FIFO mission."""
+        """Safely abort mission on error or timeout, broadcast MISSION_FAILED, and STOP auto-dispatch for safety."""
         logger.error("🛑 ABORTING MISSION #%d: %s", mission.id, reason)
+        device_lock_manager.unlock_station()
+
         mission.status = "FAILED"
         mission.state = "FAILED"
         mission.current_phase = "FAILED"
@@ -406,15 +417,17 @@ class MissionManager:
         await self._notify_mission_progress(mission)
         await system_ws_manager.broadcast("MISSION_FAILED", self._serialize_mission(mission))
 
+        # Broadcast safety alert — DO NOT auto-dispatch next mission automatically on failure!
+        await system_ws_manager.broadcast("SYSTEM_ALERT", {
+            "level": "ERROR",
+            "message": f"🛑 Nhiệm vụ #{mission.id} bị lỗi ({reason}). Hàng đợi tự động đã tạm dừng để đảm bảo an toàn. Vui lòng kiểm tra thiết bị trước khi tiếp tục!",
+        })
+
         q_mgr = MissionQueueManager(self.session)
         await q_mgr.broadcast_queue_state()
 
-        # Try auto dispatching next mission despite error
-        asyncio.create_task(MissionManager._auto_dispatch_with_new_session())
-
         await self.session.refresh(mission)
         return mission
-
 
     async def pause_mission(self, mission_id: Optional[int] = None) -> Optional[IntralogisticsMissionRecord]:
         mission = await self.get_active_mission() if not mission_id else await self.session.get(IntralogisticsMissionRecord, mission_id)
@@ -465,18 +478,16 @@ class MissionManager:
         return list(res.scalars().all())
 
     async def get_active_mission(self) -> Optional[IntralogisticsMissionRecord]:
-        """Find active mission, excluding completed/failed terminal states."""
-        terminal_states = ["COMPLETED", "FAILED", "CANCELLED"]
+        """Fetch currently RUNNING mission, with timeout check."""
         stmt = select(IntralogisticsMissionRecord).where(
-            IntralogisticsMissionRecord.status.notin_(terminal_states),
-            IntralogisticsMissionRecord.state.notin_(terminal_states),
+            IntralogisticsMissionRecord.status == "RUNNING"
         ).order_by(IntralogisticsMissionRecord.id.desc())
         res = await self.session.execute(stmt)
         active = res.scalars().first()
 
         if active:
             now = datetime.utcnow()
-            updated_at = active.updated_at or active.created_at
+            updated_at = active.updated_at or active.started_at or active.created_at
             if updated_at and (now - updated_at).total_seconds() > 180:
                 logger.warning("Active mission #%d timed out (>180s in phase %s). Auto-aborting.", active.id, active.current_phase)
                 await self._abort_mission(active, "Nhiệm vụ quá thời gian thực thi quy định (>180s)")

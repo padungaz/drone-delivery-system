@@ -14,15 +14,6 @@ const DRONE_ID = import.meta.env.VITE_DRONE_ID ?? "drone-01";
 
 export { API_BASE, WS_URL, DRONE_ID };
 
-/** Start a new delivery mission (also accepted during RETURN_HOME for Continuous Delivery). */
-export async function startMission(locations: MissionLocations): Promise<Response> {
-  return fetch(`${API_BASE}/missions/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...locations, action: "START", drone_id: DRONE_ID }),
-  });
-}
-
 /** Operator confirms package has been picked up at the pickup location. */
 export async function pickupComplete(locations: MissionLocations): Promise<Response> {
   return fetch(`${API_BASE}/missions/pickup-complete`, {
@@ -539,12 +530,27 @@ export async function triggerCameraQrScan(qrCode: string = "PROD-TEST-1001"): Pr
   });
 }
 
-/** System Auto Start: Health check + Auto-dispatch FIFO Queue. */
+/** System Auto Start: Pre-flight diagnostics, homing & dispatch FIFO Queue. */
 export async function startSystemAuto(): Promise<Response> {
   return fetch(`${API_BASE}/api/system/start-auto`, {
     method: "POST",
   });
 }
+
+/** Pause System Auto scheduler without exiting AUTO mode. */
+export async function pauseSystemAuto(): Promise<Response> {
+  return fetch(`${API_BASE}/api/system/pause-auto`, {
+    method: "POST",
+  });
+}
+
+/** Resume System Auto scheduler after error/inspection. */
+export async function resumeSystemQueue(): Promise<Response> {
+  return fetch(`${API_BASE}/api/system/resume-queue`, {
+    method: "POST",
+  });
+}
+
 
 
 

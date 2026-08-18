@@ -64,7 +64,7 @@ export function MissionForm({ onChange, initialLocations }: Props) {
               <strong>Chế độ từ đơn hàng</strong>
               <p className="muted">
                 Duyệt đơn hàng ở panel bên dưới → Nhấn{" "}
-                <strong>🚁 Chọn &amp; START</strong> để tự động điền tọa độ vào đây.
+                <strong>🚁 Chọn tọa độ</strong> để tự động điền vào đây.
               </p>
             </div>
           </div>

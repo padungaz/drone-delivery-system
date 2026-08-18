@@ -21,7 +21,9 @@ from app.services.camera_manager import CameraManager
 from app.services.device_manager import DeviceManager
 from app.services.plc_manager import PLCManager
 from app.services.robot_manager import RobotManager
+from app.services.device_lock_manager import device_lock_manager
 from app.websocket.manager import system_ws_manager
+from fastapi import HTTPException
 
 device_router = APIRouter(prefix="/api/device", tags=["Device Management"])
 
@@ -110,9 +112,16 @@ async def execute_plc_device_command(
     cmd_str = req.command.upper().strip()
     try:
         cmd_enum = PLCCommand(cmd_str)
+        if cmd_enum not in (PLCCommand.STOP_PLC, PLCCommand.RESET_PLC) and device_lock_manager.is_device_locked("PLC01"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"PLC đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('PLC01')}!"
+            )
         status_res = await plc_mgr.execute_command(cmd_enum)
         res_str = "SUCCESS" if not status_res.plc_error else "FAILED"
         msg = f"PLC executed command {cmd_str} successfully" if res_str == "SUCCESS" else f"PLC failed command {cmd_str}"
+    except HTTPException:
+        raise
     except Exception as exc:
         res_str = "FAILED"
         msg = f"Error executing PLC command {cmd_str}: {exc}"
@@ -156,11 +165,19 @@ async def execute_robot_device_command(
 
     cmd_str = req.command.upper().strip()
     target_str = req.target or "PAD"
+    if cmd_str not in ("ESTOP", "STOP", "RESET") and device_lock_manager.is_device_locked("ROBOT01"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}!"
+        )
+
     try:
         cmd_enum = RobotCommand(cmd_str)
         status_res = await robot_mgr.execute_command(cmd_enum, slot=target_str)
         res_str = "SUCCESS" if status_res.state != "ERROR" else "FAILED"
         msg = f"Robot executed command {cmd_str} (target: {target_str}) successfully"
+    except HTTPException:
+        raise
     except Exception as exc:
         res_str = "FAILED"
         msg = f"Error executing Robot command {cmd_str}: {exc}"
@@ -436,6 +453,12 @@ async def test_device_connection(
             )
 
 
+@device_router.get("/lock-status")
+async def get_device_lock_status():
+    """Get current safety interlock status across all devices."""
+    return device_lock_manager.get_lock_status()
+
+
 @device_router.post("/send-raw-command", response_model=DeviceCommandResponse)
 async def send_raw_device_socket_command(
     req: RawSocketCommandRequest,
@@ -446,6 +469,12 @@ async def send_raw_device_socket_command(
     cmd_str = req.command_text.strip()
     target_str = req.target or ""
     dev_mgr = DeviceManager(session)
+
+    if cmd_str.upper() not in ("ESTOP", "STOP", "RESET", "STOP_PLC", "RESET_PLC") and device_lock_manager.is_device_locked(dev_name):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Thiết bị {dev_name} đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id(dev_name)}!"
+        )
 
     if dev_name in ("ROBOT01", "ROBOT", "FAIRINO"):
         robot_mgr = RobotManager.get_instance()

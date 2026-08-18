@@ -18,7 +18,7 @@ export function QuickControlPanel({
   systemMode = "AUTO",
   robotState = "IDLE",
   connected = true,
-  ipAddress = "192.168.58.2",
+  ipAddress = "192.168.57.2",
   port = 8090,
   holdingProduct = null,
   currentSlot = null,
@@ -144,8 +144,8 @@ export function QuickControlPanel({
             <div className="manual-btn-grid-3">
               <button
                 type="button"
-                className="btn-manual-plc"
-                onClick={() => send("HOME")}
+                className="btn-manual-plc btn-home-macro"
+                onClick={() => send("MOVE_HOME")}
                 title="Di chuyển Robot về vị trí Home an toàn"
               >
                 🏠 Vị trí HOME
