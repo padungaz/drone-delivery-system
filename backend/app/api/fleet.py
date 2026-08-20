@@ -116,10 +116,9 @@ async def set_system_mode(req: SystemModeRequest):
 async def system_auto_start(session: AsyncSession = Depends(get_session)):
     """System Auto Start Routine (Khởi Động Toàn Bộ Kho Trạm):
     1. Pre-flight Safety Diagnostic (Check E-Stop)
-    2. PLC S7-1200: Enable START_PLC, ensure Lift Z-Axis is DOWN (Z_DOWN)
-    3. FAIRINO Robot: Execute MOVE_HOME to ensure safe initial arm pose
-    4. Set System Auto State -> RUNNING
-    5. FIFO Queue: Auto dispatch first waiting mission
+    2. PLC S7-1200: Enable START_PLC, ensure Lift Z-Axis is DOWN (Z_DOWN) (PLC handles Robot Home interlock)
+    3. Set System Auto State -> RUNNING
+    4. FIFO Queue: Auto dispatch first waiting mission
     """
     plc_mgr = PLCManager.get_instance()
     robot_mgr = RobotManager.get_instance()
@@ -133,10 +132,10 @@ async def system_auto_start(session: AsyncSession = Depends(get_session)):
 
     await system_ws_manager.broadcast("SYSTEM_ALERT", {
         "level": "INFO",
-        "message": "⚡ Đang kiểm tra an toàn và đưa thiết bị về vị trí chuẩn (Homing PLC & Robot)...",
+        "message": "⚡ Đang kiểm tra an toàn và kích hoạt PLC S7-1200 (Homing Trục Z & Khởi Động Trạm)...",
     })
 
-    # 2. PLC Homing & Enable
+    # 2. PLC Homing & Enable (PLC tự động interlock đưa Robot về Home trước khi dịch chuyển Z)
     try:
         await plc_mgr.execute_command(PLCCommand.START_PLC)
         await plc_mgr.execute_command(PLCCommand.Z_DOWN)
@@ -145,18 +144,12 @@ async def system_auto_start(session: AsyncSession = Depends(get_session)):
         logger.warning("PLC Start routine warning: %s", err)
         plc_ok = False
 
-    # 3. Robot Homing
-    try:
-        await robot_mgr.execute_command(RobotCommand.MOVE_HOME)
-        robot_ok = True
-    except Exception as err:
-        logger.warning("Robot Homing routine warning: %s", err)
-        robot_ok = False
+    robot_ok = robot_mgr.is_connected or robot_mgr.simulator_mode
 
-    # 4. Set state to RUNNING
+    # 3. Set state to RUNNING
     await system_mode_manager.set_auto_running()
 
-    # 5. FIFO Queue Dispatch
+    # 4. FIFO Queue Dispatch
     mgr = MissionManager(session)
     dispatched = await mgr.auto_dispatch_next_mission()
 

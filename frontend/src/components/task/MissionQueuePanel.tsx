@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getMissionQueue, cancelMission, createMission } from "../../services/api";
+import { getMissionQueue, cancelMission, createMission, resetSampleOrders } from "../../services/api";
 import { UavFleetControlWidget } from "./UavFleetControlWidget";
 
 export interface MissionItem {
@@ -134,6 +134,32 @@ export function MissionQueuePanel() {
           <span className="subtitle">Hệ thống Quản lý Hàng đợi & Thực thi Tự động Liên hoàn</span>
         </div>
         <div className="stats-badges-group">
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={async () => {
+              if (!confirm("⚠️ Xác nhận XÓA SẠCH toàn bộ lịch sử và TẠO NHANH 10 ĐƠN HÀNG MỚI trong hàng chờ FIFO?")) return;
+              setLoading(true);
+              try {
+                const res = await resetSampleOrders();
+                if (res.ok) {
+                  setMsg({ text: "✅ Đã tạo thành công 10 đơn hàng mới trong hàng chờ FIFO!", isError: false });
+                  fetchQueue();
+                } else {
+                  setMsg({ text: "❌ Lỗi khi khởi tạo đơn hàng", isError: true });
+                }
+              } catch {
+                setMsg({ text: "❌ Lỗi kết nối", isError: true });
+              } finally {
+                setLoading(false);
+              }
+            }}
+            disabled={loading}
+            title="Xóa toàn bộ đơn cũ và tạo nhanh 10 đơn hàng mẫu vào hàng chờ FIFO"
+            style={{ fontSize: "0.75rem", padding: "0.25rem 0.6rem", borderColor: "#00F0FF", color: "#00F0FF" }}
+          >
+            ⚡ Tạo 10 Đơn Mẫu
+          </button>
           <span className="stat-pill stat-running">
             <span className="dot online"></span> Đang chạy: <strong>{active ? 1 : 0}</strong>
           </span>

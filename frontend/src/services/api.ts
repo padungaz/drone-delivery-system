@@ -551,6 +551,14 @@ export async function resumeSystemQueue(): Promise<Response> {
   });
 }
 
+/** Reset all order history and generate 10 new sample orders in FIFO queue. */
+export async function resetSampleOrders(): Promise<Response> {
+  return fetch(`${API_BASE}/api/orders/reset-sample-10`, {
+    method: "POST",
+  });
+}
+
+
 
 
 

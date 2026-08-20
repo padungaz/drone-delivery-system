@@ -4,6 +4,7 @@ import {
   adminUpdateDeliveryStatus,
   adminDeleteDeliveryRequest,
   adminCompleteDeliveryRequest,
+  resetSampleOrders,
 } from "../services/api";
 import type { MissionLocations } from "../types/drone";
 
@@ -168,6 +169,24 @@ export function DeliveryRequestsPanel({ onLocationsSelected: _onLocationsSelecte
   };
 
 
+  const handleResetSample10 = async () => {
+    if (!confirm("⚠️ Xác nhận XÓA SẠCH toàn bộ lịch sử đơn hàng và TẠO NHANH 10 ĐƠN HÀNG MỚI để chạy mô phỏng?")) return;
+    setLoading(true);
+    try {
+      const res = await resetSampleOrders();
+      if (res.ok) {
+        setMessage({ id: 0, text: "✅ Đã tạo thành công 10 đơn hàng mới trong hàng chờ!", ok: true });
+        fetchRequests();
+      } else {
+        setMessage({ id: 0, text: "❌ Lỗi khi khởi tạo đơn hàng", ok: false });
+      }
+    } catch {
+      setMessage({ id: 0, text: "❌ Lỗi kết nối", ok: false });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const sortedRequests = [...requests].sort((a, b) => {
     if (sortBy === "NEWEST") {
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -197,6 +216,16 @@ export function DeliveryRequestsPanel({ onLocationsSelected: _onLocationsSelecte
           )}
         </h2>
         <div className="panel-header-actions">
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={handleResetSample10}
+            disabled={loading}
+            title="Xóa toàn bộ đơn cũ và tạo nhanh 10 đơn hàng mẫu vào hàng chờ FIFO"
+            style={{ fontSize: "0.75rem", padding: "0.25rem 0.6rem", borderColor: "#00F0FF", color: "#00F0FF" }}
+          >
+            ⚡ Tạo 10 Đơn Mẫu
+          </button>
           <select
             className="filter-select"
             value={sortBy}

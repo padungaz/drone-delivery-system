@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { startCameraDevice, stopCameraDevice, triggerCameraQrScan } from "../../services/api";
+import { startCameraDevice, stopCameraDevice, triggerCameraQrScan, API_BASE } from "../../services/api";
 
 interface Props {
   productId?: string;
@@ -67,34 +67,59 @@ export function CameraVision({
       </div>
 
       <div className="card-body camera-layout">
-        <div className="camera-viewport">
-          {/* Cyber Industrial Camera Viewport Overlay */}
-          <div className="video-stream-placeholder">
-            <div className="camera-crosshairs">
-              <div className="ch-line-h"></div>
-              <div className="ch-line-v"></div>
-            </div>
-
-            <div className="qr-bounding-box">
-              <div className="corner top-left"></div>
-              <div className="corner top-right"></div>
-              <div className="corner bottom-left"></div>
-              <div className="corner bottom-right"></div>
-              <div className="scan-line"></div>
-              
-              {/* Detailed Simulated QR Pattern Graphic */}
-              <div className="qr-code-graphic">
-                <div className="qr-finder top-l"></div>
-                <div className="qr-finder top-r"></div>
-                <div className="qr-finder bot-l"></div>
-                <div className="qr-bits-grid"></div>
+        <div className="camera-viewport" style={{ position: "relative", overflow: "hidden", minHeight: "220px", background: "#0b132b", borderRadius: "8px" }}>
+          {cameraActive ? (
+            <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", justifyContent: "center", alignItems: "center" }}>
+              <img
+                src={`${API_BASE}/api/inventory/camera-scan/video-feed`}
+                alt="USB Camera Live Stream"
+                style={{ width: "100%", height: "100%", maxHeight: "240px", objectFit: "cover", borderRadius: "6px", display: "block" }}
+                onError={(e) => {
+                  // If mjpeg stream drops, show placeholder
+                  (e.currentTarget as HTMLElement).style.display = "none";
+                }}
+              />
+              {/* Overlay Crosshairs */}
+              <div className="camera-crosshairs">
+                <div className="ch-line-h"></div>
+                <div className="ch-line-v"></div>
+              </div>
+              <div className="cam-meta-overlay top-left" style={{ position: "absolute", top: "8px", left: "8px", background: "rgba(0,0,0,0.6)", padding: "2px 6px", borderRadius: "4px", fontSize: "0.75rem" }}>
+                USB CAM01 (DIRECTSHOW)
+              </div>
+              <div className="cam-meta-overlay top-right" style={{ position: "absolute", top: "8px", right: "8px", background: "rgba(0,0,0,0.6)", padding: "2px 6px", borderRadius: "4px", fontSize: "0.75rem", color: "#00ffcc" }}>
+                {systemMode === "AUTO" ? "⚡ AUTO SCANNING" : "🎮 MANUAL READY"}
               </div>
             </div>
+          ) : (
+            <div className="video-stream-placeholder">
+              <div className="camera-crosshairs">
+                <div className="ch-line-h"></div>
+                <div className="ch-line-v"></div>
+              </div>
 
-            <div className="cam-meta-overlay top-left">RTSP://192.168.1.50/live</div>
-            <div className="cam-meta-overlay top-right">FPS: 30.0 | RES: 1080p</div>
-          </div>
+              <div className="qr-bounding-box">
+                <div className="corner top-left"></div>
+                <div className="corner top-right"></div>
+                <div className="corner bottom-left"></div>
+                <div className="corner bottom-right"></div>
+                <div className="scan-line"></div>
+                
+                {/* Detailed Simulated QR Pattern Graphic */}
+                <div className="qr-code-graphic">
+                  <div className="qr-finder top-l"></div>
+                  <div className="qr-finder top-r"></div>
+                  <div className="qr-finder bot-l"></div>
+                  <div className="qr-bits-grid"></div>
+                </div>
+              </div>
+
+              <div className="cam-meta-overlay top-left">USB CAM01 / DEV_0</div>
+              <div className="cam-meta-overlay top-right">FPS: STANDBY | RES: 1080p</div>
+            </div>
+          )}
         </div>
+
 
         <div className="camera-info-footer flex-between">
           <div className="info-group">

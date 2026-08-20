@@ -497,8 +497,9 @@ class PLCManager:
         if not self.is_connected:
             self._connect_plc()
             if not self.is_connected:
-                logger.warning("PLC connection failed. Falling back to simulator mode for command %s", cmd.value)
-                return await self._execute_simulator_command(cmd)
+                logger.error("❌ PLC S7-1200 connection failed at %s. Cannot execute %s in Real Hardware Mode.", self.plc_ip, cmd.value)
+                raise ConnectionError(f"PLC Siemens S7-1200 ({self.plc_ip}) chưa được kết nối! Vui lòng kiểm tra cáp mạng LAN hoặc chuyển sang Simulator Mode.")
+
 
         # Update intermediate state
         if cmd in (PLCCommand.LOCK_DRONE, PLCCommand.START_PLC, PLCCommand.STOP_PLC, PLCCommand.RESET_PLC):

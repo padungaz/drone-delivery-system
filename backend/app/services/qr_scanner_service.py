@@ -25,7 +25,7 @@ from app.services.inventory_manager import InventoryManager
 from app.websocket.manager import system_ws_manager
 from app.websocket.handler import manager as drone_ws_manager
 
-DEFAULT_CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "1"))
+DEFAULT_CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
 SCAN_DEBOUNCE_SEC = float(os.getenv("SCAN_DEBOUNCE_SEC", "5.0"))
 
 
@@ -43,8 +43,9 @@ class QRScannerService:
 
     _instance: Optional["QRScannerService"] = None
 
-    def __init__(self, camera_index: int = DEFAULT_CAMERA_INDEX):
+    def __init__(self, camera_index: int = DEFAULT_CAMERA_INDEX, simulator_mode: bool = False):
         self.camera_index = camera_index
+        self.simulator_mode = simulator_mode
         self.is_active = False
         self.camera_thread: Optional[threading.Thread] = None
         self.cap = None
@@ -58,13 +59,27 @@ class QRScannerService:
         self.last_assigned_slot: Optional[str] = None
         self.last_scan_time: Optional[str] = None
         self.total_scans_count: int = 0
+        self.latest_jpeg_bytes: Optional[bytes] = None
+        self.show_preview: bool = False
+        self._last_station_qr_event: Optional[Dict[str, Any]] = None
 
     @classmethod
     def get_instance(cls) -> "QRScannerService":
         if cls._instance is None:
-            cam_idx = int(os.getenv("CAMERA_INDEX", "1"))
-            cls._instance = QRScannerService(camera_index=cam_idx)
+            cam_idx = int(os.getenv("CAMERA_INDEX", "0"))
+            sim_mode = os.getenv("CAMERA_SIMULATOR_MODE", "false").lower() in ("true", "1", "yes")
+            cls._instance = QRScannerService(camera_index=cam_idx, simulator_mode=sim_mode)
         return cls._instance
+
+    def update_config(self, simulator_mode: Optional[bool] = None, camera_index: Optional[int] = None) -> None:
+        """Dynamically update camera simulator mode and camera index."""
+        if simulator_mode is not None:
+            self.simulator_mode = simulator_mode
+            logger.info("Updated QRScannerService simulator_mode: %s", self.simulator_mode)
+        if camera_index is not None:
+            self.camera_index = camera_index
+            logger.info("Updated QRScannerService camera_index: %d", self.camera_index)
+
 
     def _is_debounced(self, qr_text: str) -> bool:
         """Check if QR code was scanned recently (within debounce window)."""
@@ -308,6 +323,7 @@ class QRScannerService:
                 data, points, _ = self.detector.detectAndDecode(frame)
                 if data and data.strip():
                     qr_str = data.strip()
+                    self._last_station_qr_event = {"product_id": qr_str, "qr_code": qr_str}
                     if self._is_debounced(qr_str):
                         status_text = f"Already Scanned [{qr_str}]"
                     else:
@@ -387,7 +403,6 @@ class QRScannerService:
             return True
 
         self.is_active = True
-        self.simulator_mode = False
         self.camera_thread = threading.Thread(target=self._camera_loop, daemon=True)
         self.camera_thread.start()
 
@@ -402,7 +417,6 @@ class QRScannerService:
     def stop_camera_scanner(self) -> bool:
         """Stop the background camera QR scanning thread."""
         self.is_active = False
-        self.simulator_mode = False
         if self.cap is not None:
             try:
                 self.cap.release()
@@ -419,6 +433,117 @@ class QRScannerService:
 
         return True
 
+    async def capture_and_scan_qr(
+        self,
+        timeout_sec: float = 8.0,
+        expected_product_id: Optional[str] = None,
+        is_verify: bool = False,
+    ) -> Dict[str, Any]:
+        """Auto QR Scan Routine for Station Service (Step 5 QR Verify or Step 8 QR Scan).
+
+        In Simulator Mode:
+          - Simulates scanning with 0.4s delay, returns expected_product_id or default.
+        In Real Camera Mode:
+          - Automatically ensures USB Camera stream is running.
+          - Polls frames for up to timeout_sec to detect physical QR code.
+          - Decodes QR code using OpenCV QRCodeDetector.
+          - If is_verify=True, verifies decoded data matches expected_product_id.
+          - If timeout expires without detecting QR code, returns timeout status with warning.
+        """
+        logger.info(
+            "📷 Station Camera Auto QR Scan triggered (is_verify=%s, expected=%s, sim=%s, timeout=%.1fs)...",
+            is_verify,
+            expected_product_id,
+            self.simulator_mode,
+            timeout_sec,
+        )
+
+        if self.simulator_mode or not OPENCV_AVAILABLE or cv2 is None:
+            await asyncio.sleep(0.4)
+            prod_id = expected_product_id or "SP001"
+            logger.info("📷 Camera [Sim]: Auto-scanned QR successfully: %s", prod_id)
+            return {
+                "status": "success",
+                "product_id": prod_id,
+                "qr_code": prod_id,
+                "is_verified": True if is_verify else None,
+                "source": "SIMULATOR",
+                "message": f"Mô phỏng quét mã QR thành công: {prod_id}",
+            }
+
+        # Real USB Camera scanning
+        if not self.is_active or self.cap is None:
+            self.start_camera_scanner()
+            await asyncio.sleep(0.5)
+
+        start_time = time.time()
+        poll_interval = 0.1
+
+        # Clear station event buffer
+        self._last_station_qr_event = None
+
+        while (time.time() - start_time) < timeout_sec:
+            # Check if background thread or detector captured a QR
+            if self._last_station_qr_event is not None:
+                event = self._last_station_qr_event
+                prod_id = event.get("product_id")
+                if is_verify and expected_product_id and prod_id != expected_product_id:
+                    logger.warning("QR Verify mismatch: Scanned %s != Expected %s", prod_id, expected_product_id)
+                else:
+                    logger.info("✅ Station Camera auto-detected QR code: %s", prod_id)
+                    return {
+                        "status": "success",
+                        "product_id": prod_id,
+                        "qr_code": event.get("qr_code"),
+                        "is_verified": (prod_id == expected_product_id) if is_verify else None,
+                        "source": "USB_CAMERA",
+                        "message": f"Camera USB quét thành công mã QR: {prod_id}",
+                    }
+
+            # Check if camera frame has a detectable QR right now
+            if self.cap is not None and self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    try:
+                        data, _, _ = self.detector.detectAndDecode(frame)
+                        if data and data.strip():
+                            raw_qr = data.strip()
+                            prod_id = raw_qr
+                            if raw_qr.startswith("{") and raw_qr.endswith("}"):
+                                try:
+                                    parsed = json.loads(raw_qr)
+                                    prod_id = str(parsed.get("productId") or parsed.get("product_id") or raw_qr)
+                                except Exception:
+                                    pass
+
+                            if is_verify and expected_product_id and prod_id != expected_product_id:
+                                logger.warning("QR Verify mismatch: Scanned %s != Expected %s", prod_id, expected_product_id)
+                            else:
+                                self.last_scanned_qr = prod_id
+                                logger.info("✅ Station Camera auto-detected QR code: %s", prod_id)
+                                return {
+                                    "status": "success",
+                                    "product_id": prod_id,
+                                    "qr_code": raw_qr,
+                                    "is_verified": (prod_id == expected_product_id) if is_verify else None,
+                                    "source": "USB_CAMERA",
+                                    "message": f"Camera USB quét thành công mã QR: {prod_id}",
+                                }
+                    except Exception as err:
+                        logger.debug("QR frame decode error: %s", err)
+
+            await asyncio.sleep(poll_interval)
+
+        # Timeout reached
+        logger.warning("⚠️ Station Camera QR auto-scan timed out after %.1fs for product %s", timeout_sec, expected_product_id)
+        return {
+            "status": "timeout",
+            "product_id": expected_product_id,
+            "qr_code": expected_product_id,
+            "source": "USB_CAMERA",
+            "message": f"Quá thời gian quét mã QR ({timeout_sec}s). Sử dụng mã mặc định {expected_product_id}.",
+        }
+
     def get_status(self) -> Dict[str, Any]:
         """Get current status and metrics of the backend QR scanner service."""
         global OPENCV_AVAILABLE
@@ -432,3 +557,4 @@ class QRScannerService:
             "last_scan_time": self.last_scan_time,
             "total_scans_count": self.total_scans_count,
         }
+

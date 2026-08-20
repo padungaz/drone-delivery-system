@@ -16,6 +16,7 @@ import { PLCMonitor } from "./plc/PLCMonitor";
 import { CameraVision } from "./vision/CameraVision";
 import { SystemLog, type LogItem } from "./system/SystemLog";
 import { ModalManager, type ModalType } from "./system/ModalManager";
+import { SettingsView } from "./settings/SettingsView";
 import { MapPanel } from "./MapPanel";
 import { TelemetryPanel } from "./TelemetryPanel";
 import { DeliveryRequestsPanel } from "./DeliveryRequestsPanel";
@@ -402,9 +403,6 @@ export function HmiDashboard() {
           activeTab={activeTab}
           onTabChange={(tab) => {
             setActiveTab(tab);
-            if (tab === "settings") {
-              setActiveModal("hardware_config");
-            }
           }}
         />
 
@@ -522,6 +520,32 @@ export function HmiDashboard() {
             </div>
           )}
 
+          {/* Camera Vision & QR Scanner Operations Tab */}
+          {activeTab === "vision" && (
+            <div className="hmi-grid-container">
+              <div className="split-view-layout">
+                <div className="split-column">
+                  <CameraVision
+                    cameraActive={cameraActive}
+                    productId={stationOp?.product_id || activeMission?.product_id || "PRD-TEST-1001"}
+                    status={cameraActive ? "DETECTED" : "DETECTED"}
+                    systemMode={systemMode}
+                  />
+                </div>
+                <div className="split-column">
+                  <PLCMonitor
+                    connected={isPlcOnline}
+                    droneDetected={plc?.drone_detected ?? true}
+                    lockClamp={plc?.plc_locked_state ?? true}
+                    zLiftUp={plc?.plc_z_is_up ?? true}
+                    eStopOk={!(plc?.emergency_stop ?? false)}
+                    systemMode={systemMode}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Warehouse Operations Tab: Warehouse Map 3x3 + Delivery Requests */}
           {activeTab === "warehouse" && (
             <div className="hmi-grid-container">
@@ -560,6 +584,19 @@ export function HmiDashboard() {
               <SystemLog initialLogs={logs} />
             </div>
           )}
+
+          {/* Settings Tab: Standalone Full Page for Hardware & System Configuration */}
+          {activeTab === "settings" && (
+            <SettingsView
+              devices={devices}
+              onRefreshDevices={refreshSystemState}
+              sysWsConnected={sysWsConnected}
+              isRobotOnline={isRobotOnline}
+              isPlcOnline={isPlcOnline}
+              droneOnline={droneOnline}
+              cameraActive={cameraActive}
+            />
+          )}
         </main>
       </div>
 
@@ -567,8 +604,6 @@ export function HmiDashboard() {
       <ModalManager
         activeModal={activeModal}
         modalData={modalData}
-        devices={devices}
-        onRefreshDevices={refreshSystemState}
         onClose={() => setActiveModal(null)}
         onConfirmAction={handleConfirmModalAction}
         onResetEStop={async () => {

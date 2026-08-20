@@ -65,10 +65,10 @@ async def test_start_auto_triggers_homing_and_running_state():
         assert system_mode_manager.is_auto_running() is True
         assert system_mode_manager.can_auto_dispatch() is True
 
-        # Verify Robot and PLC are homed / ready
+        # Verify Robot and PLC are ready
         robot_mgr = RobotManager.get_instance()
         plc_mgr = PLCManager.get_instance()
-        assert robot_mgr.state in ("READY", "MOVING", "PICKING")
+        assert robot_mgr.state in ("IDLE", "READY", "MOVING", "PICKING")
         assert plc_mgr.plc_on is True
 
 

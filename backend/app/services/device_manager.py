@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import DeviceCommandLogRecord, DeviceRecord, SystemLogRecord
-from app.models.schemas import DeviceHeartbeatRequest, DeviceRegisterRequest, DeviceStatus
+from app.models.schemas import DeviceHeartbeatRequest, DeviceRegisterRequest, DeviceStatus, DeviceType
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +146,17 @@ class DeviceManager:
                 db_number=device.db_number,
                 simulator_mode=device.simulator_mode,
             )
+        elif dev_type == "CAMERA":
+            from app.services.camera_manager import CameraManager
+            CameraManager.get_instance().update_config(
+                simulator_mode=device.simulator_mode,
+            )
+        elif dev_type == "UAV":
+            from app.services.fleet_manager import fleet_manager
+            uav_unit = fleet_manager.get_uav(device.device_name)
+            if uav_unit:
+                uav_unit.is_real = not device.simulator_mode
+
 
         now = datetime.utcnow()
         self.session.add(

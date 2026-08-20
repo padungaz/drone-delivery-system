@@ -25,6 +25,11 @@ class CameraManager:
             cls._instance = CameraManager()
         return cls._instance
 
+    def update_config(self, simulator_mode: Optional[bool] = None, camera_index: Optional[int] = None) -> None:
+        """Dynamically update camera simulator mode and camera index."""
+        self.qr_service.update_config(simulator_mode=simulator_mode, camera_index=camera_index)
+        logger.info("CameraManager updated config: simulator_mode=%s, camera_index=%s", simulator_mode, camera_index)
+
     def start_camera(self) -> bool:
         """Start physical/simulated Camera scanner thread."""
         logger.info("CameraManager: Starting Camera Service...")
@@ -40,8 +45,22 @@ class CameraManager:
         status = self.qr_service.get_status()
         status["device_name"] = "CAM01"
         status["type"] = "CAMERA"
-        status["status"] = "CONNECTED" if status.get("is_active") else "OFFLINE"
+        status["connected"] = status.get("is_active") or status.get("simulator_mode", False)
+        status["status"] = "ONLINE" if (status.get("is_active") or status.get("simulator_mode")) else "OFFLINE"
         return status
+
+    async def scan_qr_auto(
+        self,
+        expected_product_id: Optional[str] = None,
+        timeout_sec: float = 8.0,
+        is_verify: bool = False,
+    ) -> Dict[str, Any]:
+        """Auto QR Scan invocation for Station Service FSM."""
+        return await self.qr_service.capture_and_scan_qr(
+            timeout_sec=timeout_sec,
+            expected_product_id=expected_product_id,
+            is_verify=is_verify,
+        )
 
     async def test_qr_scan(self, raw_qr: str = "TEST_PROD_999") -> Dict[str, Any]:
         """Manual test trigger for QR code scanning."""
@@ -49,7 +68,6 @@ class CameraManager:
         res = await self.qr_service.process_qr_code(raw_qr, source="MANUAL_TEST")
         return res
 
-
-
     def get_latest_frame_bytes(self) -> Optional[bytes]:
         return self.qr_service.get_latest_frame_bytes()
+

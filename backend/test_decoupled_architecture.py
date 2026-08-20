@@ -35,6 +35,9 @@ async def main():
         robot_mgr = RobotManager.get_instance()
         robot_mgr.simulator_mode = True
 
+        from app.services.camera_manager import CameraManager
+        CameraManager.get_instance().update_config(simulator_mode=True)
+
         # -------------------------------------------------------------------
         # 1. LAYER 1: Customer Order (DeliveryRequest)
         # -------------------------------------------------------------------

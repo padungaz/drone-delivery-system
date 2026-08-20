@@ -57,6 +57,9 @@ async def main():
         # 5. Test PLC Docking Station Controls (DB15 Mapping)
         plc_mgr = PLCManager.get_instance()
         plc_mgr.simulator_mode = True
+
+        from app.services.camera_manager import CameraManager
+        CameraManager.get_instance().update_config(simulator_mode=True)
         st_start = await plc_mgr.execute_command(PLCCommand.START_PLC)
         logger.info("✓ PLC START_PLC executed. PLC On: %s", st_start.plc_on)
         status_lock = await plc_mgr.execute_command(PLCCommand.LOCK_DRONE)

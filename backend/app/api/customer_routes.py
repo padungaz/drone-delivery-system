@@ -405,3 +405,24 @@ async def admin_update_warehouse(body: WarehouseConfigUpdate):
             address_text=wh.address_text,
             updated_at=wh.updated_at,
         )
+
+
+@customer_router.post("/admin/delivery-requests/reset-sample-10")
+@customer_router.post("/api/orders/reset-sample-10")
+@customer_router.post("/api/mission/reset-sample-10")
+async def admin_reset_sample_orders():
+    """Admin: Clear all order & mission history and generate 10 new orders in FIFO queue."""
+    from seed_10_orders import reset_and_seed_orders
+    try:
+        await reset_and_seed_orders()
+        await manager.broadcast_to_clients({"type": "delivery_requests_update", "payload": {}})
+        await system_ws_manager.broadcast("MISSION_QUEUE_UPDATE", {})
+        return {
+            "status": "SUCCESS",
+            "message": "✅ Đã xóa toàn bộ lịch sử đơn cũ và tạo thành công 10 đơn hàng mới trong hàng chờ FIFO!",
+            "total_orders": 10,
+        }
+    except Exception as err:
+        logger.error("Error in admin_reset_sample_orders: %s", err)
+        raise HTTPException(status_code=500, detail=str(err))
+

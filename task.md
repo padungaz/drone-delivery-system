@@ -77,6 +77,10 @@ Hệ thống tự động hóa kho thông minh kết hợp giao nhận bằng m�
 ---
 
 ### 🧪 2.6. Bộ Test Tự Động (Automated Test Suites - 100% Passed)
+- [x] **`test_camera_modes.py` (3/3 PASSED)**:
+  - Test 1: Đổi cấu hình CAM01 chuyển đổi tức thì giữa Real USB Camera và Simulator Mode.
+  - Test 2: Chu trình StationService FSM 11 bước tự động gọi CameraManager.scan_qr_auto ở Bước 5 (QR Verify) và Bước 8 (QR Scan).
+  - Test 3: Các API điều khiển thủ công Camera (Start/Stop stream, Quét thử QR, Cấu hình) hoạt động chính xác.
 - [x] **`test_interlock_and_failsafe.py` (5/5 PASSED)**:
   - Test 1: Safety Interlock chặn lệnh manual điều khiển PLC/Robot khi Auto Mission đang chạy (HTTP 409). Cho phép lệnh STOP khẩn cấp (HTTP 200).
   - Test 2: Chế độ MANUAL ngăn chặn Auto Dispatcher và giữ đơn mới ở hàng chờ WAITING.
@@ -93,9 +97,40 @@ Hệ thống tự động hóa kho thông minh kết hợp giao nhận bằng m�
 
 ---
 
+### 📷 2.7. Tích Hợp Camera USB Thật & Tách Biệt Chế Độ Auto/Manual
+- [x] **Tích hợp Camera USB Thật ([qr_scanner_service.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/qr_scanner_service.py), [camera_manager.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/camera_manager.py))**:
+  - Đọc trực tiếp frame từ Camera USB cắm trên máy tính Backend (DirectShow trên Windows / VideoCapture).
+  - Tự động nhận diện và giải mã mã QR qua `cv2.QRCodeDetector`.
+  - Hỗ trợ Live Stream MJPEG video feed (`GET /api/inventory/camera-scan/video-feed`) đưa trực tiếp lên giao diện Dashboard HMI.
+- [x] **Chế Độ AUTO Trong FSM Trạm ([station_service.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/station_service.py))**:
+  - Bước 5 (Xuất kho - `QR_VERIFY`): Gọi `CameraManager.scan_qr_auto()` xác thực mã QR của kiện hàng.
+  - Bước 8 (Nhập kho - `QR_SCAN`): Gọi `CameraManager.scan_qr_auto()` quét mã QR kiện hàng để lấy mã sản phẩm thật lưu vào ô kho.
+  - Loại bỏ hoàn toàn các lệnh `asyncio.sleep(0.5)` giả lập.
+- [x] **Chế Độ MANUAL ([CameraVision.tsx](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/frontend/src/components/vision/CameraVision.tsx))**:
+  - Bật/Tắt Live stream video trực tiếp từ USB Camera.
+  - Quét thử nghiệm mã QR thủ công, nhập mã QR thủ công (Manual Override).
+  - Chuyển đổi linh hoạt giữa `🔌 Real USB Camera` và `🤖 Simulator Mode`.
+- [x] **Loại Bỏ Silent Fallback ([plc_manager.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/plc_manager.py))**:
+  - Khi PLC ở chế độ Real Hardware mà mất kết nối, hệ thống raise `ConnectionError` rõ ràng thay vì âm thầm rơi về mô phỏng.
+
+### 🔄 2.8. Tinh Gọn FSM Phần Cứng, Bỏ Robot Home Thừa & Tự Động Tắt Camera (Cập nhật 20/08/2026)
+- [x] **Khởi Động `▶ START KHO TRẠM` ([fleet.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/api/fleet.py))**:
+  - Bỏ lệnh `MOVE_HOME` từ Backend, giao quyền liên động cơ khí an toàn giữa Trục Z và Robot cho PLC S7-1200 xử lý trực tiếp qua hardware I/O.
+- [x] **Tinh Gọn Chu Trình Nhập Kho (`DRONE_PICKUP` / `UNLOAD_PRODUCT`) ([station_service.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/station_service.py))**:
+  - Loại bỏ các bước gọi `MOVE_HOME` trung gian qua Socket.
+  - Chuỗi mới: `DRONE_DETECT` $\rightarrow$ `LOCK_DRONE` $\rightarrow$ `PLC_Z_UP` $\rightarrow$ `ROBOT_PICK_DOCK` $\rightarrow$ `PLC_Z_DOWN` $\rightarrow$ `QR_SCAN` $\rightarrow$ `ROBOT_STORE_SLOT` $\rightarrow$ `UNLOCK_DRONE` $\rightarrow$ `TAKEOFF_COMPLETE`.
+- [x] **Tối Ưu Chu Trình Xuất Kho (`DRONE_DELIVERY` / `LOAD_PRODUCT`) ([station_service.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/station_service.py))**:
+  - Chuỗi mới: `DRONE_DETECT` $\rightarrow$ `LOCK_DRONE` $\rightarrow$ `ROBOT_PICK_SLOT` $\rightarrow$ **`QR_VERIFY`** $\rightarrow$ **`PLC_Z_UP`** $\rightarrow$ `ROBOT_PLACE_DOCK` $\rightarrow$ `PLC_Z_DOWN` $\rightarrow$ `UNLOCK_DRONE` $\rightarrow$ `TAKEOFF_COMPLETE`.
+  - Đối soát mã QR ngay tại vị trí dưới trước khi nâng trục Z, chống lãng phí chu kỳ cơ khí khi sai hàng.
+- [x] **Quản Lý Vòng Đời Camera On-Demand & Báo Lỗi Từng Giai Đoạn**:
+  - Bọc `try ... finally` đảm bảo luôn gọi `CameraManager.stop_camera()` sau khi quét xong hoặc khi có Exception.
+  - Bổ sung mã lỗi chi tiết tiếng Việt (`ERROR_DRONE_NOT_DETECTED`, `ERROR_PLC_LOCK_FAILED`, `ERROR_ROBOT_PICK_FAILED`, `ERROR_QR_SCAN_FAILED`, `ERROR_QR_VERIFY_FAILED`, `ERROR_PLC_Z_UP_FAILED`, `ERROR_PLC_Z_DOWN_FAILED`, `ERROR_PLC_UNLOCK_FAILED`).
+
+---
+
 ## ⏳ 3. Những Gì CHƯA LÀM ĐƯỢC / CẦN NÂNG CẤP (Pending & Improvements)
 - [ ] **Kiểm thử trực tiếp trên phần cứng vật lý tại xưởng**:
-  - Cần cắm cáp LAN kết nối thực tế với Controller Robot FAIRINO FR3 (IP `192.168.58.2:8090`) và PLC Siemens S7-1200 (IP `192.168.58.10`, Rack 0, Slot 1) để xác thực thời gian đáp ứng cơ khí thật (thay cho Simulator Mode).
+  - Cần cắm cáp LAN kết nối thực tế với Controller Robot FAIRINO FR3 (IP `192.168.58.2:8090`) và PLC Siemens S7-1200 (IP `192.168.58.10`, Rack 0, Slot 1) để xác thực thời gian đáp ứng cơ khí thật.
 - [ ] **Báo cáo thống kê hiệu suất ca làm việc (OEE Analytics)**:
   - Lưu trữ thời gian chu kỳ (Cycle Time) từng bước vào database để vẽ biểu đồ thống kê số lượng đơn xử lý theo giờ/ngày.
 - [ ] **Âm thanh cảnh báo (Audio Alerts)**:
@@ -107,10 +142,12 @@ Hệ thống tự động hóa kho thông minh kết hợp giao nhận bằng m�
 
 1. **Giai đoạn 1: Chạy thử nghiệm chuỗi đơn hàng liên hoàn (End-to-End Stress Test)**:
    - Tạo kịch bản 5 đơn hàng liên tiếp (3 Nhận hàng, 2 Giao hàng).
-   - Kiểm tra việc luân chuyển tự động giữa UAV01 $\leftrightarrow$ UAV02 $\leftrightarrow$ Robot FR3 $\leftrightarrow$ PLC S7-1200 trên Dashboard HMI.
+   - Kiểm tra việc luân chuyển tự động giữa Camera USB $\leftrightarrow$ Robot FR3 $\leftrightarrow$ PLC S7-1200 trên Dashboard HMI.
 2. **Giai đoạn 2: Tối ưu hóa trải nghiệm tương tác (UX Polish)**:
    - Thêm hiệu ứng âm thanh cảnh báo công nghiệp (Audio sound effects cho sự kiện Start/Done/Error).
    - Bổ sung phím tắt nhanh trên bàn phím (Keyboard Shortcuts: `Space` = Pause/Resume, `Esc` = E-Stop).
 3. **Giai đoạn 3: Đóng gói và hướng dẫn bàn giao**:
    - Viết tài liệu hướng dẫn vận hành cho kỹ sư trực ca HMI.
    - Tạo script khởi động 1-click cho toàn bộ hệ sinh thái (Backend Uvicorn + Frontend Vite + Hardware Drivers).
+
+

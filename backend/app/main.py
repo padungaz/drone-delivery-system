@@ -83,7 +83,7 @@ async def heartbeat_monitor_task():
                 # Sync CAM01 heartbeat based on CameraManager state
                 cam_mgr = CameraManager.get_instance()
                 cam_info = cam_mgr.get_status()
-                cam_status = DeviceStatus.ONLINE if cam_info.get("is_active") else DeviceStatus.OFFLINE
+                cam_status = DeviceStatus.ONLINE if (cam_info.get("is_active") or cam_info.get("simulator_mode")) else DeviceStatus.OFFLINE
                 await mgr.update_heartbeat(DeviceHeartbeatRequest(name="CAM01", status=cam_status))
 
                 # Sync UAV01 heartbeat based on Drone WebSocket connection or simulator mode
@@ -147,6 +147,29 @@ async def lifespan(app: FastAPI):
         await dev_mgr.register_device(DeviceRegisterRequest(name="PLC01", type=DeviceType.PLC, ip=plc_ip, port=102))
         await dev_mgr.register_device(DeviceRegisterRequest(name="ROBOT01", type=DeviceType.ROBOT, ip=robot_ip, port=8090))
         await dev_mgr.register_device(DeviceRegisterRequest(name="CAM01", type=DeviceType.CAMERA, ip="192.168.58.50", port=80))
+
+        # Sync live singleton hardware managers with stored device configurations
+        all_devs = await dev_mgr.get_all_devices()
+        for d in all_devs:
+            if d.device_name == "ROBOT01":
+                RobotManager.get_instance().update_config(
+                    robot_ip=d.ip_address,
+                    robot_port=d.port,
+                    simulator_mode=d.simulator_mode,
+                )
+            elif d.device_name == "PLC01":
+                PLCManager.get_instance().update_config(
+                    plc_ip=d.ip_address,
+                    rack=d.rack,
+                    slot=d.slot,
+                    db_number=d.db_number,
+                    simulator_mode=d.simulator_mode,
+                )
+            elif d.device_name == "CAM01":
+                CameraManager.get_instance().update_config(
+                    simulator_mode=d.simulator_mode,
+                )
+
 
     # Start background heartbeat monitor
     monitor = asyncio.create_task(heartbeat_monitor_task())

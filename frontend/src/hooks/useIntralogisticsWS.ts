@@ -144,6 +144,7 @@ export function useIntralogisticsWS() {
               case "DEVICE_STATUS":
               case "DEVICE_HEARTBEAT":
               case "DEVICE_TIMEOUT":
+              case "DEVICE_CONFIG_UPDATED":
                 if (msg.data?.device_name) {
                   setDevices((prev) => {
                     const exists = prev.some((d) => d.device_name === msg.data.device_name);
@@ -153,11 +154,11 @@ export function useIntralogisticsWS() {
                         {
                           device_name: msg.data.device_name,
                           device_type: msg.data.device_type || "DEVICE",
-                          ip_address: msg.data.ip_address || "0.0.0.0",
+                          ip_address: msg.data.ip || msg.data.ip_address || "0.0.0.0",
                           port: msg.data.port || 0,
                           status: msg.data.status || "ONLINE",
                           last_heartbeat: new Date().toISOString(),
-                          simulator_mode: msg.data.simulator_mode || false,
+                          simulator_mode: msg.data.simulator_mode ?? false,
                         },
                       ];
                     }
@@ -166,6 +167,9 @@ export function useIntralogisticsWS() {
                         ? {
                             ...d,
                             status: msg.data.status || d.status,
+                            ip_address: msg.data.ip || msg.data.ip_address || d.ip_address,
+                            port: msg.data.port !== undefined ? msg.data.port : d.port,
+                            simulator_mode: msg.data.simulator_mode !== undefined ? msg.data.simulator_mode : d.simulator_mode,
                             last_heartbeat: new Date().toISOString(),
                           }
                         : d

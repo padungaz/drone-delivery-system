@@ -224,11 +224,11 @@ class MissionManager:
             device_lock_manager.lock_station(mission_id, reason=f"Executing DRONE_DELIVERY Mission #{mission.id}")
             target_slot = mission.target_slot or "A1"
 
-            # Phase 1: STATION_PROCESSING (11-Step Station Hardware Sequence)
+            # Phase 1: STATION_PROCESSING (Station Hardware Sequence)
             mission.status = "RUNNING"
             mission.state = "RUNNING"
             mission.current_phase = "STATION_PROCESSING"
-            mission.step_details = f"⚙️ Station Controller đang thực thi 11 bước xuất hàng từ ô kho {target_slot}..."
+            mission.step_details = f"⚙️ Station Controller đang thực thi xuất hàng từ ô kho {target_slot}..."
             await self.session.commit()
             await self._notify_mission_progress(mission)
             await fleet_manager.signal_drone_loading(mission.drone_id)
@@ -295,7 +295,7 @@ class MissionManager:
             target_slot = free_slot_rec.slot_name
             mission.target_slot = target_slot
             mission.current_phase = "STATION_PROCESSING"
-            mission.step_details = f"⚙️ Station Controller đang thực thi 11 bước nhập hàng vào ô kho {target_slot}..."
+            mission.step_details = f"⚙️ Station Controller đang thực thi nhập hàng vào ô kho {target_slot}..."
             await self.session.commit()
             await self._notify_mission_progress(mission)
             await fleet_manager.signal_drone_loading(mission.drone_id)
