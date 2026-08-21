@@ -249,7 +249,8 @@ class MissionManager:
     def _handle_arm(self) -> None:
         """Manual ARM command from dashboard."""
         if self.mavlink.telemetry.armed:
-            logger.warning("[ARM] Rejected: already armed")
+            logger.info("[ARM] Drone is already armed")
+            self.state_machine.force_state(DroneState.ARMING)
             return
 
         # Automatically save current GPS position as Home upon arming
@@ -261,8 +262,12 @@ class MissionManager:
             logger.info("[ARM] Locked Home GPS location: lat=%.6f, lon=%.6f", cur_lat, cur_lon)
 
         logger.info("[ARM] Sending ARM command to PX4...")
-        self.mavlink.arm()
-        self.state_machine.force_state(DroneState.ARMING)
+        ok = self.mavlink.arm()
+        if ok or self.mavlink.telemetry.armed:
+            self.state_machine.force_state(DroneState.ARMING)
+            logger.info("[ARM] State transitioned to ARMING")
+        else:
+            logger.warning("[ARM] ARM command could not be confirmed by PX4")
 
     def _handle_disarm(self, payload: dict) -> None:
         """Manual DISARM command from dashboard."""
@@ -347,21 +352,33 @@ class MissionManager:
 
         # Check TAKEOFF completion
         if state == DroneState.TAKEOFF:
+            current_mode = self.mavlink.telemetry.flight_mode
+            
+            # Guard against Failsafe LAND or disarming mid-takeoff
+            if current_mode in ("AUTO.LAND", "LAND") or not self.mavlink.telemetry.armed:
+                if not self.mavlink.telemetry.armed and self.mavlink.is_landed():
+                    logger.warning("Takeoff aborted: drone disarmed on ground")
+                    self.state_machine.force_state(DroneState.IDLE)
+                    self._landing_status = "IDLE"
+                    return
+                logger.warning("Takeoff interrupted: drone in %s mode (armed=%s)", current_mode, self.mavlink.telemetry.armed)
+                self._landing_status = "LANDING"
+                return
+
             target_alt = getattr(self.mavlink, "_target_takeoff_alt", config.TAKEOFF_ALTITUDE_M)
             cur_alt = (
                 self.mavlink.telemetry.altitude_agl
                 if self.mavlink.telemetry.rangefinder_valid and self.mavlink.telemetry.altitude_agl > 0.1
                 else self.mavlink.telemetry.altitude_relative
             )
-            current_mode = self.mavlink.telemetry.flight_mode
 
             takeoff_done = (
                 self.mavlink._offboard_takeoff_complete
-                or current_mode in ("AUTO.LOITER", "HOLD", "AUTO.HOLD", "LOITER")
+                or (current_mode in ("AUTO.LOITER", "HOLD", "AUTO.HOLD", "LOITER", "POSCTL") and cur_alt >= (target_alt * 0.85))
                 or cur_alt >= (target_alt * 0.95)
             )
 
-            if takeoff_done:
+            if takeoff_done and current_mode not in ("AUTO.LAND", "LAND"):
                 logger.info(
                     "✓ [TAKEOFF COMPLETE] Altitude=%.2fm (target=%.1fm, mode=%s) — Holding LOITER position, waiting for next manual step.",
                     cur_alt, target_alt, current_mode,

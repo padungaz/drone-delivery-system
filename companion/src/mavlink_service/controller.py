@@ -400,7 +400,7 @@ class MavlinkController:
                 0.0, 0.0, 0.0, 0.0,
             )
 
-    def wait_command_ack(self, command_id: int, timeout: float = 3.0) -> bool:
+    def wait_command_ack(self, command_id: int, timeout: float = 3.5) -> bool:
         """Wait for COMMAND_ACK from PX4 asynchronously."""
         ack_event = threading.Event()
         with self._ack_lock:
@@ -446,8 +446,13 @@ class MavlinkController:
                     mode, custom_mode, custom_sub_mode, attempt, retries,
                 )
 
-                if self.wait_command_ack(mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.0):
+                if self.wait_command_ack(mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.5):
                     logger.info("Mode %s confirmed by PX4", mode)
+                    return True
+
+                # Check if telemetry already updated to desired mode
+                if mode.upper() in self.telemetry.flight_mode.upper():
+                    logger.info("Mode %s confirmed via telemetry update ✓", mode)
                     return True
 
                 logger.warning("Mode %s not confirmed, retrying...", mode)
@@ -482,27 +487,33 @@ class MavlinkController:
 
             logger.info("OFFBOARD: Starting continuous setpoint keepalive thread...")
             self._start_offboard_keepalive()
-            time.sleep(0.5)
+            time.sleep(0.6)
 
             for attempt in range(1, retries + 1):
                 self._send_set_mode_command(custom_mode, custom_sub_mode)
                 logger.info("OFFBOARD mode command sent [attempt %d/%d]", attempt, retries)
 
-                if self.wait_command_ack(mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.0):
+                if self.wait_command_ack(mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.5):
                     logger.info("OFFBOARD mode confirmed by PX4 ✓")
+                    return True
+
+                if self.telemetry.flight_mode == "OFFBOARD":
+                    logger.info("OFFBOARD mode confirmed via telemetry update ✓")
                     return True
 
                 logger.warning("OFFBOARD not confirmed, retrying...")
                 self._last_command_time.pop("mode", None)
-                time.sleep(0.3)
+                time.sleep(0.4)
 
             logger.error("Failed to enter OFFBOARD after %d attempts", retries)
-            self._stop_offboard_keepalive()
+            if not self._offboard_takeoff_active:
+                self._stop_offboard_keepalive()
             return False
 
         except Exception as exc:
             logger.error("set_mode_offboard failed: %s", exc)
-            self._stop_offboard_keepalive()
+            if not self._offboard_takeoff_active:
+                self._stop_offboard_keepalive()
             return False
 
     def _send_offboard_position_hold(self) -> None:
@@ -535,9 +546,9 @@ class MavlinkController:
                 0,
                 self.connection.target_system,
                 self.connection.target_component,
-                mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                mavutil.mavlink.MAV_FRAME_BODY_NED,
                 0b0000_1111_1111_1000,
-                0.0, 0.0, -target_alt_m,   # x=0, y=0, z=-alt (NED: up is negative)
+                0.0, 0.0, -target_alt_m,   # Body frame Z=-alt (climb upward)
                 0, 0, 0,
                 0, 0, 0,
                 0, 0,
@@ -564,7 +575,7 @@ class MavlinkController:
             logger.info("OFFBOARD keepalive thread stopped")
 
     def _offboard_keepalive_loop(self) -> None:
-        STARTUP_GRACE_SEC = 5.0
+        STARTUP_GRACE_SEC = 15.0
         logger.info("OFFBOARD keepalive loop running (grace period %.1f s)", STARTUP_GRACE_SEC)
 
         while self._offboard_keepalive_running and self.is_connected:
@@ -583,7 +594,7 @@ class MavlinkController:
                         cur_agl = self.telemetry.altitude_relative
                         alt_source = "EKF2"
 
-                    threshold = target_alt * 0.97  # 97% of target (e.g. 1.45m for 1.5m)
+                    threshold = target_alt * 0.92  # 92% of target (e.g. 1.38m for 1.5m)
 
                     if cur_agl >= threshold:
                         logger.info(
@@ -605,7 +616,8 @@ class MavlinkController:
                     self._send_offboard_position_hold()
 
                 elapsed = time.time() - getattr(self, "_keepalive_start_time", time.time())
-                if elapsed >= STARTUP_GRACE_SEC:
+                # Only terminate if NOT in active takeoff sequence and past grace period
+                if not self._offboard_takeoff_active and elapsed >= STARTUP_GRACE_SEC:
                     if self.telemetry.flight_mode not in ("OFFBOARD", "LOITER", "HOLD", "UNKNOWN"):
                         logger.info(
                             "OFFBOARD keepalive: PX4 mode is %s, stopping thread",
@@ -629,6 +641,10 @@ class MavlinkController:
         if not self._can_send("arm"):
             return False
 
+        if self.telemetry.armed:
+            logger.info("ARM: Drone is already armed ✓")
+            return True
+
         with self._send_lock:
             self.connection.mav.command_long_send(
                 self.connection.target_system,
@@ -640,12 +656,19 @@ class MavlinkController:
                 0, 0, 0, 0, 0,
             )
         logger.info("ARM command sent (force=%s)", force)
-        ack = self.wait_command_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=2.0)
-        if ack:
-            logger.info("ARM command ACCEPTED by PX4 ✓")
+        ack = self.wait_command_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=3.5)
+        
+        # Dual-check: acknowledge via ACK packet OR immediate telemetry status
+        if ack or self.telemetry.armed:
+            logger.info("ARM command ACCEPTED / CONFIRMED by PX4 ✓ (ack=%s, armed=%s)", ack, self.telemetry.armed)
+            return True
         else:
+            time.sleep(0.5)
+            if self.telemetry.armed:
+                logger.info("ARM confirmed via late telemetry update ✓")
+                return True
             logger.warning("ARM command REJECTED/TIMEOUT by PX4 ❌")
-        return ack
+            return False
 
     def disarm(self, force: bool = False) -> bool:
         if not self._can_send("disarm"):
@@ -663,16 +686,37 @@ class MavlinkController:
         logger.info("DISARM command sent (force=%s)", force)
         return True
 
+    def takeoff_nav_cmd(self, altitude_m: float = 1.5) -> bool:
+        """
+        Native PX4 Takeoff using MAV_CMD_NAV_TAKEOFF (cmd=22) or AUTO.TAKEOFF.
+        Safe, reliable, handles motor spool-up, climb, and auto-transition to LOITER/HOLD.
+        """
+        if not self._can_send("takeoff") or not self.connection:
+            return False
+
+        logger.info("Sending MAV_CMD_NAV_TAKEOFF (cmd=22) to altitude %.1fm...", altitude_m)
+        with self._send_lock:
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                0,
+                0.0, 0.0, 0.0,
+                float("nan"),  # yaw
+                float("nan"), float("nan"),  # lat, lon (current position)
+                float(altitude_m),  # target altitude
+            )
+        ack = self.wait_command_ack(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, timeout=3.5)
+        if ack:
+            logger.info("MAV_CMD_NAV_TAKEOFF accepted by PX4 ✓")
+            return True
+
+        logger.warning("MAV_CMD_NAV_TAKEOFF unconfirmed, attempting mode transition to TAKEOFF...")
+        return self.set_mode("TAKEOFF", force_send=True)
+
     def takeoff_offboard(self, altitude_m: float = 1.5) -> bool:
         """
         OFFBOARD takeoff: stream position setpoint Z=-altitude_m to PX4.
-
-        Sequence:
-          1. Start keepalive thread streaming Z=-altitude_m setpoints
-          2. Switch to OFFBOARD mode
-          3. Keepalive thread monitors MTF-02P AGL (fallback: EKF2)
-          4. When AGL >= 97% target → stop keepalive → switch to LOITER
-          5. Set _offboard_takeoff_complete = True for FSM transition
         """
         if not self._can_send("takeoff"):
             return False
@@ -698,11 +742,21 @@ class MavlinkController:
             return False
 
         logger.info("OFFBOARD takeoff streaming active — monitoring AGL for %.2fm threshold",
-                    altitude_m * 0.97)
+                    altitude_m * 0.92)
         return True
 
     def takeoff(self, altitude_m: float = 1.5) -> bool:
-        """Cất cánh qua OFFBOARD mode (thay thế AUTO.TAKEOFF)."""
+        """
+        Robust Multi-Tier Takeoff Pipeline:
+        1. First try native PX4 MAV_CMD_NAV_TAKEOFF / AUTO.TAKEOFF (PX4 native auto takeoff).
+        2. If unconfirmed, seamlessly fallback to OFFBOARD takeoff streaming.
+        """
+        logger.info("Initiating UAV Takeoff pipeline to %.1fm...", altitude_m)
+        ok = self.takeoff_nav_cmd(altitude_m)
+        if ok:
+            return True
+
+        logger.warning("Native TAKEOFF unconfirmed, falling back to OFFBOARD Takeoff...")
         return self.takeoff_offboard(altitude_m)
 
     def goto_location(self, lat: float, lon: float, alt_m: float = 1.5) -> bool:
