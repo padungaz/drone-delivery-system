@@ -70,7 +70,7 @@ export function UavManualControlPanel({
   // Target GPS coordinates for Step 3 (NAV_GPS)
   const [manualLat, setManualLat] = useState<number>(locations?.pickup_lat || 16.0544);
   const [manualLon, setManualLon] = useState<number>(108.2022);
-  const [targetAlt, setTargetAlt] = useState<number>(1.5);
+  const [targetAlt, setTargetAlt] = useState<number>(1.75);
 
   // Sync with selectedTarget when user clicks on Map
   useEffect(() => {
@@ -389,14 +389,14 @@ export function UavManualControlPanel({
               <div className="step-card" style={{ padding: "6px 8px" }}>
                 <div className="step-num" style={{ width: "20px", height: "20px", fontSize: "0.7rem" }}>2</div>
                 <div className="step-info" style={{ flex: 1 }}>
-                  <strong style={{ fontSize: "0.72rem" }}>TAKEOFF (1.5m)</strong>
+                  <strong style={{ fontSize: "0.72rem" }}>TAKEOFF (1.75m)</strong>
                   <span style={{ fontSize: "0.65rem" }}>Cất cánh giữ vị trí</span>
                 </div>
                 <button
                   type="button"
                   className="btn btn-step primary"
                   style={{ padding: "0.2rem 0.5rem", fontSize: "0.68rem" }}
-                  onClick={() => handleStepAction("TAKEOFF", { alt: 1.5 })}
+                  onClick={() => handleStepAction("TAKEOFF", { alt: 1.75 })}
                   disabled={!isArmed || armLoading !== null || !droneOnline}
                 >
                   Cất cánh

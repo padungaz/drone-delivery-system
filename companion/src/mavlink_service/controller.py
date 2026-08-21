@@ -84,11 +84,16 @@ class MavlinkController:
         self.connection_uri = config.MAVLINK_DEVICE
         self.use_baud = True
         self._send_lock = threading.Lock()
+        self._recv_lock = threading.Lock()
         
         # Async COMMAND_ACK tracking
         self._ack_lock = threading.Lock()
         self._pending_acks: dict[int, threading.Event] = {}
         self._ack_results: dict[int, int] = {}
+
+        # Background MAVLink reader thread (~100Hz)
+        self._reader_running = False
+        self._reader_thread: Optional[threading.Thread] = None
 
         # OFFBOARD keepalive
         self._offboard_keepalive_running = False
@@ -96,7 +101,7 @@ class MavlinkController:
 
         # OFFBOARD takeoff state
         self._offboard_takeoff_active = False
-        self._offboard_takeoff_target_alt = 1.5
+        self._offboard_takeoff_target_alt = getattr(config, "TAKEOFF_ALTITUDE_M", 1.75)
         self._offboard_takeoff_complete = False
 
     # ===================================================================
@@ -148,12 +153,62 @@ class MavlinkController:
                 self.connection.target_component,
             )
             self.request_data_streams()
+            self._start_reader_thread()
             return True
 
         except Exception as exc:
             logger.error("MAVLink connection failed: %s", exc)
             self._connected = False
             return False
+
+    def disconnect(self) -> None:
+        """Close connection and stop all background threads."""
+        self._stop_reader_thread()
+        self._stop_offboard_keepalive()
+        self._connected = False
+        if self.connection is not None:
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+            self.connection = None
+        logger.info("[INFO] MavlinkController disconnected")
+
+    def close(self) -> None:
+        self.disconnect()
+
+    def _start_reader_thread(self) -> None:
+        """Start high-rate background reader thread to poll MAVLink messages continuously (~100Hz)."""
+        if self._reader_running:
+            return
+        self._reader_running = True
+        self._reader_thread = threading.Thread(
+            target=self._reader_loop,
+            name="MavlinkReaderThread",
+            daemon=True,
+        )
+        self._reader_thread.start()
+        logger.info("[INFO] Background MAVLink reader thread started @ 100Hz")
+
+    def _stop_reader_thread(self) -> None:
+        """Stop background reader thread safely."""
+        if self._reader_running:
+            self._reader_running = False
+            if self._reader_thread and self._reader_thread.is_alive():
+                self._reader_thread.join(timeout=1.0)
+            self._reader_thread = None
+            logger.info("[INFO] Background MAVLink reader thread stopped")
+
+    def _reader_loop(self) -> None:
+        """High-frequency background reader loop (~100Hz) to ensure zero message lag and instant ACK dispatch."""
+        logger.info("[INFO] MavlinkReader loop running")
+        while self._reader_running and self._connected and self.connection is not None:
+            try:
+                self.poll_messages()
+            except Exception as exc:
+                logger.error("[ERROR] MavlinkReader loop error: %s", exc)
+            time.sleep(0.01)  # 100Hz poll rate
+        self._reader_running = False
 
     def request_data_streams(self) -> None:
         """Request PX4 to stream telemetry data at regular rate (10Hz)."""
@@ -206,18 +261,19 @@ class MavlinkController:
     # ===================================================================
 
     def poll_messages(self) -> None:
-        """Read all available MAVLink messages (non-blocking). Call in main loop."""
+        """Read all available MAVLink messages (non-blocking)."""
         if not self.is_connected or self.connection is None:
             return
 
-        try:
-            while True:
-                msg = self.connection.recv_match(blocking=False)
-                if msg is None:
-                    break
-                self._process_message(msg)
-        except Exception as exc:
-            logger.error("[ERROR] MAVLink poll_messages error: %s", exc)
+        with self._recv_lock:
+            try:
+                while True:
+                    msg = self.connection.recv_match(blocking=False)
+                    if msg is None:
+                        break
+                    self._process_message(msg)
+            except Exception as exc:
+                logger.error("[ERROR] MAVLink poll_messages error: %s", exc)
 
     def _process_message(self, msg) -> None:
         msg_type = msg.get_type()
@@ -686,7 +742,7 @@ class MavlinkController:
         logger.info("DISARM command sent (force=%s)", force)
         return True
 
-    def takeoff_nav_cmd(self, altitude_m: float = 1.5) -> bool:
+    def takeoff_nav_cmd(self, altitude_m: float = 1.75) -> bool:
         """
         Native PX4 Takeoff using MAV_CMD_NAV_TAKEOFF (cmd=22) or AUTO.TAKEOFF.
         Safe, reliable, handles motor spool-up, climb, and auto-transition to LOITER/HOLD.
@@ -694,7 +750,7 @@ class MavlinkController:
         if not self._can_send("takeoff") or not self.connection:
             return False
 
-        logger.info("Sending MAV_CMD_NAV_TAKEOFF (cmd=22) to altitude %.1fm...", altitude_m)
+        logger.info("Sending MAV_CMD_NAV_TAKEOFF (cmd=22) to altitude %.2fm...", altitude_m)
         with self._send_lock:
             self.connection.mav.command_long_send(
                 self.connection.target_system,
@@ -714,7 +770,7 @@ class MavlinkController:
         logger.warning("MAV_CMD_NAV_TAKEOFF unconfirmed, attempting mode transition to TAKEOFF...")
         return self.set_mode("TAKEOFF", force_send=True)
 
-    def takeoff_offboard(self, altitude_m: float = 1.5) -> bool:
+    def takeoff_offboard(self, altitude_m: float = 1.75) -> bool:
         """
         OFFBOARD takeoff: stream position setpoint Z=-altitude_m to PX4.
         """
@@ -725,7 +781,7 @@ class MavlinkController:
             return False
 
         logger.info(
-            "Initiating OFFBOARD takeoff to %.1fm (setpoint Z=%.1fm NED)...",
+            "Initiating OFFBOARD takeoff to %.2fm (setpoint Z=%.2fm NED)...",
             altitude_m, -altitude_m,
         )
 
@@ -745,13 +801,13 @@ class MavlinkController:
                     altitude_m * 0.92)
         return True
 
-    def takeoff(self, altitude_m: float = 1.5) -> bool:
+    def takeoff(self, altitude_m: float = 1.75) -> bool:
         """
         Robust Multi-Tier Takeoff Pipeline:
         1. First try native PX4 MAV_CMD_NAV_TAKEOFF / AUTO.TAKEOFF (PX4 native auto takeoff).
         2. If unconfirmed, seamlessly fallback to OFFBOARD takeoff streaming.
         """
-        logger.info("Initiating UAV Takeoff pipeline to %.1fm...", altitude_m)
+        logger.info("Initiating UAV Takeoff pipeline to %.2fm...", altitude_m)
         ok = self.takeoff_nav_cmd(altitude_m)
         if ok:
             return True
@@ -759,7 +815,7 @@ class MavlinkController:
         logger.warning("Native TAKEOFF unconfirmed, falling back to OFFBOARD Takeoff...")
         return self.takeoff_offboard(altitude_m)
 
-    def goto_location(self, lat: float, lon: float, alt_m: float = 1.5) -> bool:
+    def goto_location(self, lat: float, lon: float, alt_m: float = 1.75) -> bool:
         """
         Bay vị trí GPS ở mode LOITER/HOLD chuẩn xác bằng MAV_CMD_DO_REPOSITION.
         """
