@@ -251,7 +251,8 @@ export function useIntralogisticsWS() {
   useEffect(() => {
     fetchState();
     connect();
-    const interval = setInterval(fetchState, 30000);
+    // Fallback sync every 60s if WebSocket misses any event
+    const interval = setInterval(fetchState, 60000);
     return () => {
       clearInterval(interval);
       clearTimeout(reconnectTimer.current);

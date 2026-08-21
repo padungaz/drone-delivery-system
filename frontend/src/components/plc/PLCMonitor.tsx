@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import {
   controlPlcHatch,
   controlPlcLock,
@@ -22,7 +22,7 @@ interface Props {
   systemMode?: "AUTO" | "MANUAL";
 }
 
-export function PLCMonitor({
+export const PLCMonitor = React.memo(function PLCMonitor({
   connected = true,
   ipAddress = "192.168.58.10",
   rackSlot = "0 / 1",
@@ -247,4 +247,4 @@ export function PLCMonitor({
       </div>
     </div>
   );
-}
+});

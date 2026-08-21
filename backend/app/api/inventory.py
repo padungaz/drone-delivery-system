@@ -116,18 +116,21 @@ async def get_camera_video_feed():
     qr_service = QRScannerService.get_instance()
 
     async def generate_mjpeg_frames():
-        while True:
-            if not qr_service.is_active:
-                await asyncio.sleep(0.2)
-                continue
+        try:
+            while True:
+                if not qr_service.is_active:
+                    await asyncio.sleep(0.2)
+                    continue
 
-            frame_bytes = qr_service.get_latest_frame_bytes()
-            if frame_bytes:
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-                )
-            await asyncio.sleep(0.04)
+                frame_bytes = qr_service.get_latest_frame_bytes()
+                if frame_bytes:
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+                    )
+                await asyncio.sleep(0.05)  # ~20 FPS stream
+        except (asyncio.CancelledError, GeneratorExit):
+            pass
 
     return StreamingResponse(
         generate_mjpeg_frames(),
@@ -139,12 +142,14 @@ async def get_camera_video_feed():
 async def generate_qr_pdf_endpoint(payload: QRScanPayload):
     """Generate a printable PDF label file for a product QR code."""
     import os
-    import sys
     from fastapi.responses import FileResponse
 
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
     try:
-        from generate_qr_pdf import generate_qr_pdf
+        try:
+            from app.services.generate_qr_pdf import generate_qr_pdf
+        except ImportError:
+            from generate_qr_pdf import generate_qr_pdf
+
         p_id = payload.product_id or payload.qr.strip()
         pdf_file = generate_qr_pdf(
             product_id=p_id,

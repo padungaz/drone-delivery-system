@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { startCameraDevice, stopCameraDevice, triggerCameraQrScan, API_BASE } from "../../services/api";
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
   systemMode?: "AUTO" | "MANUAL";
 }
 
-export function CameraVision({
+export const CameraVision = React.memo(function CameraVision({
   productId = "PRD-TEST-1001",
   timestamp = "21:17:43",
   status = "DETECTED",
@@ -188,4 +188,4 @@ export function CameraVision({
       </div>
     </div>
   );
-}
+});

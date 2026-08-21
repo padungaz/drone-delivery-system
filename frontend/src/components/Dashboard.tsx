@@ -59,6 +59,7 @@ export function Dashboard() {
   // Warehouse home coordinates (loaded from DB via WarehouseConfigPanel)
   const [warehouseLat, setWarehouseLat] = useState(0);
   const [warehouseLon, setWarehouseLon] = useState(0);
+  const [selectedTarget, setSelectedTarget] = useState<{ lat: number; lon: number } | null>(null);
 
   const handleWarehouseLoaded = (lat: number, lon: number) => {
     setWarehouseLat(lat);
@@ -173,7 +174,13 @@ export function Dashboard() {
       {/* Tab: Full Map View */}
       {activeTab === "map" && (
         <div className="view-container">
-          <MapPanel telemetry={telemetry} locations={locations} droneOnline={droneOnline} />
+          <MapPanel
+            telemetry={telemetry}
+            locations={locations}
+            droneOnline={droneOnline}
+            selectedTarget={selectedTarget}
+            onSelectTarget={setSelectedTarget}
+          />
           <div style={{ marginTop: "1rem" }}>
             <ControlButtons
               locations={locations}
@@ -190,7 +197,13 @@ export function Dashboard() {
         <div className="view-container split-view-layout">
           {/* Left Column: Drone Flight Operations (Map + Telemetry + Controls) */}
           <div className="split-column left-col">
-            <MapPanel telemetry={telemetry} locations={locations} droneOnline={droneOnline} />
+            <MapPanel
+              telemetry={telemetry}
+              locations={locations}
+              droneOnline={droneOnline}
+              selectedTarget={selectedTarget}
+              onSelectTarget={setSelectedTarget}
+            />
             <div style={{ marginTop: "1rem" }}>
               <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
             </div>

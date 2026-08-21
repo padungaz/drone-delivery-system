@@ -17,66 +17,12 @@ class DroneState(Enum):
 
 
 # ---------------------------------------------------------------------------
-# Valid state transitions
+# Valid state transitions — Open for manual step pipeline operations
 # ---------------------------------------------------------------------------
+ALL_STATES = list(DroneState)
+
 TRANSITIONS: dict[DroneState, list[DroneState]] = {
-    DroneState.IDLE: [
-        DroneState.ARMING,
-        DroneState.TAKEOFF,
-        DroneState.ERROR,
-    ],
-    DroneState.ARMING: [
-        DroneState.TAKEOFF,
-        DroneState.IDLE,
-        DroneState.ERROR,
-    ],
-    DroneState.TAKEOFF: [
-        DroneState.FLY_TO_PICKUP,
-        DroneState.FLY_TO_DROP,
-        DroneState.RETURN_HOME,
-        DroneState.IDLE,
-        DroneState.ERROR,
-    ],
-    DroneState.FLY_TO_PICKUP: [
-        DroneState.DESCEND,
-        DroneState.ERROR,
-    ],
-    DroneState.DESCEND: [
-        DroneState.SEARCH_ARUCO,
-        DroneState.ERROR,
-    ],
-    DroneState.SEARCH_ARUCO: [
-        DroneState.PRECISION_LANDING,
-        DroneState.ERROR,
-    ],
-    DroneState.PRECISION_LANDING: [
-        DroneState.WAIT_PICKUP_CONFIRM,
-        DroneState.WAIT_DROP_CONFIRM,
-        DroneState.IDLE,              # Manual step landing (no mission)
-        DroneState.ERROR,
-    ],
-    # -- Pickup gate --
-    DroneState.WAIT_PICKUP_CONFIRM: [
-        DroneState.ARMING,   # triggered by PICKUP_COMPLETE command
-        DroneState.ERROR,
-    ],
-    DroneState.FLY_TO_DROP: [
-        DroneState.DESCEND,
-        DroneState.ERROR,
-    ],
-    # -- Drop gate --
-    DroneState.WAIT_DROP_CONFIRM: [
-        DroneState.ARMING,   # triggered by DROP_COMPLETE command
-        DroneState.ERROR,
-    ],
-    DroneState.RETURN_HOME: [
-        DroneState.IDLE,     # after PX4 auto-lands & auto-disarms at home
-        DroneState.ARMING,   # Continuous Delivery: intercept mid-flight
-        DroneState.ERROR,
-    ],
-    DroneState.ERROR: [
-        DroneState.IDLE,
-    ],
+    state: ALL_STATES for state in DroneState
 }
 
 # ---------------------------------------------------------------------------

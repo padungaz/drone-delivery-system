@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 
 export interface SlotData {
   slot_id: string;
@@ -25,7 +25,7 @@ const DEFAULT_SLOTS: SlotData[] = [
   { slot_id: "C3", status: "OCCUPIED", product_id: "PRD-1004" },
 ];
 
-export function WarehouseGrid({
+export const WarehouseGrid = React.memo(function WarehouseGrid({
   slots = DEFAULT_SLOTS,
   n1DockStatus = "READY",
   onSlotClick,
@@ -120,4 +120,4 @@ export function WarehouseGrid({
       </div>
     </div>
   );
-}
+});

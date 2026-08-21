@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import type { MissionLocations, Telemetry } from "../types/drone";
 
@@ -6,6 +6,8 @@ interface Props {
   telemetry: Telemetry | null;
   locations: MissionLocations;
   droneOnline: boolean;
+  selectedTarget?: { lat: number; lon: number } | null;
+  onSelectTarget?: (target: { lat: number; lon: number } | null) => void;
 }
 
 // Custom DivIcons for map markers
@@ -25,7 +27,7 @@ const createCustomIcon = (emoji: string, color: string, label: string, rotation:
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
         border: 2px solid #ffffff;
         transform: rotate(${rotation}deg);
-        transition: transform 0.3s ease;
+        transition: transform 0.2s ease;
       ">
         ${emoji}
       </div>
@@ -52,19 +54,34 @@ const createCustomIcon = (emoji: string, color: string, label: string, rotation:
   });
 };
 
-export function MapPanel({ telemetry, locations, droneOnline }: Props) {
+export const MapPanel = React.memo(function MapPanel({
+  telemetry,
+  locations,
+  droneOnline,
+  selectedTarget,
+  onSelectTarget,
+}: Props) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+
+  // Target selection callback ref for map click event
+  const onSelectTargetRef = useRef(onSelectTarget);
+  onSelectTargetRef.current = onSelectTarget;
 
   // Markers
   const droneMarkerRef = useRef<L.Marker | null>(null);
   const homeMarkerRef = useRef<L.Marker | null>(null);
   const pickupMarkerRef = useRef<L.Marker | null>(null);
   const dropMarkerRef = useRef<L.Marker | null>(null);
+  const targetMarkerRef = useRef<L.Marker | null>(null);
 
   // Polylines
   const plannedPathRef = useRef<L.Polyline | null>(null);
   const flightTrailRef = useRef<L.Polyline | null>(null);
+  const targetLineRef = useRef<L.Polyline | null>(null);
+  const trailPointsRef = useRef<[number, number][]>([]);
+  const lastHeadingRef = useRef<number>(-999);
+  const lastPanTimeRef = useRef<number>(0);
 
   // Flight history trail coordinates
   const [trail, setTrail] = useState<[number, number][]>([]);
@@ -101,6 +118,15 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
     );
 
     streetLayer.addTo(map);
+
+    // Register click event on map to select GPS destination target
+    map.on("click", (e: L.LeafletMouseEvent) => {
+      const clickedLat = Number(e.latlng.lat.toFixed(6));
+      const clickedLon = Number(e.latlng.lng.toFixed(6));
+      if (onSelectTargetRef.current) {
+        onSelectTargetRef.current({ lat: clickedLat, lon: clickedLon });
+      }
+    });
 
     // Store layers for switching
     (map as any)._streetLayer = streetLayer;
@@ -151,32 +177,40 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    // 1. Home / Warehouse Marker
+    // 1. Home / Warehouse Marker (Saved on ARM)
     if (locations.home_lat && locations.home_lon) {
       const pos: [number, number] = [locations.home_lat, locations.home_lon];
+      const popupText = `
+        <div style="font-family: sans-serif; font-size: 12px; line-height: 1.5;">
+          <strong style="color: #3b82f6;">🏠 Vị trí Home (ARM)</strong><br/>
+          <b>Lat:</b> ${locations.home_lat.toFixed(6)}<br/>
+          <b>Lon:</b> ${locations.home_lon.toFixed(6)}
+        </div>
+      `;
       if (!homeMarkerRef.current) {
         homeMarkerRef.current = L.marker(pos, {
-          icon: createCustomIcon("🏠", "#3b82f6", "Kho hàng"),
+          icon: createCustomIcon("🏠", "#3b82f6", "Home (ARM)"),
         })
-          .addTo(map)
-          .bindPopup("<b>🏠 Trạm xuất phát (Kho)</b><br/>" + pos[0] + ", " + pos[1]);
+          .bindPopup(popupText)
+          .addTo(map);
       } else {
         homeMarkerRef.current.setLatLng(pos);
+        homeMarkerRef.current.setPopupContent(popupText);
       }
     } else if (homeMarkerRef.current) {
       homeMarkerRef.current.remove();
       homeMarkerRef.current = null;
     }
 
-    // 2. Pickup Marker
+    // 2. Pickup Location Marker
     if (locations.pickup_lat && locations.pickup_lon) {
       const pos: [number, number] = [locations.pickup_lat, locations.pickup_lon];
       if (!pickupMarkerRef.current) {
         pickupMarkerRef.current = L.marker(pos, {
-          icon: createCustomIcon("📦", "#f59e0b", "Lấy hàng"),
+          icon: createCustomIcon("📦", "#f59e0b", "Điểm lấy hàng"),
         })
-          .addTo(map)
-          .bindPopup("<b>📦 Điểm lấy hàng (Pickup)</b><br/>" + pos[0] + ", " + pos[1]);
+          .bindPopup("<b>📦 Điểm Lấy Hàng (Pickup)</b>")
+          .addTo(map);
       } else {
         pickupMarkerRef.current.setLatLng(pos);
       }
@@ -185,15 +219,15 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
       pickupMarkerRef.current = null;
     }
 
-    // 3. Drop Marker
+    // 3. Dropoff Location Marker
     if (locations.drop_lat && locations.drop_lon) {
       const pos: [number, number] = [locations.drop_lat, locations.drop_lon];
       if (!dropMarkerRef.current) {
         dropMarkerRef.current = L.marker(pos, {
-          icon: createCustomIcon("📬", "#ef4444", "Giao hàng"),
+          icon: createCustomIcon("📍", "#ef4444", "Điểm giao"),
         })
-          .addTo(map)
-          .bindPopup("<b>📬 Điểm giao hàng (Drop)</b><br/>" + pos[0] + ", " + pos[1]);
+          .bindPopup("<b>📍 Điểm Giao Hàng (Drop-off)</b>")
+          .addTo(map);
       } else {
         dropMarkerRef.current.setLatLng(pos);
       }
@@ -228,7 +262,7 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
     }
   }, [locations]);
 
-  // Update Drone Telemetry Marker & Flight Trail
+  // Update Drone Telemetry Marker & Flight Trail (High-performance optimized)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !telemetry || !droneOnline) return;
@@ -239,17 +273,22 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
     if (!lat || !lon || (lat === 0 && lon === 0)) return;
 
     const dronePos: [number, number] = [lat, lon];
-    const heading = telemetry.heading || 0;
+    const heading = Math.round(telemetry.heading || 0);
 
     // Update or Create Drone Marker
     if (!droneMarkerRef.current) {
+      lastHeadingRef.current = heading;
       droneMarkerRef.current = L.marker(dronePos, {
         icon: createCustomIcon("🛸", "#10b981", "Drone", heading),
         zIndexOffset: 1000,
       }).addTo(map);
     } else {
       droneMarkerRef.current.setLatLng(dronePos);
-      droneMarkerRef.current.setIcon(createCustomIcon("🛸", "#10b981", "Drone", heading));
+      // Only recreate divIcon if heading rotated by more than 4 degrees
+      if (Math.abs(heading - lastHeadingRef.current) >= 4) {
+        lastHeadingRef.current = heading;
+        droneMarkerRef.current.setIcon(createCustomIcon("🛸", "#10b981", "Drone", heading));
+      }
     }
 
     // Popup content
@@ -264,40 +303,90 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
     `;
     droneMarkerRef.current.bindPopup(popupContent);
 
-    // Auto-center map on drone if followDrone is enabled
+    // Auto-center map on drone smoothly without animation interruption
     if (followDrone) {
-      map.panTo(dronePos, { animate: true, duration: 0.5 });
+      const now = Date.now();
+      if (now - lastPanTimeRef.current > 500) {
+        lastPanTimeRef.current = now;
+        map.panTo(dronePos, { animate: false });
+      }
     }
 
-    // Append to flight history trail
-    setTrail((prev) => {
-      const lastPoint = prev[prev.length - 1];
-      if (!lastPoint || lastPoint[0] !== lat || lastPoint[1] !== lon) {
-        const updated = [...prev, dronePos];
-        // Keep max 500 points for smooth performance
-        return updated.length > 500 ? updated.slice(updated.length - 500) : updated;
+    // Append to flight history trail directly on polyline without full re-render
+    const pts = trailPointsRef.current;
+    const lastPoint = pts[pts.length - 1];
+    if (!lastPoint || Math.abs(lastPoint[0] - lat) > 0.00001 || Math.abs(lastPoint[1] - lon) > 0.00001) {
+      pts.push(dronePos);
+      if (pts.length > 500) pts.shift();
+
+      if (pts.length >= 2) {
+        if (!flightTrailRef.current) {
+          flightTrailRef.current = L.polyline(pts, {
+            color: "#10b981",
+            weight: 4,
+            opacity: 0.85,
+          }).addTo(map);
+        } else {
+          flightTrailRef.current.setLatLngs(pts);
+        }
       }
-      return prev;
-    });
+    }
   }, [telemetry, droneOnline, followDrone]);
 
-  // Update Flight Trail Polyline on Map
+  // Update Target Selected Marker & Guidance Line
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    if (trail.length >= 2) {
-      if (!flightTrailRef.current) {
-        flightTrailRef.current = L.polyline(trail, {
-          color: "#10b981",
-          weight: 4,
-          opacity: 0.85,
-        }).addTo(map);
+    if (selectedTarget && selectedTarget.lat && selectedTarget.lon) {
+      const pos: [number, number] = [selectedTarget.lat, selectedTarget.lon];
+      if (!targetMarkerRef.current) {
+        targetMarkerRef.current = L.marker(pos, {
+          icon: createCustomIcon("🎯", "#00F0FF", "Đích đến GPS"),
+          zIndexOffset: 1200,
+        })
+          .bindPopup(
+            `<b>🎯 Điểm Đến Đã Chọn (NAV_GPS)</b><br/>Lat: ${selectedTarget.lat.toFixed(6)}<br/>Lon: ${selectedTarget.lon.toFixed(6)}`
+          )
+          .addTo(map);
       } else {
-        flightTrailRef.current.setLatLngs(trail);
+        targetMarkerRef.current.setLatLng(pos);
+        targetMarkerRef.current.setPopupContent(
+          `<b>🎯 Điểm Đến Đã Chọn (NAV_GPS)</b><br/>Lat: ${selectedTarget.lat.toFixed(6)}<br/>Lon: ${selectedTarget.lon.toFixed(6)}`
+        );
+      }
+
+      // Guidance line from drone or home to target
+      const startPos: [number, number] | null =
+        telemetry?.latitude && telemetry?.longitude && telemetry.latitude !== 0
+          ? [telemetry.latitude, telemetry.longitude]
+          : locations.home_lat && locations.home_lon
+          ? [locations.home_lat, locations.home_lon]
+          : null;
+
+      if (startPos) {
+        if (!targetLineRef.current) {
+          targetLineRef.current = L.polyline([startPos, pos], {
+            color: "#00F0FF",
+            weight: 3,
+            dashArray: "6, 6",
+            opacity: 0.9,
+          }).addTo(map);
+        } else {
+          targetLineRef.current.setLatLngs([startPos, pos]);
+        }
+      }
+    } else {
+      if (targetMarkerRef.current) {
+        targetMarkerRef.current.remove();
+        targetMarkerRef.current = null;
+      }
+      if (targetLineRef.current) {
+        targetLineRef.current.remove();
+        targetLineRef.current = null;
       }
     }
-  }, [trail]);
+  }, [selectedTarget, telemetry, locations]);
 
   // Fit view bounds to contain all active markers
   const handleFitBounds = () => {
@@ -308,6 +397,7 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
     if (locations.home_lat && locations.home_lon) bounds.extend([locations.home_lat, locations.home_lon]);
     if (locations.pickup_lat && locations.pickup_lon) bounds.extend([locations.pickup_lat, locations.pickup_lon]);
     if (locations.drop_lat && locations.drop_lon) bounds.extend([locations.drop_lat, locations.drop_lon]);
+    if (selectedTarget?.lat && selectedTarget?.lon) bounds.extend([selectedTarget.lat, selectedTarget.lon]);
     if (telemetry?.latitude && telemetry?.longitude && telemetry.latitude !== 0) {
       bounds.extend([telemetry.latitude, telemetry.longitude]);
     }
@@ -328,9 +418,35 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
               {telemetry.drone_state}
             </span>
           )}
+          {selectedTarget && (
+            <span
+              style={{
+                marginLeft: "8px",
+                fontSize: "11px",
+                color: "#00F0FF",
+                background: "rgba(0, 240, 255, 0.15)",
+                padding: "2px 6px",
+                borderRadius: "4px",
+                border: "1px solid rgba(0, 240, 255, 0.3)",
+              }}
+            >
+              🎯 Đích: {selectedTarget.lat.toFixed(5)}, {selectedTarget.lon.toFixed(5)}
+            </span>
+          )}
         </div>
 
         <div className="map-toolbar-actions">
+          {selectedTarget && (
+            <button
+              type="button"
+              className="btn-map-action active"
+              style={{ borderColor: "#00F0FF", color: "#00F0FF", background: "rgba(0, 240, 255, 0.2)" }}
+              onClick={() => onSelectTargetRef.current?.(null)}
+              title="Xóa điểm đích đã chọn"
+            >
+              ❌ Bỏ chọn đích
+            </button>
+          )}
           <button
             type="button"
             className={`btn-map-action ${isSatellite ? "active" : ""}`}
@@ -384,6 +500,30 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
         </div>
       </div>
 
+      {/* Map Click Hint Banner */}
+      <div
+        style={{
+          position: "absolute",
+          top: "48px",
+          left: "12px",
+          zIndex: 500,
+          background: "rgba(15, 23, 42, 0.85)",
+          color: selectedTarget ? "#00F0FF" : "#cbd5e1",
+          padding: "4px 8px",
+          borderRadius: "4px",
+          fontSize: "11px",
+          border: selectedTarget ? "1px solid rgba(0, 240, 255, 0.4)" : "1px solid rgba(255, 255, 255, 0.1)",
+          backdropFilter: "blur(4px)",
+          pointerEvents: "none",
+        }}
+      >
+        {selectedTarget ? (
+          <span>🎯 Đã chọn đích: <b>{selectedTarget.lat.toFixed(6)}, {selectedTarget.lon.toFixed(6)}</b> (Bấm bước 4 để bay)</span>
+        ) : (
+          <span>💡 <i>Click bất kỳ điểm nào trên bản đồ để chọn tọa độ đích cho bước <b>BAY GPS</b></i></span>
+        )}
+      </div>
+
       {/* Main Leaflet Container */}
       <div
         ref={mapContainerRef}
@@ -420,4 +560,4 @@ export function MapPanel({ telemetry, locations, droneOnline }: Props) {
       )}
     </div>
   );
-}
+});

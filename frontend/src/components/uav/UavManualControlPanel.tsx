@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   setFlightMode,
   startCamera,
@@ -13,6 +13,9 @@ interface Props {
   droneStatus?: any;
   locations?: MissionLocations;
   droneOnline?: boolean;
+  selectedTarget?: { lat: number; lon: number } | null;
+  onSelectTarget?: (target: { lat: number; lon: number } | null) => void;
+  onUpdateLocations?: (locations: MissionLocations) => void;
 }
 
 const FLIGHT_MODES = [
@@ -53,15 +56,29 @@ function isModeActive(modeValue: string, flightMode?: string, droneState?: strin
   }
 }
 
-export function UavManualControlPanel({ droneStatus, locations, droneOnline = true }: Props) {
+export function UavManualControlPanel({
+  droneStatus,
+  locations,
+  droneOnline = true,
+  selectedTarget,
+  onSelectTarget,
+  onUpdateLocations,
+}: Props) {
   const [armLoading, setArmLoading] = useState<string | null>(null);
   const [stepMsg, setStepMsg] = useState<string | null>(null);
 
-  // GPS target choice for Step 3 (NAV_GPS)
-  const [targetType, setTargetType] = useState<"home" | "pickup" | "drop" | "custom">("pickup");
-  const [customLat, setCustomLat] = useState<number>(16.0544);
-  const [customLon, setCustomLon] = useState<number>(108.2022);
+  // Target GPS coordinates for Step 3 (NAV_GPS)
+  const [manualLat, setManualLat] = useState<number>(locations?.pickup_lat || 16.0544);
+  const [manualLon, setManualLon] = useState<number>(108.2022);
   const [targetAlt, setTargetAlt] = useState<number>(1.5);
+
+  // Sync with selectedTarget when user clicks on Map
+  useEffect(() => {
+    if (selectedTarget && selectedTarget.lat && selectedTarget.lon) {
+      setManualLat(selectedTarget.lat);
+      setManualLon(selectedTarget.lon);
+    }
+  }, [selectedTarget]);
 
   const isArmed: boolean = droneStatus?.armed ?? false;
   const currentState: string = droneStatus?.drone_state || "IDLE";
@@ -73,18 +90,8 @@ export function UavManualControlPanel({ droneStatus, locations, droneOnline = tr
     try {
       let params = extraParams;
       if (step_action === "NAV_GPS" && !params) {
-        let lat = customLat;
-        let lon = customLon;
-        if (targetType === "home") {
-          lat = locations?.home_lat || 16.0544;
-          lon = locations?.home_lon || 108.2022;
-        } else if (targetType === "pickup") {
-          lat = locations?.pickup_lat || 16.0544;
-          lon = locations?.pickup_lon || 108.2022;
-        } else if (targetType === "drop") {
-          lat = locations?.drop_lat || 16.0544;
-          lon = locations?.drop_lon || 108.2022;
-        }
+        const lat = selectedTarget?.lat ?? manualLat;
+        const lon = selectedTarget?.lon ?? manualLon;
         params = { lat, lon, alt: targetAlt };
       }
 
@@ -136,7 +143,23 @@ export function UavManualControlPanel({ droneStatus, locations, droneOnline = tr
     try {
       const res = await armDrone();
       const data = await res.json();
-      setStepMsg(res.ok ? `✅ ${data.status}` : `❌ ${data.detail ?? "Khởi động ARM thất bại"}`);
+      if (res.ok) {
+        setStepMsg(`✅ ${data.status}`);
+        // Automatically capture current GPS as Home and render on Map
+        const curLat = droneStatus?.latitude;
+        const curLon = droneStatus?.longitude;
+        if (curLat && curLon && curLat !== 0 && curLon !== 0 && onUpdateLocations) {
+          const updatedLocs: MissionLocations = {
+            ...(locations || { home_lat: 0, home_lon: 0, pickup_lat: 0, pickup_lon: 0, drop_lat: 0, drop_lon: 0 }),
+            home_lat: Number(curLat.toFixed(6)),
+            home_lon: Number(curLon.toFixed(6)),
+          };
+          onUpdateLocations(updatedLocs);
+          localStorage.setItem("drone_admin_locations", JSON.stringify(updatedLocs));
+        }
+      } else {
+        setStepMsg(`❌ ${data.detail ?? "Khởi động ARM thất bại"}`);
+      }
     } catch {
       setStepMsg("❌ Lỗi mạng khi ARM");
     } finally {
@@ -227,7 +250,23 @@ export function UavManualControlPanel({ droneStatus, locations, droneOnline = tr
             <span style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.5px" }}>
               ⚡ KHÓA / MỞ ĐỘNG CƠ (MOTOR ARMING)
             </span>
-            <span style={{ fontSize: "0.65rem", color: "#64748b" }}>Mode: {flightMode}</span>
+            {locations?.home_lat && locations?.home_lon ? (
+              <span
+                style={{
+                  fontSize: "0.65rem",
+                  color: "#38bdf8",
+                  background: "rgba(56, 189, 248, 0.12)",
+                  padding: "1px 6px",
+                  borderRadius: "3px",
+                  border: "1px solid rgba(56, 189, 248, 0.25)",
+                }}
+                title="Tọa độ Home tự động lưu tại vị trí ARM trên bản đồ"
+              >
+                🏠 Home (ARM): {locations.home_lat.toFixed(5)}, {locations.home_lon.toFixed(5)}
+              </span>
+            ) : (
+              <span style={{ fontSize: "0.65rem", color: "#64748b" }}>Mode: {flightMode}</span>
+            )}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1.2fr", gap: "6px" }}>
@@ -365,69 +404,113 @@ export function UavManualControlPanel({ droneStatus, locations, droneOnline = tr
               </div>
             </div>
 
-            {/* Step 3: NAV_GPS (Full Width with compact target selector) */}
-            <div className="step-card" style={{ padding: "6px 8px", flexDirection: "column", alignItems: "stretch", background: "rgba(15, 23, 42, 0.75)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div className="step-num" style={{ width: "20px", height: "20px", fontSize: "0.7rem" }}>3</div>
-                <div className="step-info" style={{ flex: 1 }}>
-                  <strong style={{ fontSize: "0.72rem" }}>🎯 Bay GPS vị trí (`LOITER` + `DO_REPOSITION`)</strong>
+            {/* Step 3: NAV_GPS (Click point on map) */}
+            <div
+              className="step-card"
+              style={{
+                padding: "8px",
+                flexDirection: "column",
+                alignItems: "stretch",
+                background: "rgba(15, 23, 42, 0.85)",
+                border: selectedTarget ? "1px solid rgba(0, 240, 255, 0.4)" : "1px solid rgba(255, 255, 255, 0.1)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div className="step-num" style={{ width: "20px", height: "20px", fontSize: "0.7rem" }}>3</div>
+                  <div className="step-info">
+                    <strong style={{ fontSize: "0.75rem", color: "#00F0FF" }}>🎯 Bay GPS tới điểm chọn trên Bản đồ</strong>
+                  </div>
                 </div>
+                {selectedTarget ? (
+                  <span
+                    style={{
+                      fontSize: "0.68rem",
+                      color: "#10b981",
+                      background: "rgba(16, 185, 129, 0.15)",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      border: "1px solid rgba(16, 185, 129, 0.3)",
+                    }}
+                  >
+                    ✅ Đã chọn điểm trên Map
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      fontSize: "0.68rem",
+                      color: "#f59e0b",
+                      background: "rgba(245, 158, 11, 0.15)",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      border: "1px solid rgba(245, 158, 11, 0.3)",
+                    }}
+                  >
+                    👆 Click Map để chọn đích
+                  </span>
+                )}
               </div>
 
-              <div style={{ display: "flex", gap: "4px", marginTop: "4px", alignItems: "center", flexWrap: "wrap" }}>
-                <select
-                  className="form-input"
-                  style={{ flex: 1, minWidth: "120px", padding: "0.2rem 0.4rem", fontSize: "0.7rem" }}
-                  value={targetType}
-                  onChange={(e) => setTargetType(e.target.value as any)}
-                >
-                  <option value="pickup">📦 Điểm Lấy hàng</option>
-                  <option value="drop">📬 Điểm Giao hàng</option>
-                  <option value="home">🏠 Trạm Kho (Home)</option>
-                  <option value="custom">📍 Tọa độ tùy chỉnh</option>
-                </select>
+              <div style={{ display: "flex", gap: "6px", marginTop: "6px", alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span style={{ fontSize: "0.68rem", color: "#94a3b8" }}>Lat:</span>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    placeholder="Latitude"
+                    className="form-input"
+                    style={{ width: "92px", padding: "0.22rem 0.35rem", fontSize: "0.72rem", fontFamily: "monospace" }}
+                    value={selectedTarget?.lat ?? manualLat}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setManualLat(val);
+                      if (onSelectTarget) {
+                        onSelectTarget({ lat: val, lon: selectedTarget?.lon ?? manualLon });
+                      }
+                    }}
+                  />
+                </div>
 
-                {targetType === "custom" && (
-                  <>
-                    <input
-                      type="number"
-                      step="0.000001"
-                      placeholder="Lat"
-                      className="form-input"
-                      style={{ width: "85px", padding: "0.2rem 0.35rem", fontSize: "0.7rem" }}
-                      value={customLat}
-                      onChange={(e) => setCustomLat(parseFloat(e.target.value) || 0)}
-                    />
-                    <input
-                      type="number"
-                      step="0.000001"
-                      placeholder="Lon"
-                      className="form-input"
-                      style={{ width: "85px", padding: "0.2rem 0.35rem", fontSize: "0.7rem" }}
-                      value={customLon}
-                      onChange={(e) => setCustomLon(parseFloat(e.target.value) || 0)}
-                    />
-                  </>
-                )}
+                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span style={{ fontSize: "0.68rem", color: "#94a3b8" }}>Lon:</span>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    placeholder="Longitude"
+                    className="form-input"
+                    style={{ width: "92px", padding: "0.22rem 0.35rem", fontSize: "0.72rem", fontFamily: "monospace" }}
+                    value={selectedTarget?.lon ?? manualLon}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setManualLon(val);
+                      if (onSelectTarget) {
+                        onSelectTarget({ lat: selectedTarget?.lat ?? manualLat, lon: val });
+                      }
+                    }}
+                  />
+                </div>
 
-                <span style={{ fontSize: "0.68rem", color: "#94a3b8" }}>Cao:</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  className="form-input"
-                  style={{ width: "48px", padding: "0.2rem 0.3rem", fontSize: "0.7rem" }}
-                  value={targetAlt}
-                  onChange={(e) => setTargetAlt(parseFloat(e.target.value) || 1.5)}
-                />
+                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span style={{ fontSize: "0.68rem", color: "#94a3b8" }}>Cao:</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="form-input"
+                    style={{ width: "45px", padding: "0.22rem 0.3rem", fontSize: "0.72rem" }}
+                    value={targetAlt}
+                    onChange={(e) => setTargetAlt(parseFloat(e.target.value) || 1.5)}
+                  />
+                </div>
 
                 <button
                   type="button"
                   className="btn btn-step primary"
-                  style={{ padding: "0.2rem 0.55rem", fontSize: "0.68rem" }}
+                  style={{ padding: "0.22rem 0.65rem", fontSize: "0.72rem", marginLeft: "auto" }}
                   onClick={() => handleStepAction("NAV_GPS")}
                   disabled={!isArmed || armLoading !== null || !droneOnline}
+                  title="Bay GPS đến tọa độ đã chọn trên bản đồ"
                 >
-                  Bay GPS
+                  🚀 Bay GPS đến đích
                 </button>
               </div>
             </div>

@@ -68,6 +68,8 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+_last_telemetry_db_log: dict[str, float] = {}
+_last_telemetry_state: dict[str, str] = {}
 
 
 async def handle_drone_websocket(
@@ -75,6 +77,7 @@ async def handle_drone_websocket(
     drone_id: str,
     repo: Repository,
 ) -> None:
+    import time
     await manager.connect_drone(websocket, drone_id)
     try:
         while True:
@@ -87,11 +90,23 @@ async def handle_drone_websocket(
                     telemetry = TelemetryPayload(**payload.get("payload", payload))
                     telemetry.drone_id = drone_id
                     drone_service.update_telemetry(telemetry)
-                    await repo.upsert_drone_status(telemetry)
-                    await repo.log_telemetry(telemetry)
+
+                    # Realtime broadcast to UI clients without delay
                     await manager.broadcast_to_clients(
                         {"type": "telemetry", "payload": telemetry.model_dump(mode="json")}
                     )
+
+                    # Throttled DB logging: persist immediately on state change or max once per second
+                    now = time.time()
+                    last_log_time = _last_telemetry_db_log.get(drone_id, 0.0)
+                    last_state = _last_telemetry_state.get(drone_id, "")
+                    current_state = str(telemetry.drone_state.value if hasattr(telemetry.drone_state, 'value') else telemetry.drone_state)
+                    
+                    if (now - last_log_time >= 1.0) or (current_state != last_state):
+                        _last_telemetry_db_log[drone_id] = now
+                        _last_telemetry_state[drone_id] = current_state
+                        await repo.upsert_drone_status(telemetry)
+                        await repo.log_telemetry(telemetry)
                 elif msg_type == "landing_result":
                     p = payload.get("payload", {})
                     loc_type = str(p.get("location_type", "WAREHOUSE_PAD")).upper()

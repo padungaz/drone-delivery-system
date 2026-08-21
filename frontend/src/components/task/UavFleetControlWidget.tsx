@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   getFleetStatus,
   signalDroneArrived,
@@ -36,43 +36,12 @@ interface Props {
   onRefreshQueue?: () => void;
 }
 
-export function UavFleetControlWidget({
+export const UavFleetControlWidget = React.memo(function UavFleetControlWidget({
   activeMissionDroneId,
   activeMissionType: _activeMissionType,
   onRefreshQueue,
 }: Props) {
-  const [fleet, setFleet] = useState<FleetUnit[]>([
-    {
-      drone_id: "UAV01",
-      is_real: true,
-      flight_mode: "AUTO",
-      state: "READY",
-      battery: 95.0,
-      latitude: 16.0544,
-      longitude: 108.2022,
-      altitude_agl: 0.0,
-    },
-    {
-      drone_id: "UAV02",
-      is_real: false,
-      flight_mode: "AUTO",
-      state: "READY",
-      battery: 98.0,
-      latitude: 16.0545,
-      longitude: 108.2025,
-      altitude_agl: 0.0,
-    },
-    {
-      drone_id: "UAV03",
-      is_real: false,
-      flight_mode: "AUTO",
-      state: "READY",
-      battery: 100.0,
-      latitude: 16.0546,
-      longitude: 108.2028,
-      altitude_agl: 0.0,
-    },
-  ]);
+  const [fleet, setFleet] = useState<FleetUnit[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ text: string; isError: boolean } | null>(null);
 
@@ -92,7 +61,8 @@ export function UavFleetControlWidget({
 
   useEffect(() => {
     fetchFleet();
-    const interval = setInterval(fetchFleet, 8000);
+    // Relaxed fallback polling (WebSocket fleet_update delivers instant updates)
+    const interval = setInterval(fetchFleet, 20000);
 
     const handleFleetUpdate = (e: any) => {
       if (e.detail?.fleet) {
@@ -378,4 +348,4 @@ export function UavFleetControlWidget({
       </div>
     </div>
   );
-}
+});

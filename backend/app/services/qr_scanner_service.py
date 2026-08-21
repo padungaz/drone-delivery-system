@@ -60,8 +60,9 @@ class QRScannerService:
         self.last_scan_time: Optional[str] = None
         self.total_scans_count: int = 0
         self.latest_jpeg_bytes: Optional[bytes] = None
-        self.show_preview: bool = False
+        self.show_preview: bool = os.getenv("SHOW_CV2_WINDOW", "false").lower() in ("true", "1", "yes")
         self._last_station_qr_event: Optional[Dict[str, Any]] = None
+        self._frame_lock: threading.Lock = threading.Lock()
 
     @classmethod
     def get_instance(cls) -> "QRScannerService":
@@ -301,51 +302,58 @@ class QRScannerService:
             logger.warning("Could not set camera frame resolution: %s", set_err)
         self.is_active = True
         self.simulator_mode = False
-        self.show_preview = True
+        self.show_preview = os.getenv("SHOW_CV2_WINDOW", "false").lower() in ("true", "1", "yes")
         self.latest_jpeg_bytes: Optional[bytes] = None
 
         window_name = "USB Camera QR Scanner - Smart Warehouse"
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        frame_counter = 0
 
         while self.is_active and self.cap.isOpened():
-            ret, frame = self.cap.read()
+            with self._frame_lock:
+                if self.cap is None or not self.cap.isOpened():
+                    break
+                ret, frame = self.cap.read()
             if not ret or frame is None:
                 time.sleep(0.05)
                 continue
 
+            frame_counter += 1
             status_text = "Scanning..."
             qr_str = None
             points = None
 
-            try:
-                data, points, _ = self.detector.detectAndDecode(frame)
-                if data and data.strip():
-                    qr_str = data.strip()
-                    self._last_station_qr_event = {"product_id": qr_str, "qr_code": qr_str}
-                    if self._is_debounced(qr_str):
-                        status_text = f"Already Scanned [{qr_str}]"
-                    else:
-                        status_text = f"OK -> {qr_str}"
-                        self._mark_scanned(qr_str)
-                        logger.info("📷 USB Camera detected QR code: %s", qr_str)
-                        loop.run_until_complete(self.process_qr_code(qr_str, source="USB_CAMERA"))
-            except Exception as exc:
-                logger.error("Error in camera frame QR detection: %s", exc)
+            # Throttle heavy CPU detectAndDecode to every 3 frames (~150ms) to save CPU
+            if frame_counter % 3 == 0:
+                try:
+                    data, points, _ = self.detector.detectAndDecode(frame)
+                    if data and data.strip():
+                        qr_str = data.strip()
+                        self._last_station_qr_event = {"product_id": qr_str, "qr_code": qr_str}
+                        if self._is_debounced(qr_str):
+                            status_text = f"Already Scanned [{qr_str}]"
+                        else:
+                            status_text = f"OK -> {qr_str}"
+                            self._mark_scanned(qr_str)
+                            logger.info("📷 USB Camera detected QR code: %s", qr_str)
+                            loop.run_until_complete(self.process_qr_code(qr_str, source="USB_CAMERA"))
+                except Exception as exc:
+                    logger.error("Error in camera frame QR detection: %s", exc)
 
             # Draw visual bounding box and status overlay
             self._draw_detection(frame, points, status_text, qr_str)
 
             # 1. Encode frame to JPEG for Web UI Stream
             try:
-                _, jpeg_buf = cv2.imencode('.jpg', frame)
+                _, jpeg_buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
                 if jpeg_buf is not None:
                     self.latest_jpeg_bytes = jpeg_buf.tobytes()
             except Exception:
                 pass
 
-            # 2. Display desktop window via cv2.imshow
+            # 2. Display desktop window via cv2.imshow (if explicitly enabled)
             if self.show_preview:
                 try:
                     cv2.imshow(window_name, frame)
@@ -358,10 +366,12 @@ class QRScannerService:
             time.sleep(0.04)  # ~25 FPS
 
         if self.cap is not None:
-            self.cap.release()
-            self.cap = None
+            with self._frame_lock:
+                if self.cap is not None:
+                    self.cap.release()
+                    self.cap = None
 
-        if cv2 is not None:
+        if cv2 is not None and self.show_preview:
             try:
                 cv2.destroyWindow(window_name)
             except Exception:
@@ -500,10 +510,15 @@ class QRScannerService:
                         "message": f"Camera USB quét thành công mã QR: {prod_id}",
                     }
 
-            # Check if camera frame has a detectable QR right now
+            # Check if camera frame has a detectable QR right now (thread-safe)
             if self.cap is not None and self.cap.isOpened():
-                ret, frame = self.cap.read()
-                if ret and frame is not None:
+                frame = None
+                with self._frame_lock:
+                    if self.cap is not None and self.cap.isOpened():
+                        ret, f = self.cap.read()
+                        if ret and f is not None:
+                            frame = f
+                if frame is not None:
                     try:
                         data, _, _ = self.detector.detectAndDecode(frame)
                         if data and data.strip():

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 export interface MotionStepInfo {
   stepIndex: number; // 1 to 4
@@ -33,7 +33,7 @@ interface Props {
   latencyMs?: number;
 }
 
-export function RobotStatusCard({
+export const RobotStatusCard = React.memo(function RobotStatusCard({
   state = "IDLE",
   mode = "AUTO",
   speed = 100,
@@ -46,12 +46,32 @@ export function RobotStatusCard({
   gripperHolding = false,
   currentSlot = "HOME",
   activeCommand = null,
-  elapsedSeconds = 0,
+  elapsedSeconds: parentElapsed = 0,
   lastCycleDuration = null,
   socketLogs = [],
   latencyMs = 1.5,
 }: Props & { _program?: string; _errorCode?: string }) {
   const [showSocketTraffic, setShowSocketTraffic] = useState(false);
+  const [internalElapsed, setInternalElapsed] = useState(0);
+
+  // Local stopwatch timer only running when activeCommand is active
+  useEffect(() => {
+    let timer: any = null;
+    if (activeCommand) {
+      const startTime = Date.now();
+      setInternalElapsed(0);
+      timer = setInterval(() => {
+        setInternalElapsed((Date.now() - startTime) / 1000);
+      }, 150);
+    } else {
+      setInternalElapsed(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [activeCommand]);
+
+  const elapsedSeconds = activeCommand ? internalElapsed : parentElapsed;
 
   const isMoving = state === "MOVING" || state === "PICKING" || state === "PLACING" || Boolean(activeCommand);
   const isError = state === "ERROR" || state === "ESTOP";
@@ -266,5 +286,5 @@ export function RobotStatusCard({
       )}
     </div>
   );
-}
+});
 

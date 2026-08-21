@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useIntralogisticsWS } from "../hooks/useIntralogisticsWS";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { SystemHeader } from "./layout/SystemHeader";
@@ -63,7 +63,33 @@ export function HmiDashboard() {
   const { telemetry, droneOnline } = useWebSocket();
 
   // Drone Mission Locations state
-  const [locations, setLocations] = useState<MissionLocations>(DEFAULT_LOCATIONS);
+  const [locations, setLocations] = useState<MissionLocations>(() => {
+    try {
+      const saved = localStorage.getItem("drone_admin_locations");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return DEFAULT_LOCATIONS;
+  });
+
+  // Selected GPS target coordinate on Map (for Step 3 NAV_GPS)
+  const [selectedTarget, setSelectedTarget] = useState<{ lat: number; lon: number } | null>(null);
+
+  // Auto-lock Home position on map when Drone is Armed
+  const prevArmedRef = useRef(false);
+  useEffect(() => {
+    if (telemetry?.armed && !prevArmedRef.current) {
+      if (telemetry.latitude && telemetry.longitude && telemetry.latitude !== 0 && telemetry.longitude !== 0) {
+        const newHomeLat = Number(telemetry.latitude.toFixed(6));
+        const newHomeLon = Number(telemetry.longitude.toFixed(6));
+        setLocations((prev) => {
+          const next = { ...prev, home_lat: newHomeLat, home_lon: newHomeLon };
+          localStorage.setItem("drone_admin_locations", JSON.stringify(next));
+          return next;
+        });
+      }
+    }
+    prevArmedRef.current = !!telemetry?.armed;
+  }, [telemetry?.armed, telemetry?.latitude, telemetry?.longitude]);
 
   // System Global Mode: "AUTO" (Full automation) vs "MANUAL" (Manual override / maintenance)
   const [systemMode, setSystemModeState] = useState<"AUTO" | "MANUAL">("AUTO");
@@ -148,9 +174,10 @@ export function HmiDashboard() {
     fetchSystemMode();
     fetchMissionQueue();
 
+    // Relaxed fallback polling (realtime updates are handled immediately by WebSocket events)
     const interval = setInterval(() => {
       fetchMissionQueue();
-    }, 3000);
+    }, 15000);
 
     const handleModeUpdate = (e: any) => {
       if (e.detail?.mode) {
@@ -184,7 +211,6 @@ export function HmiDashboard() {
 
   // Robot Real-time Motion & Socket Traffic Tracking
   const [activeRobotCmd, setActiveRobotCmd] = useState<string | null>(null);
-  const [robotElapsedSec, setRobotElapsedSec] = useState<number>(0);
   const [lastRobotCycleDuration, setLastRobotCycleDuration] = useState<number | null>(13.08);
   const [robotSocketLogs, setRobotSocketLogs] = useState<Array<{ id: string; time: string; type: "TX" | "RX" | "ERR"; payload: string; duration?: string }>>([
     { id: "1", time: "17:26:51", type: "TX", payload: 'PICK A2\r\n' },
@@ -194,23 +220,6 @@ export function HmiDashboard() {
   ]);
   const [robotHoldingProduct, setRobotHoldingProduct] = useState<string | null>(robot?.holding_product || null);
   const [robotCurrentSlot, setRobotCurrentSlot] = useState<string | null>(robot?.current_slot || "HOME");
-
-  // Timer for live robot execution stopwatch
-  useEffect(() => {
-    let timer: any = null;
-    if (activeRobotCmd) {
-      const startTime = Date.now();
-      setRobotElapsedSec(0);
-      timer = setInterval(() => {
-        setRobotElapsedSec((Date.now() - startTime) / 1000);
-      }, 100);
-    } else {
-      setRobotElapsedSec(0);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [activeRobotCmd]);
 
   // Derived real device online statuses
   const plcDev = devices.find((d) => d.device_type === "PLC");
@@ -241,7 +250,7 @@ export function HmiDashboard() {
 
   useEffect(() => {
     fetchRealLogs();
-    const interval = setInterval(fetchRealLogs, 8000);
+    const interval = setInterval(fetchRealLogs, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -421,7 +430,6 @@ export function HmiDashboard() {
                   gripperHolding={Boolean(robotHoldingProduct)}
                   currentSlot={robotCurrentSlot}
                   activeCommand={activeRobotCmd}
-                  elapsedSeconds={robotElapsedSec}
                   lastCycleDuration={lastRobotCycleDuration}
                   socketLogs={robotSocketLogs}
                   latencyMs={1.2}
@@ -496,7 +504,13 @@ export function HmiDashboard() {
             <div className="hmi-grid-container">
               <div className="split-view-layout">
                 <div className="split-column">
-                  <MapPanel telemetry={telemetry} locations={locations} droneOnline={droneOnline} />
+                  <MapPanel
+                    telemetry={telemetry}
+                    locations={locations}
+                    droneOnline={droneOnline}
+                    selectedTarget={selectedTarget}
+                    onSelectTarget={setSelectedTarget}
+                  />
                   <div style={{ marginTop: "1rem" }}>
                     <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
                   </div>
@@ -507,6 +521,9 @@ export function HmiDashboard() {
                     droneStatus={telemetry}
                     locations={locations}
                     droneOnline={droneOnline}
+                    selectedTarget={selectedTarget}
+                    onSelectTarget={setSelectedTarget}
+                    onUpdateLocations={setLocations}
                   />
                   <div style={{ marginTop: "1rem" }}>
                     <DeliveryRequestsPanel

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 
 interface Props {
   tcpPosition?: {
@@ -11,7 +11,7 @@ interface Props {
   };
 }
 
-export function RobotDigitalTwin({
+export const RobotDigitalTwin = React.memo(function RobotDigitalTwin({
   tcpPosition = {
     x: 320.25,
     y: 152.10,
@@ -160,4 +160,4 @@ export function RobotDigitalTwin({
       </div>
     </div>
   );
-}
+});

@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -27,6 +27,20 @@ engine = create_async_engine(settings.database_url, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+@event.listens_for(engine.sync_engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    """Tune SQLite performance: WAL mode, safe sync, and lock timeout."""
+    try:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA cache_size=-64000")
+        cursor.close()
+    except Exception as exc:
+        logger.debug("Could not set SQLite PRAGMA: %s", exc)
+
+
 async def init_db() -> None:
     # Ensure all ORM models are registered with Base.metadata
     import app.models.database  # noqa: F401
@@ -39,7 +53,7 @@ async def init_db() -> None:
         await _migrate_devices(conn)
         await _migrate_intralogistics_missions(conn)
 
-    logger.info("Database initialized")
+    logger.info("Database initialized (WAL mode enabled)")
 
 
 async def _migrate_intralogistics_missions(conn) -> None:

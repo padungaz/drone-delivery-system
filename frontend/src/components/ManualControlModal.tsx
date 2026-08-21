@@ -59,10 +59,9 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
   const [armLoading, setArmLoading] = useState<string | null>(null);
   const [stepMsg, setStepMsg] = useState<string | null>(null);
 
-  // GPS target choice for Step 4 (NAV_GPS)
-  const [targetType, setTargetType] = useState<"home" | "pickup" | "drop" | "custom">("pickup");
-  const [customLat, setCustomLat] = useState<number>(16.0544);
-  const [customLon, setCustomLon] = useState<number>(108.2022);
+  // Target GPS coordinates for Step 3 (NAV_GPS)
+  const [manualLat, setManualLat] = useState<number>(locations?.pickup_lat || 16.0544);
+  const [manualLon, setManualLon] = useState<number>(locations?.pickup_lon || 108.2022);
   const [targetAlt, setTargetAlt] = useState<number>(1.5);
 
   if (!isOpen) return null;
@@ -76,19 +75,7 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
     try {
       let params = extraParams;
       if (step_action === "NAV_GPS" && !params) {
-        let lat = customLat;
-        let lon = customLon;
-        if (targetType === "home") {
-          lat = locations?.home_lat || 16.0544;
-          lon = locations?.home_lon || 108.2022;
-        } else if (targetType === "pickup") {
-          lat = locations?.pickup_lat || 16.0544;
-          lon = locations?.pickup_lon || 108.2022;
-        } else if (targetType === "drop") {
-          lat = locations?.drop_lat || 16.0544;
-          lon = locations?.drop_lon || 108.2022;
-        }
-        params = { lat, lon, alt: targetAlt };
+        params = { lat: manualLat, lon: manualLon, alt: targetAlt };
       }
 
       const res = await sendStepCommand(step_action, params);
@@ -267,58 +254,52 @@ export function ManualControlModal({ isOpen, onClose, droneStatus, locations }: 
               </div>
 
               <div style={{ display: "flex", gap: "10px", marginTop: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                <select
-                  className="form-input"
-                  style={{ width: "auto", minWidth: "160px", padding: "0.35rem 0.6rem" }}
-                  value={targetType}
-                  onChange={(e) => setTargetType(e.target.value as any)}
-                >
-                  <option value="pickup">📦 Điểm Lấy hàng</option>
-                  <option value="drop">📬 Điểm Giao hàng</option>
-                  <option value="home">🏠 Trạm xuất phát (Kho)</option>
-                  <option value="custom">📍 Tọa độ tùy chỉnh</option>
-                </select>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Lat:</span>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    placeholder="Latitude"
+                    className="form-input"
+                    style={{ width: "120px", padding: "0.35rem", fontFamily: "monospace" }}
+                    value={manualLat}
+                    onChange={(e) => setManualLat(parseFloat(e.target.value) || 0)}
+                  />
+                </div>
 
-                {targetType === "custom" && (
-                  <>
-                    <input
-                      type="number"
-                      step="0.000001"
-                      placeholder="Lat"
-                      className="form-input"
-                      style={{ width: "110px", padding: "0.35rem" }}
-                      value={customLat}
-                      onChange={(e) => setCustomLat(parseFloat(e.target.value) || 0)}
-                    />
-                    <input
-                      type="number"
-                      step="0.000001"
-                      placeholder="Lon"
-                      className="form-input"
-                      style={{ width: "110px", padding: "0.35rem" }}
-                      value={customLon}
-                      onChange={(e) => setCustomLon(parseFloat(e.target.value) || 0)}
-                    />
-                  </>
-                )}
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Lon:</span>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    placeholder="Longitude"
+                    className="form-input"
+                    style={{ width: "120px", padding: "0.35rem", fontFamily: "monospace" }}
+                    value={manualLon}
+                    onChange={(e) => setManualLon(parseFloat(e.target.value) || 0)}
+                  />
+                </div>
 
-                <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Cao (m):</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  className="form-input"
-                  style={{ width: "70px", padding: "0.35rem" }}
-                  value={targetAlt}
-                  onChange={(e) => setTargetAlt(parseFloat(e.target.value) || 1.5)}
-                />
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Cao (m):</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="form-input"
+                    style={{ width: "65px", padding: "0.35rem" }}
+                    value={targetAlt}
+                    onChange={(e) => setTargetAlt(parseFloat(e.target.value) || 1.5)}
+                  />
+                </div>
 
                 <button
                   type="button"
                   className="btn btn-step primary"
                   onClick={() => handleStepAction("NAV_GPS")}
                   disabled={!isArmed || armLoading !== null}
+                  style={{ marginLeft: "auto" }}
                 >
-                  Bay GPS (`LOITER`)
+                  🚀 Bay GPS (`LOITER`)
                 </button>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 
 export interface LogItem {
   id: string;
@@ -21,7 +21,7 @@ interface Props {
   initialLogs?: LogItem[];
 }
 
-export function SystemLog({ initialLogs = DEFAULT_LOGS }: Props) {
+export const SystemLog = React.memo(function SystemLog({ initialLogs = DEFAULT_LOGS }: Props) {
   const [logs, setLogs] = useState<LogItem[]>(initialLogs);
   const [filter, setFilter] = useState<"ALL" | "INFO" | "WARN" | "ERROR">("ALL");
 
@@ -74,4 +74,4 @@ export function SystemLog({ initialLogs = DEFAULT_LOGS }: Props) {
       </div>
     </div>
   );
-}
+});

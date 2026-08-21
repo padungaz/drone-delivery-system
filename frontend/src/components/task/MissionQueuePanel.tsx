@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { getMissionQueue, cancelMission, createMission, resetSampleOrders } from "../../services/api";
 import { UavFleetControlWidget } from "./UavFleetControlWidget";
 
@@ -27,7 +27,7 @@ export interface MissionQueueData {
   total_failed: number;
 }
 
-export function MissionQueuePanel() {
+export const MissionQueuePanel = React.memo(function MissionQueuePanel() {
   const [queueData, setQueueData] = useState<MissionQueueData>({
     active_mission: null,
     waiting_queue: [],
@@ -46,7 +46,6 @@ export function MissionQueuePanel() {
   const [newPriority, setNewPriority] = useState(0);
 
   const fetchQueue = useCallback(async () => {
-    setLoading(true);
     try {
       const res = await getMissionQueue();
       if (res.ok) {
@@ -55,14 +54,13 @@ export function MissionQueuePanel() {
       }
     } catch {
       // Ignore polling errors
-    } finally {
-      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     fetchQueue();
-    const interval = setInterval(fetchQueue, 8000);
+    // Relaxed fallback polling (WebSocket events trigger instant refresh on change)
+    const interval = setInterval(fetchQueue, 20000);
 
     const handleQueueUpdate = () => fetchQueue();
     window.addEventListener("mission_queue_update", handleQueueUpdate);
@@ -370,4 +368,4 @@ export function MissionQueuePanel() {
       </div>
     </div>
   );
-}
+});
