@@ -63,6 +63,7 @@ OFFSET_CMD_Z_DOWN        = (0, 3)  # cmd_z_down: Bool 0.3
 OFFSET_CMD_STOP          = (0, 4)  # cmd_stop_plc: Bool 0.4
 OFFSET_CMD_START         = (0, 5)  # cmd_start_plc: Bool 0.5
 OFFSET_CMD_RESET         = (0, 6)  # cmd_reset_plc: Bool 0.6
+OFFSET_CMD_WATCHDOG      = (0, 7)  # watchdog_heartbeat: Bool 0.7 (toggled by Backend every 1s)
 
 # Byte 2: PLC -> Backend (Status bits)
 OFFSET_DRONE_DETECTED    = (2, 0)  # drone_detected: Bool 2.0
@@ -76,6 +77,11 @@ OFFSET_E_STOP            = (2, 6)  # emergency_stop: Bool 2.6 (1 = E-Stop Active
 # Handshake timing defaults
 DEFAULT_HANDSHAKE_TIMEOUT = 25.0   # Seconds to wait for target status signal
 DEFAULT_POLL_INTERVAL     = 0.15   # Seconds between DB reads during wait
+
+# Watchdog configuration
+WATCHDOG_INTERVAL_SEC     = 1.0    # Toggle DB15.DBX0.7 every 1 second
+# Note: Set env PLC_WATCHDOG_ENABLED=true only after PLC S7-1200 program has
+# a matching TON watchdog timer on bit DB15.DBX0.7 (recommended 3s timeout).
 
 
 class PLCManager:
@@ -120,6 +126,11 @@ class PLCManager:
         self.plc_busy: bool = False
         self._reconnect_attempts: int = 0
         self._next_reconnect_time: float = 0.0
+
+        # Watchdog state
+        self._watchdog_bit: bool = False       # Current toggle state of bit 0.7
+        self._watchdog_task: Optional[asyncio.Task] = None
+        self.watchdog_active: bool = False     # True while watchdog task is running
 
         if not self.simulator_mode and SNAP7_AVAILABLE:
             self._connect_plc()
@@ -280,11 +291,8 @@ class PLCManager:
                 self.z_axis = "DOWN"
                 self.plc_busy = False
             else:
-                if self.plc_busy:
-                    self.z_axis = "MOVING"
-                else:
-                    self.z_axis = "DOWN"
-                    self.plc_busy = False
+                # Both limit switches are OFF → Z-axis is in transit between positions
+                self.z_axis = "MOVING"
 
         except Exception as e:
             logger.error("Error reading PLC DB%d status: %s", self.db_number, str(e))
@@ -477,6 +485,7 @@ class PLCManager:
             connected=self.is_connected if not self.simulator_mode else True,
             simulator_mode=self.simulator_mode,
             plc_busy=self.plc_busy,
+            watchdog_active=self.watchdog_active,
         )
 
     async def execute_command(self, cmd: PLCCommand) -> PLCStatusResponse:
@@ -695,3 +704,67 @@ class PLCManager:
         self.drone_detected = detected
         logger.info("PLC Sensor: Drone detection set to %s", detected)
 
+    # ----------------------------------------------------------------
+    # Watchdog Heartbeat (DB15.DBX0.7)
+    # ----------------------------------------------------------------
+
+    async def _watchdog_loop(self) -> None:
+        """Background coroutine: toggle DB15.DBX0.7 every WATCHDOG_INTERVAL_SEC.
+
+        The PLC S7-1200 should have a TON timer monitoring this bit.
+        If the bit stops toggling for >3s, the PLC should trigger a safe stop.
+        NOTE: Enable only after the PLC program has matching Watchdog logic.
+        """
+        logger.info("PLC Watchdog: Heartbeat task started (interval=%.1fs, bit=DB15.DBX0.7)", WATCHDOG_INTERVAL_SEC)
+        try:
+            while True:
+                await asyncio.sleep(WATCHDOG_INTERVAL_SEC)
+                if not self.is_connected or self.client is None or self.simulator_mode:
+                    continue
+                try:
+                    self._watchdog_bit = not self._watchdog_bit
+                    async with self._get_lock():
+                        write_data = bytearray(await asyncio.to_thread(self._sync_db_read, 0, 1))
+                        set_bool(write_data, 0, OFFSET_CMD_WATCHDOG[1], self._watchdog_bit)
+                        await asyncio.to_thread(self._sync_db_write, 0, write_data)
+                except Exception as e:
+                    logger.debug("PLC Watchdog: Write failed (connection may be down): %s", e)
+        except asyncio.CancelledError:
+            # Clean up: clear watchdog bit on exit
+            if self.is_connected and self.client is not None and not self.simulator_mode:
+                try:
+                    async with self._get_lock():
+                        write_data = bytearray(await asyncio.to_thread(self._sync_db_read, 0, 1))
+                        set_bool(write_data, 0, OFFSET_CMD_WATCHDOG[1], False)
+                        await asyncio.to_thread(self._sync_db_write, 0, write_data)
+                except Exception:
+                    pass
+            logger.info("PLC Watchdog: Heartbeat task stopped")
+            self.watchdog_active = False
+
+    async def start_watchdog(self) -> None:
+        """Start the Watchdog heartbeat background task.
+
+        Called from FastAPI lifespan when PLC_WATCHDOG_ENABLED=true.
+        Safe to call multiple times — skips if already running.
+        """
+        if self._watchdog_task is not None and not self._watchdog_task.done():
+            logger.debug("PLC Watchdog: Already running, skipping start.")
+            return
+        self._watchdog_task = asyncio.create_task(self._watchdog_loop(), name="plc_watchdog")
+        self.watchdog_active = True
+        logger.info("PLC Watchdog: Task created (DB15.DBX0.7).")
+
+    async def stop_watchdog(self) -> None:
+        """Stop the Watchdog heartbeat background task gracefully.
+
+        Called from FastAPI lifespan shutdown. Clears the watchdog bit in PLC.
+        """
+        if self._watchdog_task is not None and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
+            try:
+                await self._watchdog_task
+            except asyncio.CancelledError:
+                pass
+        self._watchdog_task = None
+        self.watchdog_active = False

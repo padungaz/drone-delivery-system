@@ -379,6 +379,7 @@ class PLCStatusResponse(BaseModel):
     connected: bool = True
     simulator_mode: bool = True
     plc_busy: bool = False
+    watchdog_active: bool = False      # True when DB15.DBX0.7 heartbeat task is running
 
 
 class RobotCommand(str, Enum):

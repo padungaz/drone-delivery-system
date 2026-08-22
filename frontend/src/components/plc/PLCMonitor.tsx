@@ -20,6 +20,8 @@ interface Props {
   zLiftDown?: boolean;
   eStopOk?: boolean;
   systemMode?: "AUTO" | "MANUAL";
+  watchdogActive?: boolean;
+  zAxis?: string;
 }
 
 export const PLCMonitor = React.memo(function PLCMonitor({
@@ -33,6 +35,8 @@ export const PLCMonitor = React.memo(function PLCMonitor({
   zLiftUp = true,
   eStopOk = true,
   systemMode = "AUTO",
+  watchdogActive = false,
+  zAxis = "DOWN",
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -132,13 +136,26 @@ export const PLCMonitor = React.memo(function PLCMonitor({
           <div className={`indicator-box ${zLiftUp ? "active" : ""}`}>
             <span className="icon">⬆️</span>
             <span className="label">Z-Lift</span>
-            <span className="value font-mono">{zLiftUp ? "UP (DB2.2)" : "DOWN"}</span>
+            <span className="value font-mono">
+              {zAxis === "MOVING"
+                ? "🔄 MOVING"
+                : zLiftUp
+                ? "UP (DB2.2)"
+                : "DOWN"}
+            </span>
           </div>
 
-          <div className={`indicator-box ${eStopOk ? "active-ok" : "active-error"}`}>
+          <div className={`indicator-box ${zAxis === "MOVING" ? "active-warn" : eStopOk ? "active-ok" : "active-error"}`}>
             <span className="icon">🛑</span>
             <span className="label">E-Stop Status</span>
             <span className="value font-mono">{eStopOk ? "OK (DB2.6)" : "ACTIVE"}</span>
+          </div>
+
+          {/* Watchdog Heartbeat indicator — DB15.DBX0.7 */}
+          <div className={`indicator-box ${watchdogActive ? "active" : "inactive"}`} title="PLC Watchdog Heartbeat (DB15.DBX0.7) — Toggle mỗi 1s khi kết nối thật">
+            <span className="icon">{watchdogActive ? "💓" : "🫀"}</span>
+            <span className="label">Watchdog (DBX0.7)</span>
+            <span className="value font-mono">{watchdogActive ? "ACTIVE" : "DISABLED"}</span>
           </div>
         </div>
 

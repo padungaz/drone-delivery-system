@@ -173,8 +173,22 @@ async def lifespan(app: FastAPI):
 
     # Start background heartbeat monitor
     monitor = asyncio.create_task(heartbeat_monitor_task())
+
+    # Start PLC Watchdog heartbeat (DB15.DBX0.7) if explicitly enabled.
+    # Only activate after the S7-1200 program has matching TON watchdog logic.
+    # Enable via env: PLC_WATCHDOG_ENABLED=true
+    plc_mgr = PLCManager.get_instance()
+    if os.getenv("PLC_WATCHDOG_ENABLED", "false").lower() in ("true", "1", "yes"):
+        await plc_mgr.start_watchdog()
+        logger.info("PLC Watchdog heartbeat enabled (DB15.DBX0.7 toggling every 1s)")
+    else:
+        logger.info("PLC Watchdog disabled (set PLC_WATCHDOG_ENABLED=true to enable after PLC program update)")
+
     logger.info("Smart Intralogistics Controller Backend started on %s:%d", settings.host, settings.port)
     yield
+
+    # Shutdown: stop watchdog cleanly before closing connections
+    await plc_mgr.stop_watchdog()
     monitor.cancel()
     logger.info("Backend shutting down")
 

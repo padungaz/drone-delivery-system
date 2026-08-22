@@ -88,6 +88,45 @@ class StationService:
         except RuntimeError:
             pass
 
+    async def _plc_cmd(
+        self,
+        cmd: PLCCommand,
+        success_attr: str,
+        expected: bool,
+        error_code: str,
+        timeout: float = 5.0,
+    ) -> None:
+        """Unified PLC command helper: execute + verify result in one call.
+
+        Eliminates the Double-Waiting anti-pattern where execute_command already
+        waits for handshake but station_service called wait_for_status again.
+
+        In simulator mode:  execute_command sets the state synchronously → the
+                            attribute check passes immediately.
+        In real HW mode:    execute_command performs the full handshake (≤25s);
+                            if the attribute is still not at expected value
+                            (e.g. E-Stop fired), wait_for_status adds a short
+                            follow-up poll (timeout param, default 5s).
+
+        Args:
+            cmd:          PLCCommand to execute.
+            success_attr: PLCManager boolean attribute to check after execution.
+            expected:     Expected boolean value of success_attr.
+            error_code:   RuntimeError message if verification fails.
+            timeout:      Real-HW follow-up wait limit in seconds (default 5s).
+
+        Raises:
+            RuntimeError: If the PLC state does not reach expected within timeout.
+        """
+        status = await self.plc_mgr.execute_command(cmd)
+        # Fast-path: check result immediately (works for both sim and real after handshake)
+        if getattr(status, success_attr, None) != expected:
+            if not self.plc_mgr.simulator_mode:
+                # Real HW: short follow-up poll in case status was sampled mid-transition
+                await self.plc_mgr.wait_for_status(success_attr, expected, timeout_sec=timeout)
+            else:
+                raise RuntimeError(error_code)
+
     async def execute_load_product(self, target_slot: str, product_id: str, session: AsyncSession) -> bool:
         """LOAD_PRODUCT Operation (Drone Delivery / Export): Warehouse Slot -> Drone Dock.
 
@@ -121,11 +160,10 @@ class StationService:
 
             # 2. Lock Drone
             await self._broadcast_status("2. LOCK_DRONE", "PLC Locking drone clamps (DB15.DBX0.0)...")
-            await self.plc_mgr.execute_command(PLCCommand.LOCK_DRONE)
-            try:
-                await self.plc_mgr.wait_for_status("plc_locked_state", True, timeout_sec=5.0)
-            except Exception:
-                raise RuntimeError("ERROR_PLC_LOCK_FAILED: PLC không thể khóa ngàm kẹp cố định Drone (>5s)")
+            await self._plc_cmd(
+                PLCCommand.LOCK_DRONE, "plc_locked_state", True,
+                "ERROR_PLC_LOCK_FAILED: PLC không thể khóa ngàm kẹp cố định Drone (>5s)",
+            )
 
             # 3. Robot Pick From Storage
             await self._broadcast_status("3. ROBOT_PICK_SLOT", f"Robot picking product from slot {target_slot}...")
@@ -144,11 +182,10 @@ class StationService:
 
             # 5. Z Up (PLC tự động interlock với Robot)
             await self._broadcast_status("5. PLC_Z_UP", "PLC Raising Z-axis lift to UP position (DB15.DBX0.2)...")
-            await self.plc_mgr.execute_command(PLCCommand.Z_UP)
-            try:
-                await self.plc_mgr.wait_for_status("plc_z_is_up", True, timeout_sec=5.0)
-            except Exception:
-                raise RuntimeError("ERROR_PLC_Z_UP_FAILED: PLC nâng trục Z thất bại hoặc quá thời gian (>5s)")
+            await self._plc_cmd(
+                PLCCommand.Z_UP, "plc_z_is_up", True,
+                "ERROR_PLC_Z_UP_FAILED: PLC nâng trục Z thất bại hoặc quá thời gian (>5s)",
+            )
 
             # 6. Robot Place Product onto Drone Dock N1
             await self._broadcast_status("6. ROBOT_PLACE_DOCK", "Robot placing product onto Drone Dock N1...")
@@ -159,19 +196,17 @@ class StationService:
 
             # 7. Z Down
             await self._broadcast_status("7. PLC_Z_DOWN", "PLC Lowering Z-axis lift to DOWN position (DB15.DBX0.3)...")
-            await self.plc_mgr.execute_command(PLCCommand.Z_DOWN)
-            try:
-                await self.plc_mgr.wait_for_status("plc_z_is_down", True, timeout_sec=5.0)
-            except Exception:
-                raise RuntimeError("ERROR_PLC_Z_DOWN_FAILED: PLC hạ trục Z thất bại hoặc quá thời gian (>5s)")
+            await self._plc_cmd(
+                PLCCommand.Z_DOWN, "plc_z_is_down", True,
+                "ERROR_PLC_Z_DOWN_FAILED: PLC hạ trục Z thất bại hoặc quá thời gian (>5s)",
+            )
 
             # 8. Unlock Drone
             await self._broadcast_status("8. UNLOCK_DRONE", "PLC Unlocking drone clamps (DB15.DBX0.1)...")
-            await self.plc_mgr.execute_command(PLCCommand.UNLOCK_DRONE)
-            try:
-                await self.plc_mgr.wait_for_status("plc_locked_state", False, timeout_sec=5.0)
-            except Exception:
-                raise RuntimeError("ERROR_PLC_UNLOCK_FAILED: PLC mở ngàm kẹp Drone thất bại (>5s)")
+            await self._plc_cmd(
+                PLCCommand.UNLOCK_DRONE, "plc_locked_state", False,
+                "ERROR_PLC_UNLOCK_FAILED: PLC mở ngàm kẹp Drone thất bại (>5s)",
+            )
 
             # 9. Clear Storage Slot in Inventory & Finish
             await inv_mgr.update_slot(target_slot, StorageSlotStatus.EMPTY, product_id=None)
@@ -221,19 +256,17 @@ class StationService:
 
             # 2. Lock Drone
             await self._broadcast_status("2. LOCK_DRONE", "PLC Locking drone clamps (DB15.DBX0.0)...")
-            await self.plc_mgr.execute_command(PLCCommand.LOCK_DRONE)
-            try:
-                await self.plc_mgr.wait_for_status("plc_locked_state", True, timeout_sec=5.0)
-            except Exception:
-                raise RuntimeError("ERROR_PLC_LOCK_FAILED: PLC không thể khóa ngàm kẹp cố định Drone (>5s)")
+            await self._plc_cmd(
+                PLCCommand.LOCK_DRONE, "plc_locked_state", True,
+                "ERROR_PLC_LOCK_FAILED: PLC không thể khóa ngàm kẹp cố định Drone (>5s)",
+            )
 
             # 3. Z Up (PLC tự động interlock với Robot)
             await self._broadcast_status("3. PLC_Z_UP", "PLC Raising Z-axis lift to UP position (DB15.DBX0.2)...")
-            await self.plc_mgr.execute_command(PLCCommand.Z_UP)
-            try:
-                await self.plc_mgr.wait_for_status("plc_z_is_up", True, timeout_sec=5.0)
-            except Exception:
-                raise RuntimeError("ERROR_PLC_Z_UP_FAILED: PLC nâng trục Z thất bại hoặc quá thời gian (>5s)")
+            await self._plc_cmd(
+                PLCCommand.Z_UP, "plc_z_is_up", True,
+                "ERROR_PLC_Z_UP_FAILED: PLC nâng trục Z thất bại hoặc quá thời gian (>5s)",
+            )
 
             # 4. Robot Pick from Drone Dock N1
             await self._broadcast_status("4. ROBOT_PICK_DOCK", "Robot picking product from Drone Dock N1...")
@@ -244,11 +277,10 @@ class StationService:
 
             # 5. Z Down
             await self._broadcast_status("5. PLC_Z_DOWN", "PLC Lowering Z-axis lift to DOWN position (DB15.DBX0.3)...")
-            await self.plc_mgr.execute_command(PLCCommand.Z_DOWN)
-            try:
-                await self.plc_mgr.wait_for_status("plc_z_is_down", True, timeout_sec=5.0)
-            except Exception:
-                raise RuntimeError("ERROR_PLC_Z_DOWN_FAILED: PLC hạ trục Z thất bại hoặc quá thời gian (>5s)")
+            await self._plc_cmd(
+                PLCCommand.Z_DOWN, "plc_z_is_down", True,
+                "ERROR_PLC_Z_DOWN_FAILED: PLC hạ trục Z thất bại hoặc quá thời gian (>5s)",
+            )
 
             # 6. QR Scan
             await self._broadcast_status("6. QR_SCAN", f"Camera scanning QR code for product {product_id}...")
@@ -270,11 +302,10 @@ class StationService:
 
             # 8. Unlock Drone
             await self._broadcast_status("8. UNLOCK_DRONE", "PLC Unlocking drone clamps (DB15.DBX0.1)...")
-            await self.plc_mgr.execute_command(PLCCommand.UNLOCK_DRONE)
-            try:
-                await self.plc_mgr.wait_for_status("plc_locked_state", False, timeout_sec=5.0)
-            except Exception:
-                raise RuntimeError("ERROR_PLC_UNLOCK_FAILED: PLC mở ngàm kẹp Drone thất bại (>5s)")
+            await self._plc_cmd(
+                PLCCommand.UNLOCK_DRONE, "plc_locked_state", False,
+                "ERROR_PLC_UNLOCK_FAILED: PLC mở ngàm kẹp Drone thất bại (>5s)",
+            )
 
             # 9. Assign product to Storage Slot in Inventory & Finish
             await inv_mgr.update_slot(target_slot, StorageSlotStatus.OCCUPIED, product_id=product_id)
