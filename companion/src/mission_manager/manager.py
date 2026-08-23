@@ -151,7 +151,7 @@ class MissionManager:
                 logger.warning("[MANUAL STEP 2] TAKEOFF rejected: drone is DISARMED. Arm first.")
                 return
             alt = payload.get("alt", config.TAKEOFF_ALTITUDE_M)
-            logger.info("[MANUAL STEP 2] TAKEOFF initiated to %.1fm (OFFBOARD -> LOITER)", alt)
+            logger.info("[MANUAL STEP 2] TAKEOFF initiated to %.1fm (OFFBOARD Takeoff -> Hold)", alt)
             self.mavlink._target_takeoff_alt = alt
             self.mavlink.takeoff(alt)
             self.state_machine.force_state(DroneState.TAKEOFF)
@@ -380,12 +380,12 @@ class MissionManager:
 
             if takeoff_done and current_mode not in ("AUTO.LAND", "LAND"):
                 logger.info(
-                    "✓ [TAKEOFF COMPLETE] Altitude=%.2fm (target=%.1fm, mode=%s) — Holding LOITER position, waiting for next manual step.",
+                    "✓ [TAKEOFF COMPLETE] Altitude=%.2fm (target=%.1fm, mode=%s) — Holding OFFBOARD position, waiting for next manual step.",
                     cur_alt, target_alt, current_mode,
                 )
                 self.mavlink._offboard_takeoff_complete = False
                 self.state_machine.force_state(DroneState.IDLE)
-                self._landing_status = "HOVERING_LOITER"
+                self._landing_status = "HOVERING"
 
         # Check Touchdown in PRECISION_LANDING or RETURN_HOME
         elif state in (DroneState.PRECISION_LANDING, DroneState.RETURN_HOME):
