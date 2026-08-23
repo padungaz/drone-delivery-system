@@ -146,7 +146,8 @@ async def lifespan(app: FastAPI):
         await dev_mgr.register_device(DeviceRegisterRequest(name="UAV01", type=DeviceType.UAV, ip="192.168.137.88", port=14550))
         await dev_mgr.register_device(DeviceRegisterRequest(name="PLC01", type=DeviceType.PLC, ip=plc_ip, port=102))
         await dev_mgr.register_device(DeviceRegisterRequest(name="ROBOT01", type=DeviceType.ROBOT, ip=robot_ip, port=8090))
-        await dev_mgr.register_device(DeviceRegisterRequest(name="CAM01", type=DeviceType.CAMERA, ip="192.168.58.50", port=80))
+        cam_idx = int(os.getenv("CAMERA_INDEX", "0"))
+        await dev_mgr.register_device(DeviceRegisterRequest(name="CAM01", type=DeviceType.CAMERA, ip="USB_CAMERA", port=cam_idx))
 
         # Sync live singleton hardware managers with stored device configurations
         all_devs = await dev_mgr.get_all_devices()
@@ -168,6 +169,7 @@ async def lifespan(app: FastAPI):
             elif d.device_name == "CAM01":
                 CameraManager.get_instance().update_config(
                     simulator_mode=d.simulator_mode,
+                    camera_index=int(d.port) if d.port is not None else 0,
                 )
 
 

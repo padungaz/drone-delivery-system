@@ -114,27 +114,61 @@ export function DeviceConfigModal({ isOpen, onClose, devices, onRefreshDevices }
               </select>
             </div>
 
-            <div>
-              <label style={{ fontSize: "0.8rem", color: "#94a3b8" }}>ĐỊA CHỈ IP LAN</label>
-              <input
-                type="text"
-                className="form-control"
-                value={ipAddress}
-                onChange={(e) => setIpAddress(e.target.value)}
-                placeholder="VD: 192.168.57.2"
-              />
-            </div>
+            {selectedDeviceName === "CAM01" ? (
+              <div style={{ gridColumn: "span 2" }}>
+                <label style={{ fontSize: "0.8rem", color: "#94a3b8" }}>CHỌN CAMERA INDEX (OPENCV DIRECTSHOW)</label>
+                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                  <select
+                    className="form-control"
+                    value={port}
+                    onChange={(e) => setPort(Number(e.target.value))}
+                    style={{ flex: 1, background: "#0f172a", color: "#00F0FF" }}
+                  >
+                    <option value={0}>0 - Camera Mặc Định / Webcam 0 (Index 0)</option>
+                    <option value={1}>1 - USB Camera Ngoài 1 (Index 1)</option>
+                    <option value={2}>2 - USB Camera Ngoài 2 (Index 2)</option>
+                    <option value={3}>3 - USB Camera Ngoài 3 (Index 3)</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10}
+                    className="form-control"
+                    value={port}
+                    onChange={(e) => setPort(Number(e.target.value))}
+                    style={{ width: "80px", textAlign: "center" }}
+                    placeholder="0"
+                  />
+                </div>
+                <small style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "4px", display: "block" }}>
+                  Chỉ số cổng thiết bị Camera nhận diện OpenCV (DirectShow / V4L2)
+                </small>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label style={{ fontSize: "0.8rem", color: "#94a3b8" }}>ĐỊA CHỈ IP LAN</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={ipAddress}
+                    onChange={(e) => setIpAddress(e.target.value)}
+                    placeholder="VD: 192.168.57.2"
+                  />
+                </div>
 
-            <div>
-              <label style={{ fontSize: "0.8rem", color: "#94a3b8" }}>CỔNG SOCKET (PORT)</label>
-              <input
-                type="number"
-                className="form-control"
-                value={port}
-                onChange={(e) => setPort(Number(e.target.value))}
-                placeholder="8090"
-              />
-            </div>
+                <div>
+                  <label style={{ fontSize: "0.8rem", color: "#94a3b8" }}>CỔNG SOCKET (PORT)</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={port}
+                    onChange={(e) => setPort(Number(e.target.value))}
+                    placeholder="8090"
+                  />
+                </div>
+              </>
+            )}
 
             {selectedDeviceName.includes("PLC") && (
               <div>

@@ -421,6 +421,79 @@ async def test_device_connection(
             message=f"✅ Siemens PLC ({target_ip}) connection ok" if is_conn else f"❌ Siemens PLC ({target_ip}) connection failed",
         )
 
+    elif dev_name in ("CAM01", "CAM", "CAMERA"):
+        cam_mgr = CameraManager.get_instance()
+        cam_idx = int(req.port) if req.port is not None else cam_mgr.qr_service.camera_index
+        if cam_mgr.qr_service.simulator_mode:
+            return DeviceTestConnectionResponse(
+                device_name=dev_name,
+                success=True,
+                ip_address="USB_CAMERA",
+                port=cam_idx,
+                latency_ms=0.5,
+                response_text=f"CAM01 OK (Index: {cam_idx}) [SIMULATOR MODE]",
+                message=f"✅ Camera CAM01 (Simulator Mode Active, Index: {cam_idx})",
+            )
+
+        # Test physical OpenCV camera opening at cam_idx
+        try:
+            import cv2
+            cap = cv2.VideoCapture(cam_idx, cv2.CAP_DSHOW) if hasattr(cv2, "CAP_DSHOW") else cv2.VideoCapture(cam_idx)
+            is_opened = cap.isOpened()
+            if not is_opened:
+                cap.release()
+                cap = cv2.VideoCapture(cam_idx)
+                is_opened = cap.isOpened()
+
+            if is_opened:
+                ret, frame = cap.read()
+                cap.release()
+                latency = (time.time() - start_t) * 1000.0
+                if ret and frame is not None:
+                    h, w = frame.shape[:2]
+                    return DeviceTestConnectionResponse(
+                        device_name=dev_name,
+                        success=True,
+                        ip_address="USB_CAMERA",
+                        port=cam_idx,
+                        latency_ms=round(latency, 2),
+                        response_text=f"Resolution: {w}x{h}, Frame OK",
+                        message=f"✅ OpenCV Camera Index {cam_idx} kết nối thành công ({w}x{h})!",
+                    )
+                else:
+                    return DeviceTestConnectionResponse(
+                        device_name=dev_name,
+                        success=False,
+                        ip_address="USB_CAMERA",
+                        port=cam_idx,
+                        latency_ms=round(latency, 2),
+                        response_text="Capture empty frame",
+                        message=f"⚠️ Camera Index {cam_idx} đã mở nhưng không đọc được frame hình ảnh",
+                    )
+            else:
+                cap.release()
+                latency = (time.time() - start_t) * 1000.0
+                return DeviceTestConnectionResponse(
+                    device_name=dev_name,
+                    success=False,
+                    ip_address="USB_CAMERA",
+                    port=cam_idx,
+                    latency_ms=round(latency, 2),
+                    response_text="Device Busy / Not Found",
+                    message=f"❌ Không thể mở Camera Index {cam_idx} (Kiểm tra cáp cắm USB hoặc quyền truy cập)",
+                )
+        except Exception as exc:
+            latency = (time.time() - start_t) * 1000.0
+            return DeviceTestConnectionResponse(
+                device_name=dev_name,
+                success=False,
+                ip_address="USB_CAMERA",
+                port=cam_idx,
+                latency_ms=round(latency, 2),
+                response_text=str(exc),
+                message=f"❌ Lỗi truy cập Camera Index {cam_idx}: {exc}",
+            )
+
     else:
         # Generic TCP socket test
         try:

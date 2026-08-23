@@ -150,6 +150,7 @@ class DeviceManager:
             from app.services.camera_manager import CameraManager
             CameraManager.get_instance().update_config(
                 simulator_mode=device.simulator_mode,
+                camera_index=int(device.port) if device.port is not None else 0,
             )
         elif dev_type == "UAV":
             from app.services.fleet_manager import fleet_manager

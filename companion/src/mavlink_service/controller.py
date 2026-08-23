@@ -578,40 +578,40 @@ class MavlinkController:
             return
 
         with self._send_lock:
+            # type_mask = 0b0000_1111_1100_0111 (Chỉ dùng Vx, Vy, Vz; Bỏ qua Pos, Accel, Yaw)
             self.connection.mav.set_position_target_local_ned_send(
                 0,
                 self.connection.target_system,
                 self.connection.target_component,
                 mavutil.mavlink.MAV_FRAME_LOCAL_NED,
                 0b0000_1111_1100_0111,
-                0, 0, 0,
-                0.0, 0.0, 0.0,
-                0, 0, 0,
-                0, 0,
+                0.0, 0.0, 0.0,          # Pos x, y, z (ignored)
+                0.0, 0.0, 0.0,          # Vel vx=0, vy=0, vz=0 (active)
+                0.0, 0.0, 0.0,          # Accel (ignored)
+                0.0, 0.0,               # Yaw (ignored)
             )
 
-    def _send_offboard_takeoff_setpoint(self, target_alt_m: float) -> None:
+    def _send_offboard_takeoff_setpoint(self, target_alt_m: float = 1.75) -> None:
         """
         Send Offboard climb setpoint at 20Hz:
-        - Target Z: -target_alt_m (BODY_NED: climb upward)
+        - Target Z: -target_alt_m (LOCAL_NED: climb upward)
         - Feedforward climb velocity: vz = -0.6 m/s (safe, smooth climb rate)
+        - type_mask = 0b0000_1111_1101_1011 (Dùng Pos Z và Vel Vz; Bỏ qua X, Y, Accel, Yaw)
         """
         if not self.is_connected or self.connection is None:
             return
 
-        # Typemask: enable position (x, y, z) + velocity vz; ignore vx, vy, ax, ay, az, yaw
-        # Bits: 0b0000_1101_1101_1000
         with self._send_lock:
             self.connection.mav.set_position_target_local_ned_send(
                 0,
                 self.connection.target_system,
                 self.connection.target_component,
-                mavutil.mavlink.MAV_FRAME_BODY_NED,
-                0b0000_1101_1101_1000,
-                0.0, 0.0, -target_alt_m,   # Target altitude in body frame (negative Z = Up)
-                0.0, 0.0, -0.6,            # Smooth 0.6 m/s upward climb velocity
-                0, 0, 0,
-                0, 0,
+                mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                0b0000_1111_1101_1011,
+                0.0, 0.0, -float(target_alt_m), # Z target (-1.75m)
+                0.0, 0.0, -0.6,                 # Vz climb speed (-0.6m/s)
+                0.0, 0.0, 0.0,                  # Accel (ignored)
+                0.0, 0.0,                       # Yaw (ignored)
             )
 
     def _start_offboard_keepalive(self) -> None:

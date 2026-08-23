@@ -68,8 +68,7 @@ export function SettingsView({
   const [uavSim, setUavSim] = useState(false);
 
   // 4. Camera QR Scanner Configuration States
-  const [cameraIp, setCameraIp] = useState("192.168.58.50");
-  const [cameraPort, setCameraPort] = useState(80);
+  const [cameraIndex, setCameraIndex] = useState(0);
   const [cameraSim, setCameraSim] = useState(false);
 
   // 5. Warehouse Settings States
@@ -119,8 +118,7 @@ export function SettingsView({
         if (dev.port) setUavPort(dev.port);
         if (dev.simulator_mode !== undefined) setUavSim(dev.simulator_mode);
       } else if (name.includes("CAM") || name.includes("VISION")) {
-        if (dev.ip_address) setCameraIp(dev.ip_address);
-        if (dev.port) setCameraPort(dev.port);
+        if (dev.port !== undefined) setCameraIndex(dev.port);
         if (dev.simulator_mode !== undefined) setCameraSim(dev.simulator_mode);
       }
     });
@@ -266,7 +264,7 @@ export function SettingsView({
       handleTestSingle("ROBOT01", robotIp, robotPort),
       handleTestSingle("PLC01", plcIp, plcPort),
       handleTestSingle("UAV01", uavIp, uavPort),
-      handleTestSingle("CAM01", cameraIp, cameraPort),
+      handleTestSingle("CAM01", "USB_CAMERA", cameraIndex),
     ]);
 
     setFeedback({
@@ -348,8 +346,8 @@ export function SettingsView({
       {
         name: "CAM01",
         config: {
-          ip_address: cameraIp.trim(),
-          port: Number(cameraPort),
+          ip_address: "USB_CAMERA",
+          port: Number(cameraIndex),
           simulator_mode: cameraSim,
         },
       },
@@ -392,8 +390,8 @@ export function SettingsView({
             uavIp,
             uavPort,
             uavSim,
-            cameraIp,
-            cameraPort,
+            cameraIp: "USB_CAMERA",
+            cameraPort: cameraIndex,
             cameraSim,
           });
         }
@@ -571,11 +569,11 @@ export function SettingsView({
           </div>
 
           <div className="status-overview-item">
-            <span className="status-item-label">CAMERA VISION (80)</span>
+            <span className="status-item-label">CAMERA QR VISION</span>
             <div className="status-item-val">
               <span className={`status-dot ${cameraActive ? "online" : "offline"}`}></span>
               <strong>{cameraSim ? "SIMULATOR" : cameraActive ? "REAL ONLINE" : "OFFLINE"}</strong>
-              <small className="font-mono text-muted">{cameraIp}</small>
+              <small className="font-mono text-muted">Index: {cameraIndex}</small>
             </div>
           </div>
         </div>
@@ -996,7 +994,7 @@ export function SettingsView({
                 <span className="dev-icon">📷</span>
                 <div>
                   <strong>CAM01 - Camera Vision QR Scanner</strong>
-                  <span className="dev-protocol-badge">OpenCV / RTSP Stream (Port 80)</span>
+                  <span className="dev-protocol-badge">OpenCV USB Video (Index: {cameraIndex})</span>
                 </div>
               </div>
               <div className="device-header-actions">
@@ -1004,9 +1002,9 @@ export function SettingsView({
                 <button
                   type="button"
                   className="btn-ping-single"
-                  onClick={() => handleTestSingle("CAM01", cameraIp, cameraPort)}
+                  onClick={() => handleTestSingle("CAM01", "USB_CAMERA", cameraIndex)}
                   disabled={testResults["CAM01"]?.loading}
-                  title="Ping kiểm tra Camera Stream"
+                  title="Kiểm tra mở Camera OpenCV"
                 >
                   🔍 Ping Test
                 </button>
@@ -1015,27 +1013,35 @@ export function SettingsView({
 
             <div className="settings-card-body">
               <div className="settings-form-row">
-                <div className="settings-form-group">
-                  <label>Camera IP / RTSP Host:</label>
-                  <input
-                    type="text"
-                    className="hmi-input font-mono"
-                    value={cameraIp}
-                    onChange={(e) => setCameraIp(e.target.value)}
-                    placeholder="192.168.58.50"
-                  />
-                  <small className="settings-input-hint">Địa chỉ IP Camera IP công nghiệp hoặc USB Cam Feed</small>
-                </div>
-                <div className="settings-form-group">
-                  <label>Stream / HTTP Port:</label>
-                  <input
-                    type="number"
-                    className="hmi-input font-mono"
-                    value={cameraPort}
-                    onChange={(e) => setCameraPort(Number(e.target.value))}
-                    placeholder="80"
-                  />
-                  <small className="settings-input-hint">HTTP 80 / RTSP 554</small>
+                <div className="settings-form-group" style={{ flex: 1 }}>
+                  <label>OpenCV CAMERA_INDEX (Cổng Camera USB / DirectShow):</label>
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                    <select
+                      className="hmi-input font-mono"
+                      value={cameraIndex}
+                      onChange={(e) => setCameraIndex(Number(e.target.value))}
+                      style={{ flex: 2 }}
+                    >
+                      <option value={0}>0 - Camera Mặc Định / Webcam 0 (Index 0)</option>
+                      <option value={1}>1 - USB Camera Ngoài 1 (Index 1)</option>
+                      <option value={2}>2 - USB Camera Ngoài 2 (Index 2)</option>
+                      <option value={3}>3 - USB Camera Ngoài 3 (Index 3)</option>
+                    </select>
+                    <input
+                      type="number"
+                      min={0}
+                      max={10}
+                      className="hmi-input font-mono"
+                      value={cameraIndex}
+                      onChange={(e) => setCameraIndex(Number(e.target.value))}
+                      style={{ width: "90px", textAlign: "center" }}
+                      title="Chỉ số Index tùy chỉnh"
+                      placeholder="0"
+                    />
+                  </div>
+                  <small className="settings-input-hint">
+                    Chỉ định số thứ tự thiết bị Video Capture trên máy tính (0: Mặc định/Webcam, 1..3: Camera USB cắm ngoài)
+                  </small>
                 </div>
               </div>
 
@@ -1204,7 +1210,7 @@ export function SettingsView({
                       if (d === "ROBOT01") { setDiagIp(robotIp); setDiagPort(robotPort); }
                       else if (d === "PLC01") { setDiagIp(plcIp); setDiagPort(plcPort); }
                       else if (d === "UAV01") { setDiagIp(uavIp); setDiagPort(uavPort); }
-                      else if (d === "CAM01") { setDiagIp(cameraIp); setDiagPort(cameraPort); }
+                      else if (d === "CAM01") { setDiagIp("USB_CAMERA"); setDiagPort(cameraIndex); }
                     }}
                   >
                     <option value="ROBOT01">ROBOT01 (Fairino Cobot)</option>
