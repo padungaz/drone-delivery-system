@@ -493,8 +493,6 @@ class MavlinkController:
                 logger.error("Unknown flight mode: %s", mode)
                 return False
 
-            self._stop_offboard_keepalive()
-
             for attempt in range(1, retries + 1):
                 self._send_set_mode_command(custom_mode, custom_sub_mode)
                 logger.info(
@@ -504,11 +502,15 @@ class MavlinkController:
 
                 if self.wait_command_ack(mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout=2.5):
                     logger.info("Mode %s confirmed by PX4", mode)
+                    if mode.upper() != "OFFBOARD":
+                        self._stop_offboard_keepalive()
                     return True
 
                 # Check if telemetry already updated to desired mode
                 if mode.upper() in self.telemetry.flight_mode.upper():
                     logger.info("Mode %s confirmed via telemetry update ✓", mode)
+                    if mode.upper() != "OFFBOARD":
+                        self._stop_offboard_keepalive()
                     return True
 
                 logger.warning("Mode %s not confirmed, retrying...", mode)
@@ -636,6 +638,18 @@ class MavlinkController:
             self._offboard_keepalive_thread = None
             logger.info("[OFFBOARD] Keepalive stream thread stopped")
 
+    def _switch_to_loiter_after_takeoff(self) -> None:
+        """Asynchronously switch flight mode to LOITER/HOLD after takeoff without blocking keepalive loop."""
+        time.sleep(0.2)
+        ok = self.set_mode("LOITER", retries=3, force_send=True)
+        if not ok:
+            logger.warning("[OFFBOARD] Failed to switch to LOITER, trying POSCTL...")
+            ok = self.set_mode("POSCTL", retries=2, force_send=True)
+        if ok:
+            logger.info("[OFFBOARD] Successfully transitioned out of OFFBOARD after takeoff: %s", self.telemetry.flight_mode)
+        else:
+            logger.warning("[OFFBOARD] Could not switch mode automatically; maintaining OFFBOARD position hold")
+
     def _offboard_keepalive_loop(self) -> None:
         STARTUP_GRACE_SEC = 20.0
         logger.info("[OFFBOARD] Keepalive stream loop running (target=%.2fm, grace=%.1fs)",
@@ -662,27 +676,27 @@ class MavlinkController:
                     if cur_agl >= threshold:
                         logger.info(
                             "✓ [OFFBOARD TAKEOFF REACHED] AGL=%.2fm (threshold=%.2fm, source=%s) "
-                            "— stopping keepalive and auto-switching to LOITER",
+                            "— maintaining position hold and switching to LOITER",
                             cur_agl, threshold, alt_source,
                         )
                         self._offboard_takeoff_active = False
                         self._offboard_takeoff_complete = True
-                        self._offboard_keepalive_running = False
-                        # Switch to LOITER for stable position hold
-                        self._send_set_mode_command(
-                            *self._resolve_mode_id("LOITER")
-                        )
-                        break
+
+                        # Switch mode asynchronously while continuing hold setpoints
+                        threading.Thread(
+                            target=self._switch_to_loiter_after_takeoff,
+                            name="SwitchToLoiterThread",
+                            daemon=True,
+                        ).start()
                 else:
-                    # ── Normal OFFBOARD hold mode ──
+                    # ── Normal OFFBOARD hold mode: keeps drone stable at current location ──
                     self._send_offboard_position_hold()
 
-                elapsed = time.time() - getattr(self, "_keepalive_start_time", time.time())
-                # Only terminate if NOT in active takeoff sequence and past grace period
-                if not self._offboard_takeoff_active and elapsed >= STARTUP_GRACE_SEC:
-                    if self.telemetry.flight_mode not in ("OFFBOARD", "LOITER", "HOLD", "UNKNOWN"):
+                # If takeoff has completed and PX4 is confirmed in LOITER/HOLD/POSCTL/LAND/etc. (no longer in OFFBOARD)
+                if not self._offboard_takeoff_active:
+                    if self.telemetry.flight_mode not in ("OFFBOARD", "UNKNOWN"):
                         logger.info(
-                            "[OFFBOARD] Keepalive: PX4 mode is %s, stopping thread",
+                            "[OFFBOARD] PX4 successfully transitioned to %s — stopping keepalive stream thread",
                             self.telemetry.flight_mode,
                         )
                         break
