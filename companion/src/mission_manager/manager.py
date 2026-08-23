@@ -175,10 +175,7 @@ class MissionManager:
             self.locations.pickup_lat = target_lat
             self.locations.pickup_lon = target_lon
 
-            logger.info("[MANUAL STEP 3] NAV_GPS navigating to lat=%.6f, lon=%.6f, alt=%.1fm", target_lat, target_lon, alt)
-            if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
-                self.mavlink.set_mode("LOITER", force_send=True)
-                time.sleep(0.2)
+            logger.info("[MANUAL STEP 3] NAV_GPS navigating to lat=%.6f, lon=%.6f, alt=%.1fm (OFFBOARD)", target_lat, target_lon, alt)
             self.mavlink.goto_location(target_lat, target_lon, alt)
             self.state_machine.force_state(DroneState.FLY_TO_PICKUP)
             self._landing_status = "NAVIGATING_GPS"
@@ -195,10 +192,7 @@ class MissionManager:
                 logger.error("[MANUAL STEP 4] DESCEND rejected: no valid position fix")
                 return
 
-            logger.info("[MANUAL STEP 4] DESCEND to approach altitude %.1fm at lat=%.6f, lon=%.6f", search_alt, cur_lat, cur_lon)
-            if self.mavlink.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER"):
-                self.mavlink.set_mode("LOITER", force_send=True)
-                time.sleep(0.2)
+            logger.info("[MANUAL STEP 4] DESCEND to approach altitude %.1fm at lat=%.6f, lon=%.6f (OFFBOARD)", search_alt, cur_lat, cur_lon)
             self.mavlink.goto_location(cur_lat, cur_lon, search_alt)
             self.state_machine.force_state(DroneState.DESCEND)
             self._landing_status = "DESCENDING"

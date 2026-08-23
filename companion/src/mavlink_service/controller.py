@@ -104,6 +104,13 @@ class MavlinkController:
         self._offboard_takeoff_target_alt = getattr(config, "TAKEOFF_ALTITUDE_M", 1.75)
         self._offboard_takeoff_complete = False
 
+        # OFFBOARD GPS navigation state
+        self._offboard_nav_active = False
+        self._offboard_nav_target_lat = 0.0
+        self._offboard_nav_target_lon = 0.0
+        self._offboard_nav_target_alt = 1.75
+        self._offboard_nav_reached = False
+
     # ===================================================================
     # Connection
     # ===================================================================
@@ -616,6 +623,32 @@ class MavlinkController:
                 0.0, 0.0,                       # Yaw (ignored)
             )
 
+    def _send_offboard_goto_global(self, lat: float, lon: float, alt_m: float = 1.75) -> None:
+        """
+        Send Global GPS Position target at 20Hz:
+        - Frame: MAV_FRAME_GLOBAL_RELATIVE_ALT_INT
+        - Lat/Lon: int(deg * 1e7)
+        - Alt: float(m relative to home)
+        - type_mask: 0b0000_1111_1111_1000 (Use Lat, Lon, Alt; Ignore Vx, Vy, Vz, Accel, Yaw)
+        """
+        if not self.is_connected or self.connection is None:
+            return
+
+        with self._send_lock:
+            self.connection.mav.set_position_target_global_int_send(
+                0,
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                0b0000_1111_1111_1000,
+                int(lat * 1e7),
+                int(lon * 1e7),
+                float(alt_m),
+                0.0, 0.0, 0.0,          # Vel (ignored)
+                0.0, 0.0, 0.0,          # Accel (ignored)
+                0.0, 0.0,               # Yaw (ignored)
+            )
+
     def _start_offboard_keepalive(self) -> None:
         self._keepalive_start_time = time.time()
         if self._offboard_keepalive_running:
@@ -639,12 +672,11 @@ class MavlinkController:
             logger.info("[OFFBOARD] Keepalive stream thread stopped")
 
     def _offboard_keepalive_loop(self) -> None:
-        logger.info("[OFFBOARD] Keepalive stream loop running (target=%.2fm)",
-                    self._offboard_takeoff_target_alt)
+        logger.info("[OFFBOARD] Keepalive stream loop running")
 
         while self._offboard_keepalive_running and self.is_connected:
             try:
-                # ── OFFBOARD Takeoff mode: stream climb setpoint + monitor AGL ──
+                # ── 1. OFFBOARD Takeoff mode: stream climb setpoint + monitor AGL ──
                 if self._offboard_takeoff_active:
                     target_alt = self._offboard_takeoff_target_alt
                     self._send_offboard_takeoff_setpoint(target_alt)
@@ -663,17 +695,36 @@ class MavlinkController:
                     if cur_agl >= threshold:
                         logger.info(
                             "✓ [OFFBOARD TAKEOFF REACHED] AGL=%.2fm (threshold=%.2fm, source=%s) "
-                            "— maintaining continuous OFFBOARD Position Hold (Vx=0, Vy=0, Vz=0)",
+                            "— maintaining continuous OFFBOARD Position Hold",
                             cur_agl, threshold, alt_source,
                         )
                         self._offboard_takeoff_active = False
                         self._offboard_takeoff_complete = True
+
+                # ── 2. OFFBOARD GPS Navigation mode: stream global GPS target ──
+                elif self._offboard_nav_active:
+                    self._send_offboard_goto_global(
+                        self._offboard_nav_target_lat,
+                        self._offboard_nav_target_lon,
+                        self._offboard_nav_target_alt,
+                    )
+
+                    # Monitor distance to GPS target
+                    if self.telemetry.latitude != 0.0 and self.telemetry.longitude != 0.0:
+                        d_lat = (self._offboard_nav_target_lat - self.telemetry.latitude) * 111319.5
+                        d_lon = (self._offboard_nav_target_lon - self.telemetry.longitude) * 111319.5 * math.cos(math.radians(self.telemetry.latitude))
+                        dist_m = math.hypot(d_lat, d_lon)
+                        if dist_m <= 1.2 and not self._offboard_nav_reached:
+                            self._offboard_nav_reached = True
+                            logger.info("✓ [OFFBOARD NAV REACHED] Arrived at GPS target (dist=%.2fm) — switching to Position Hold", dist_m)
+                            self._offboard_nav_active = False
+
+                # ── 3. Normal OFFBOARD Position Hold mode (Vx=0, Vy=0, Vz=0) ──
                 else:
-                    # ── Normal OFFBOARD hold mode: keeps drone stable at current location ──
                     self._send_offboard_position_hold()
 
                 # Terminate keepalive thread ONLY if drone officially leaves OFFBOARD or disarms
-                if not self._offboard_takeoff_active:
+                if not self._offboard_takeoff_active and not self._offboard_nav_active:
                     if self.telemetry.flight_mode not in ("OFFBOARD", "UNKNOWN") or not self.telemetry.armed:
                         logger.info(
                             "[OFFBOARD] Flight mode changed to %s (armed=%s) — stopping keepalive stream thread",
@@ -748,7 +799,7 @@ class MavlinkController:
         1. Start 20Hz continuous setpoint stream (Z = -altitude_m, Vz = -0.6m/s).
         2. Switch PX4 flight mode to OFFBOARD.
         3. Keepalive thread monitors MTF-02P AGL laser sensor.
-        4. When AGL >= 94% target (1.65m) -> auto-switches to LOITER mode for stable GPS hold.
+        4. When AGL >= 94% target (1.65m) -> stays in OFFBOARD position hold.
         5. Sets _offboard_takeoff_complete = True for FSM state completion.
         """
         if not self._can_send("takeoff"):
@@ -766,6 +817,7 @@ class MavlinkController:
         self._offboard_takeoff_target_alt = altitude_m
         self._offboard_takeoff_active = True
         self._offboard_takeoff_complete = False
+        self._offboard_nav_active = False
 
         # Start stream & switch mode
         ok = self.set_mode_offboard()
@@ -787,33 +839,29 @@ class MavlinkController:
 
     def goto_location(self, lat: float, lon: float, alt_m: float = 1.75) -> bool:
         """
-        Bay vị trí GPS ở mode LOITER/HOLD chuẩn xác bằng MAV_CMD_DO_REPOSITION.
+        Bay tới tọa độ GPS toàn cầu trong chế độ OFFBOARD bằng SET_POSITION_TARGET_GLOBAL_INT.
+        Duy trì luồng stream 20Hz liên tục, mượt mà và không lo bị ngắt quãng hay rớt mode.
         """
-        if not self._can_send("goto") or not self.connection:
+        if not self._can_send("goto"):
+            return False
+        if not self.is_connected:
+            logger.error("goto_location: not connected")
             return False
 
-        # Đảm bảo drone đang ở LOITER để nhận lệnh DO_REPOSITION
-        if self.telemetry.flight_mode not in ("LOITER", "HOLD", "AUTO.LOITER", "AUTO.HOLD"):
-            logger.info("Chuyển mode sang LOITER trước khi gửi lệnh DO_REPOSITION...")
-            self.set_mode("LOITER", force_send=True)
-            time.sleep(0.2)
+        logger.info("[OFFBOARD GOTO] Target lat=%.7f, lon=%.7f, alt=%.1fm", lat, lon, alt_m)
+        self._offboard_nav_target_lat = float(lat)
+        self._offboard_nav_target_lon = float(lon)
+        self._offboard_nav_target_alt = float(alt_m)
+        self._offboard_nav_active = True
+        self._offboard_nav_reached = False
+        self._offboard_takeoff_active = False
 
-        with self._send_lock:
-            self.connection.mav.command_long_send(
-                self.connection.target_system,
-                self.connection.target_component,
-                mavutil.mavlink.MAV_CMD_DO_REPOSITION,
-                0,
-                -1.0,                             # param1: ground speed (-1 = mặc định PX4)
-                mavutil.mavlink.MAV_DO_REPOSITION_FLAGS_CHANGE_MODE,  # param2: cờ đổi sang LOITER reposition
-                0.0,                              # param3: reserved
-                float("nan"),                     # param4: yaw angle (NaN = giữ nguyên hướng hiện tại)
-                float(lat),                       # param5: latitude (deg)
-                float(lon),                       # param6: longitude (deg)
-                float(alt_m),                     # param7: altitude relative to home (m)
-            )
-        logger.info("GOTO (DO_REPOSITION): lat=%.7f lon=%.7f alt=%.1f m", lat, lon, alt_m)
-        return True
+        # Đảm bảo drone đang ở OFFBOARD với luồng stream 20Hz
+        if self.telemetry.flight_mode != "OFFBOARD":
+            return self.set_mode_offboard()
+        else:
+            self._start_offboard_keepalive()
+            return True
 
     def land(self) -> bool:
         if not self._can_send("land"):
