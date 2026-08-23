@@ -195,8 +195,55 @@ DESCEND_ALTITUDE_M = float(
 
 NAV_ACCEPTANCE_RADIUS_M = 2.0
 
+# Giây chờ sau khi đạt độ cao cất cánh trước khi switch sang AUTO.LOITER
+LOITER_SWITCH_DELAY_SEC = float(
+    os.getenv(
+        "LOITER_SWITCH_DELAY_SEC",
+        "0.5"
+    )
+)
+
+# Tốc độ hành trình DO_REPOSITION (m/s). -1 = dùng giá trị mặc định PX4 (MPC_XY_VEL_MAX)
+NAV_CRUISE_SPEED_MS = float(
+    os.getenv(
+        "NAV_CRUISE_SPEED_MS",
+        "2.0"
+    )
+)
+
+# Timeout an toàn cất cánh: nếu không đạt độ cao mục tiêu trong thời gian này, hủy lệnh
+TAKEOFF_TIMEOUT_SEC = float(
+    os.getenv(
+        "TAKEOFF_TIMEOUT_SEC",
+        "15.0"
+    )
+)
+
+# Timeout hành trình DO_REPOSITION: log cảnh báo nếu không đến đích sau thời gian này
+NAV_ARRIVAL_TIMEOUT_SEC = float(
+    os.getenv(
+        "NAV_ARRIVAL_TIMEOUT_SEC",
+        "60.0"
+    )
+)
+
 
 LANDING_SEARCH_TIMEOUT_SEC = 30.0
+
+# Thời gian tối đa chấp nhận không nhận DISTANCE_SENSOR trước khi đánh dấu rangefinder invalid
+# QUAN TRỌNG: EKF2_BARO_CTRL=0 — Không có Baro fallback. Nếu sensor mất > 0.5s, hệ thống cảnh báo ngay
+RANGEFINDER_STALE_TIMEOUT_SEC = float(
+    os.getenv(
+        "RANGEFINDER_STALE_TIMEOUT_SEC",
+        "0.5"
+    )
+)
+
+# Lưu ý tham số PX4 liên quan:
+#   COM_OF_LOSS_T    = 1.5   (không phải 0.5 — dung sai cho Linux jitter trên Raspberry Pi 5)
+#   EKF2_HGT_REF     = 2    (Range sensor — MTF-02P là nguồn độ cao chính)
+#   EKF2_BARO_CTRL   = 0    (Tắt Baro fusion — tránh drift nhiệt Pixhawk)
+#   MPC_Z_VEL_MAX_UP = 1.0  (đủ cho Vz=0.6m/s trong OFFBOARD takeoff)
 
 
 

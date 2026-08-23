@@ -47,8 +47,11 @@ class TelemetryData:
     altitude_relative: float = 0.0
 
     # MTF-02P rangefinder AGL (DISTANCE_SENSOR.current_distance)
-    altitude_agl:      float = 0.0
-    rangefinder_valid: bool  = False
+    # NOTE: EKF2_BARO_CTRL=0 — Baro bị tắt khỏi EKF2, rangefinder là NGUỒN ĐỘ CAO DUY NHẤT
+    # Nếu sensor mất tín hiệu, KHÔNG có Baro backup → altitude_relative sẽ KHÔNG đáng tin cậy
+    altitude_agl:             float = 0.0
+    rangefinder_valid:        bool  = False
+    rangefinder_last_update:  float = 0.0   # Timestamp nhận gói DISTANCE_SENSOR hợp lệ cuối cùng
 
     ground_speed: float = 0.0
     heading:      float = 0.0
@@ -110,6 +113,12 @@ class MavlinkController:
         self._offboard_nav_target_lon = 0.0
         self._offboard_nav_target_alt = 1.75
         self._offboard_nav_reached = False
+
+        # DO_REPOSITION navigation state (PX4 Native AUTO mode — không cần stream)
+        self._reposition_target_lat = 0.0
+        self._reposition_target_lon = 0.0
+        self._reposition_target_alt = 0.0
+        self._reposition_start_time: float = 0.0
 
     # ===================================================================
     # Connection
@@ -282,6 +291,21 @@ class MavlinkController:
             except Exception as exc:
                 logger.error("[ERROR] MAVLink poll_messages error: %s", exc)
 
+        # ── Kiểm tra rangefinder staleness (EKF2_BARO_CTRL=0: không có Baro fallback) ──
+        # Nếu không nhận DISTANCE_SENSOR quá RANGEFINDER_STALE_TIMEOUT_SEC → đánh dấu invalid
+        stale_timeout = getattr(config, "RANGEFINDER_STALE_TIMEOUT_SEC", 0.5)
+        if (
+            self.telemetry.rangefinder_valid
+            and self.telemetry.rangefinder_last_update > 0
+            and time.time() - self.telemetry.rangefinder_last_update > stale_timeout
+        ):
+            self.telemetry.rangefinder_valid = False
+            logger.warning(
+                "[RANGEFINDER STALE] MTF-02P không nhận data > %.1fs — rangefinder_valid = False. "
+                "CẢNH BÁO: EKF2_BARO_CTRL=0 — Không có Baro backup! altitude_relative có thể không đáng tin cậy.",
+                stale_timeout,
+            )
+
     def _process_message(self, msg) -> None:
         msg_type = msg.get_type()
         self.telemetry.last_update = time.time()
@@ -300,13 +324,22 @@ class MavlinkController:
             if not math.isnan(msg.altitude_relative):
                 self.telemetry.altitude_relative = msg.altitude_relative
 
-        # ---- MTF-02P rangefinder AGL ----
+        # ---- MTF-02P rangefinder AGL (EKF2_HGT_REF=2: nguồn độ cao chính, không có Baro backup) ----
         elif msg_type == "DISTANCE_SENSOR":
-            distance_cm = msg.current_distance
-            if distance_cm > 0:
-                self.telemetry.altitude_agl      = distance_cm / 100.0
-                self.telemetry.rangefinder_valid = True
+            distance_cm     = msg.current_distance
+            max_distance_cm = getattr(msg, "max_distance", 800)   # MTF-02P max 8m = 800cm
+            min_distance_cm = getattr(msg, "min_distance", 2)     # MTF-02P min 2cm
+
+            if min_distance_cm < distance_cm < max_distance_cm:
+                # Reading hợp lệ: cập nhật AGL và timestamp
+                self.telemetry.altitude_agl            = distance_cm / 100.0
+                self.telemetry.rangefinder_valid       = True
+                self.telemetry.rangefinder_last_update = time.time()
                 logger.debug("MTF-02P AGL %.2f m", self.telemetry.altitude_agl)
+            else:
+                # Reading out-of-range (quá gần/quá xa hoặc sensor lỗi) — đánh dấu không hợp lệ
+                self.telemetry.rangefinder_valid = False
+                logger.debug("MTF-02P out-of-range: %d cm (min=%d, max=%d)", distance_cm, min_distance_cm, max_distance_cm)
 
         # ---- Speed / Heading ----
         elif msg_type == "VFR_HUD":
@@ -681,25 +714,48 @@ class MavlinkController:
                     target_alt = self._offboard_takeoff_target_alt
                     self._send_offboard_takeoff_setpoint(target_alt)
 
-                    # Read current AGL from MTF-02P rangefinder (primary)
-                    # Fallback to EKF2 altitude_relative if rangefinder unavailable
+                    # Đọc AGL từ MTF-02P (ưu tiên) hoặc EKF2 altitude_relative (fallback)
+                    # NOTE: Với EKF2_HGT_REF=2 + EKF2_BARO_CTRL=0, altitude_relative cũng do
+                    #        rangefinder fusion cung cấp — nếu sensor offline cả hai đều không tin cậy
                     if self.telemetry.rangefinder_valid and self.telemetry.altitude_agl > 0.05:
                         cur_agl = self.telemetry.altitude_agl
                         alt_source = "MTF-02P"
                     else:
                         cur_agl = self.telemetry.altitude_relative
-                        alt_source = "EKF2"
+                        alt_source = "EKF2-fused"
+                        # Rangefinder offline + Baro tắt → cảnh báo một lần
+                        if not getattr(self, "_rng_fallback_warned", False):
+                            logger.error(
+                                "[TAKEOFF][NGUY HIỂM] Rangefinder OFFLINE — dùng EKF2 altitude_relative=%.2fm. "
+                                "EKF2_BARO_CTRL=0: altitude có thể SAI. Kiểm tra MTF-02P ngay!",
+                                cur_agl,
+                            )
+                            self._rng_fallback_warned = True
+                    # Reset cờ cảnh báo khi sensor phục hồi
+                    if self.telemetry.rangefinder_valid:
+                        self._rng_fallback_warned = False
 
                     threshold = target_alt * 0.94  # 94% of target (e.g. 1.65m for 1.75m)
 
                     if cur_agl >= threshold:
                         logger.info(
                             "✓ [OFFBOARD TAKEOFF REACHED] AGL=%.2fm (threshold=%.2fm, source=%s) "
-                            "— maintaining continuous OFFBOARD Position Hold",
+                            "— switching to AUTO.LOITER for stable GPS position hold",
                             cur_agl, threshold, alt_source,
                         )
                         self._offboard_takeoff_active = False
                         self._offboard_takeoff_complete = True
+
+                        # Auto-switch to AUTO.LOITER:
+                        # Khóa cứng tọa độ GPS, chống trôi gió, không cần tiếp tục stream OFFBOARD
+                        logger.info("[OFFBOARD→LOITER] Sending AUTO.LOITER command...")
+                        time.sleep(getattr(config, "LOITER_SWITCH_DELAY_SEC", 0.5))
+                        try:
+                            self._send_set_mode_command(4.0, 3.0)  # AUTO.LOITER
+                            logger.info("[OFFBOARD→LOITER] AUTO.LOITER command sent ✓ — keepalive stream exiting")
+                        except Exception as _ltr_exc:
+                            logger.error("[OFFBOARD→LOITER] Failed to switch to LOITER: %s", _ltr_exc)
+                        break  # Exit keepalive — LOITER giữ vị trí mà không cần stream
 
                 # ── 2. OFFBOARD GPS Navigation mode: stream global GPS target ──
                 elif self._offboard_nav_active:
@@ -862,6 +918,74 @@ class MavlinkController:
         else:
             self._start_offboard_keepalive()
             return True
+
+    def goto_location_auto(self, lat: float, lon: float, alt_m: float, cruise_speed_ms: float = -1.0) -> bool:
+        """
+        Bay tới tọa độ GPS bằng lệnh MAV_CMD_DO_REPOSITION (PX4 Native AUTO mode).
+
+        Ưu điểm so với OFFBOARD GPS stream:
+          - PX4 Navigator tự tính toán quỹ đạo S-Curve mượt mà, giới hạn gia tốc cầm (độ gật — Jerk)
+          - Chỉ gửi 1 lệnh — không cần stream 20Hz liên tục qua UART
+          - An toàn: Nếu Companion Pi mất kết nối giữa chặng, PX4 vẫn tự bay đến đích và LOITER
+          - Tự hạm phánh êm ái khi đến nới, không bị giật cục do đổi setpoint đột ngột
+
+        Args:
+            lat: Vĩ độ mục tiêu (degrees)
+            lon: Kinh độ mục tiêu (degrees)
+            alt_m: Độ cao tương đối so với Home (mét)
+            cruise_speed_ms: Giới hạn tốc độ hành trình (-1 = dùng MPC_XY_VEL_MAX của PX4)
+        """
+        if not self.is_connected or self.connection is None:
+            logger.error("[DO_REPOSITION] Not connected")
+            return False
+
+        logger.info(
+            "[DO_REPOSITION] Target lat=%.7f, lon=%.7f, alt=%.1fm, speed=%.1f m/s",
+            lat, lon, alt_m, cruise_speed_ms,
+        )
+
+        # Lưu tọa độ mục tiêu cho việc giám sát khoảng cách trong _check_status()
+        self._reposition_target_lat = float(lat)
+        self._reposition_target_lon = float(lon)
+        self._reposition_target_alt = float(alt_m)
+        self._reposition_start_time = time.time()
+
+        try:
+            with self._send_lock:
+                self.connection.mav.command_long_send(
+                    self.connection.target_system,
+                    self.connection.target_component,
+                    mavutil.mavlink.MAV_CMD_DO_REPOSITION,
+                    0,                       # confirmation
+                    float(cruise_speed_ms),  # param1: tốc độ mặt đất (-1 = PX4 mặc định)
+                    1,                       # param2: MAV_DO_REPOS_FLAGS_CHANGE_MODE — tự đổi mode
+                    0,                       # param3: loiter radius (0 = dùng mặc định)
+                    float("nan"),            # param4: heading NaN = giữ hướng hiện tại
+                    float(lat),              # param5: latitude (degrees)
+                    float(lon),              # param6: longitude (degrees)
+                    float(alt_m),            # param7: altitude relative to home (m)
+                )
+            self._last_command_time["goto"] = time.time()
+            logger.info("[DO_REPOSITION] Command sent to PX4 Navigator ✓")
+            return True
+        except Exception as exc:
+            logger.error("[DO_REPOSITION] Failed: %s", exc)
+            return False
+
+    def switch_to_loiter(self) -> bool:
+        """
+        Chuyển về AUTO.LOITER để khóa cứng tọa độ GPS hiện tại.
+        Dừng OFFBOARD keepalive stream trước, sau đó gửi lệnh LOITER và xác nhận qua telemetry.
+        Dùng sau takeoff hoặc khi cần giữ vị trí an toàn thủ công.
+        """
+        logger.info("[SWITCH→LOITER] Stopping OFFBOARD keepalive and switching to AUTO.LOITER...")
+        self._stop_offboard_keepalive()
+        ok = self.set_mode("LOITER", retries=3, force_send=True)
+        if ok:
+            logger.info("[SWITCH→LOITER] AUTO.LOITER confirmed ✓")
+        else:
+            logger.warning("[SWITCH→LOITER] Could not confirm AUTO.LOITER via telemetry (may still be switching)")
+        return ok
 
     def land(self) -> bool:
         if not self._can_send("land"):

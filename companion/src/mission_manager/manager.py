@@ -175,8 +175,12 @@ class MissionManager:
             self.locations.pickup_lat = target_lat
             self.locations.pickup_lon = target_lon
 
-            logger.info("[MANUAL STEP 3] NAV_GPS navigating to lat=%.6f, lon=%.6f, alt=%.1fm (OFFBOARD)", target_lat, target_lon, alt)
-            self.mavlink.goto_location(target_lat, target_lon, alt)
+            cruise_speed = payload.get("cruise_speed", config.NAV_CRUISE_SPEED_MS)
+            logger.info(
+                "[MANUAL STEP 3] NAV_GPS: DO_REPOSITION → lat=%.6f, lon=%.6f, alt=%.1fm, speed=%.1f m/s (PX4 Auto S-Curve)",
+                target_lat, target_lon, alt, cruise_speed,
+            )
+            self.mavlink.goto_location_auto(target_lat, target_lon, alt, cruise_speed_ms=cruise_speed)
             self.state_machine.force_state(DroneState.FLY_TO_PICKUP)
             self._landing_status = "NAVIGATING_GPS"
 
@@ -192,8 +196,11 @@ class MissionManager:
                 logger.error("[MANUAL STEP 4] DESCEND rejected: no valid position fix")
                 return
 
-            logger.info("[MANUAL STEP 4] DESCEND to approach altitude %.1fm at lat=%.6f, lon=%.6f (OFFBOARD)", search_alt, cur_lat, cur_lon)
-            self.mavlink.goto_location(cur_lat, cur_lon, search_alt)
+            logger.info(
+                "[MANUAL STEP 4] DESCEND: DO_REPOSITION → lat=%.6f, lon=%.6f, alt=%.1fm @ 0.5 m/s (PX4 Auto descent)",
+                cur_lat, cur_lon, search_alt,
+            )
+            self.mavlink.goto_location_auto(cur_lat, cur_lon, search_alt, cruise_speed_ms=0.5)
             self.state_machine.force_state(DroneState.DESCEND)
             self._landing_status = "DESCENDING"
 
@@ -374,12 +381,65 @@ class MissionManager:
 
             if takeoff_done and current_mode not in ("AUTO.LAND", "LAND"):
                 logger.info(
-                    "✓ [TAKEOFF COMPLETE] Altitude=%.2fm (target=%.1fm, mode=%s) — Holding OFFBOARD position, waiting for next manual step.",
+                    "✓ [TAKEOFF COMPLETE] Altitude=%.2fm (target=%.1fm, mode=%s) — AUTO.LOITER will hold GPS position, waiting for next manual step.",
                     cur_alt, target_alt, current_mode,
                 )
                 self.mavlink._offboard_takeoff_complete = False
                 self.state_machine.force_state(DroneState.IDLE)
                 self._landing_status = "HOVERING"
+
+        # Check DO_REPOSITION arrival (NAV_GPS → FLY_TO_PICKUP)
+        elif state == DroneState.FLY_TO_PICKUP:
+            flight_mode = self.mavlink.telemetry.flight_mode
+
+            # Timeout cảnh báo nếu không đến đích
+            nav_elapsed = time.time() - self.mavlink._reposition_start_time
+            if nav_elapsed > config.NAV_ARRIVAL_TIMEOUT_SEC:
+                logger.warning(
+                    "[NAV GPS] DO_REPOSITION không xác nhận đến đích sau %.0fs (mode=%s) — kiểm tra GPS và không phận",
+                    nav_elapsed, flight_mode,
+                )
+                self.mavlink._reposition_start_time = time.time()  # Reset timeout
+
+            # Drone đến đích: PX4 tự chuyển về AUTO.LOITER sau khi DO_REPOSITION hoàn tất
+            if flight_mode in ("AUTO.LOITER", "LOITER", "HOLD", "AUTO.HOLD"):
+                target_lat = self.locations.pickup_lat
+                target_lon = self.locations.pickup_lon
+                if target_lat != 0.0 and target_lon != 0.0:
+                    dist = self.mavlink.distance_to(target_lat, target_lon)
+                    if dist <= config.NAV_ACCEPTANCE_RADIUS_M:
+                        logger.info(
+                            "✓ [NAV COMPLETE] Đến GPS target (dist=%.2fm, mode=%s) — AUTO.LOITER đang giữ vị trí",
+                            dist, flight_mode,
+                        )
+                        self.state_machine.force_state(DroneState.IDLE)
+                        self._landing_status = "ARRIVED"
+                else:
+                    # Không có tọa độ cụ thể — chấp nhận LOITER là xác nhận đến đích
+                    logger.info(
+                        "✓ [NAV COMPLETE] DO_REPOSITION hoàn tất — AUTO.LOITER active (mode=%s)",
+                        flight_mode,
+                    )
+                    self.state_machine.force_state(DroneState.IDLE)
+                    self._landing_status = "ARRIVED"
+
+        # Check DESCEND completion (hạ độ cao tiếp cận qua DO_REPOSITION)
+        elif state == DroneState.DESCEND:
+            flight_mode = self.mavlink.telemetry.flight_mode
+            target_descend_alt = config.DESCEND_ALTITUDE_M
+            cur_alt = (
+                self.mavlink.telemetry.altitude_agl
+                if self.mavlink.telemetry.rangefinder_valid and self.mavlink.telemetry.altitude_agl > 0.1
+                else self.mavlink.telemetry.altitude_relative
+            )
+
+            if flight_mode in ("AUTO.LOITER", "LOITER", "HOLD", "AUTO.HOLD") and cur_alt <= target_descend_alt * 1.2:
+                logger.info(
+                    "✓ [DESCEND COMPLETE] Đạt độ cao tiếp cận %.2fm (target=%.1fm, mode=%s) — AUTO.LOITER giữ vị trí",
+                    cur_alt, target_descend_alt, flight_mode,
+                )
+                self.state_machine.force_state(DroneState.IDLE)
+                self._landing_status = "AT_SEARCH_ALTITUDE"
 
         # Check Touchdown in PRECISION_LANDING or RETURN_HOME
         elif state in (DroneState.PRECISION_LANDING, DroneState.RETURN_HOME):
