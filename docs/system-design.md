@@ -218,6 +218,72 @@ flowchart TD
 
 ---
 
+## 3.1. ⭐ Lưu đồ Thuật toán Chuyên sâu cho Chế độ Vận hành Nhân viên kho (Staff Operation Master Flowchart)
+
+Lưu đồ dưới đây mô tả chi tiết toàn bộ chu trình nghiệp vụ khi trạm chuyển sang **Chế độ Nhân viên kho (`STAFF_OPERATION`)**: bao gồm kiểm tra **Khóa an toàn liên động (`Safety Interlock`)**, chu trình **Xuất hàng ra Băng tải (`Staff Outbound`)** và chu trình **Nạp hàng liên tục từ Vị trí O1 vào Kho (`Staff Inbound`)**:
+
+```mermaid
+flowchart TD
+    StaffInit([👨‍💼 VẬN HÀNH NHÂN VIÊN KHO - IDLE]) --> RequestMode{Nhân viên kích hoạt Thao tác?}
+
+    %% KIỂM TRA KHÓA AN TOÀN LIÊN ĐỘNG
+    RequestMode --> CheckBusy{Trạm đang bận nhiệm vụ Drone AUTO_MISSION?}
+    CheckBusy -->|Có Drone đang xử lý| RejectOp[Từ chối: Trả về HTTP 409 Conflict - Chờ Drone rời trạm]
+    CheckBusy -->|Trạm rảnh| LockHW[DeviceLockManager: Khóa STATION, PLC01, ROBOT01 by STAFF_OPERATION]
+    LockHW --> SwitchSysMode[SystemModeManager: Chuyển sang STAFF_OPERATION]
+    SwitchSysMode --> EnablePLCStaff[Gửi lệnh cmd_staff_mode_enable DBX1.0 sang PLC]
+
+    %% NHÁNH 1: XUẤT HÀNG RA BĂNG TẢI (STAFF_OUTBOUND)
+    EnablePLCStaff --> SelectBranch{Loại thao tác Nhân viên?}
+    SelectBranch -->|XUẤT HÀNG OUTBOUND| CheckQueue{Danh sách ô chỉ định hoặc Số lượng > 0?}
+    CheckQueue -->|Rỗng| ErrorEmptyQueue[Báo lỗi: Chưa chọn ô hàng cần lấy]
+    CheckQueue -->|Hợp lệ| StartOutboundPLC[Gửi cmd_staff_outbound_start DBX1.1 + cmd_conveyor_run DBX1.5]
+    StartOutboundPLC --> LoopOutbound{Còn ô hàng trong hàng đợi?}
+    
+    LoopOutbound -->|Còn hàng| PopSlot[Lấy ô tiếp theo trong hàng đợi: slot_id]
+    PopSlot --> RobotOutboundCycle[Robot thực thi OUTBOUND_CYCLE: PickFromSlot -> HOME -> PlaceToSlot O1]
+    RobotOutboundCycle --> RobotPulseDO1[Robot kích xung SafeSetDO 1, 1 sang PLC báo đã đặt lên O1]
+    RobotPulseDO1 --> ConveyorMove[Băng tải cuốn kiện hàng từ O1 về phía Cảm biến cuối End Sensor]
+    ConveyorMove --> UpdateSlotEmpty[Backend cập nhật CSDL: Slot -> EMPTY & Broadcast WS]
+    UpdateSlotEmpty --> LoopOutbound
+
+    LoopOutbound -->|Hết hàng| StopOutbound[Gửi cmd_staff_outbound_stop DBX1.2 sang PLC -> Tắt băng tải]
+    StopOutbound --> UnlockAfterOutbound[DeviceLockManager: Mở khóa STATION, PLC, ROBOT]
+    UnlockAfterOutbound --> CompleteOutbound([✅ HOÀN TẤT XUẤT HÀNG RA BĂNG TẢI])
+
+    %% NHÁNH 2: NẠP HÀNG TỪ O1 VÀO KHO (STAFF_INBOUND)
+    SelectBranch -->|NẠP HÀNG INBOUND| StartInboundPLC[Gửi cmd_staff_inbound_start DBX1.3 sang PLC]
+    StartInboundPLC --> LoopInbound{Nhân viên bấm Dừng hoặc Kho đầy 9/9?}
+    LoopInbound -->|Kho đầy 9/9 ô| StopInboundFull[Báo kho đầy 9/9 -> Tự động kết thúc chu trình nạp]
+    LoopInbound -->|Nhân viên bấm Kết thúc| StopInboundUser[Dừng chu trình nạp theo lệnh nhân viên]
+    LoopInbound -->|Tiếp tục nạp| FindEmptySlot[Backend tìm ô kho trống đầu tiên trong ma trận 3x3]
+    
+    FindEmptySlot --> WaitO1Sensor[Chờ nhân viên đặt kiện hàng tại O1 -> Cảm biến O1 phát hiện]
+    WaitO1Sensor --> AutoQRScan[Camera CAM01 quét mã QR kiện hàng tại O1 trong 2.5s]
+    AutoQRScan --> ResolveProdID{Quét được mã QR?}
+    ResolveProdID -->|Có mã QR| AssignScanned[Gán product_id = mã QR quét được]
+    ResolveProdID -->|Timeout| AssignSynthetic[Tự sinh mã product_id = SP_STAFF_xxx]
+    
+    AssignSynthetic --> RobotInboundCycle[Robot thực thi INBOUND_CYCLE target_slot: PickFromSlot O1 -> HOME -> PlaceToSlot target_slot]
+    AssignScanned --> RobotInboundCycle
+    RobotInboundCycle --> RobotPulseDO3[Robot kích xung SafeSetDO 3, 1 sang PLC báo đã cất hàng xong]
+    RobotPulseDO3 --> UpdateSlotOccupied[Backend cập nhật CSDL: Slot -> OCCUPIED & Broadcast WS]
+    UpdateSlotOccupied --> LoopInbound
+
+    StopInboundFull --> StopInboundPLC[Gửi cmd_staff_inbound_stop DBX1.4 sang PLC]
+    StopInboundUser --> StopInboundPLC
+    StopInboundPLC --> UnlockAfterInbound[DeviceLockManager: Mở khóa STATION, PLC, ROBOT]
+    UnlockAfterInbound --> CompleteInbound([✅ HOÀN TẤT NẠP HÀNG VÀO KHO])
+
+    style StaffInit fill:#0f172a,stroke:#34d399,stroke-width:2px,color:#fff
+    style CompleteOutbound fill:#10b981,color:#fff
+    style CompleteInbound fill:#10b981,color:#fff
+    style RejectOp fill:#ef4444,color:#fff
+    style StopInboundFull fill:#f59e0b,color:#fff
+```
+
+---
+
 ## 4. ⭐ Lưu đồ Thuật toán Chuyên sâu cho UAV (UAV Autonomous Flight & Precision Landing Flowchart)
 
 Lưu đồ dưới đây mô tả toàn bộ máy trạng thái bay và thuật toán hạ cánh chính xác bằng ArUco Marker trên máy tính nhúng Companion RPi 5 kết hợp Pixhawk 6C:
@@ -425,41 +491,176 @@ sequenceDiagram
 
 ---
 
+### 5.3. Trình tự Bắt tay Xuất hàng Nhân viên ra Băng tải (Flow STAFF_OUTBOUND)
+
+Trình tự này mô tả quy trình khi nhân viên kho chọn các ô cần lấy (ví dụ ô A1, B2) hoặc số lượng từ Cổng Nhân viên kho, robot gắp hàng từ kệ đặt lên vị trí O1 và băng tải tự động chuyển hàng ra đầu nhận:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Staff as 👨‍💼 Nhân viên kho
+    participant UI as 🖥️ HMI Dashboard (Staff Portal)
+    participant Backend as ⚡ FastAPI (StaffOperationManager)
+    participant Lock as 🔒 DeviceLockManager
+    participant Grid as 📦 Kệ Kho 3x3
+    participant Robot as 🤖 Robot FAIRINO (192.168.57.2)
+    participant PLC as ⚙️ PLC S7-1200 (192.168.58.10)
+    participant Conveyor as 🔄 Băng tải & Cảm biến
+
+    Staff->>UI: Chọn ô kho [A1, B2] & Bấm "BẮT ĐẦU XUẤT HÀNG"
+    UI->>Backend: POST /api/staff/outbound/start {slots: ["A1", "B2"]}
+    Backend->>Lock: lock_device(STATION, PLC01, ROBOT01 by "STAFF_OPERATION")
+    Note over Backend,Lock: Khóa trạm ngăn Drone tự động can thiệp
+    Backend->>PLC: DB15.DBX1.0: cmd_staff_mode_enable = True
+    Backend->>PLC: DB15.DBX1.1: cmd_staff_outbound_start = True
+    Backend->>PLC: DB15.DBX1.5: cmd_conveyor_run = True
+    PLC->>Conveyor: Kích hoạt động cơ Băng tải cuốn ra ngoài
+
+    loop Cho từng ô kho trong hàng đợi (A1, B2)
+        Backend->>Robot: TCP Socket 8090: OUTBOUND_CYCLE A1
+        Robot->>Grid: Quỹ đạo PickFromSlot(A1): Tiếp cận -> Hạ gắp -> Rút về HOME
+        Robot->>Conveyor: Quỹ đạo PlaceToSlot(O1): Đặt hàng lên vị trí O1 đầu băng tải
+        Robot->>Robot: SafeSetDO(1, 1, 0, 0) kích xung báo PLC đã đặt xong
+        Robot-->>Backend: Response: SUCCESS OUTBOUND A1
+        Robot->>Robot: Di chuyển về vị trí an toàn HOME
+
+        Conveyor->>Conveyor: Băng tải chuyển kiện hàng từ O1 về phía cuối
+        Conveyor->>PLC: Cảm biến cuối phát hiện kiện hàng (sensor_conveyor_end)
+        PLC-->>Backend: Cập nhật biến đếm & trạng thái cảm biến
+        Backend->>Grid: Cập nhật CSDL Slot A1 -> EMPTY
+        Backend-->>UI: WebSocket broadcast STORAGE_UPDATE & Staff progress
+        Staff->>Conveyor: Nhân viên nhấc kiện hàng tại cuối băng tải
+    end
+
+    Backend->>PLC: DB15.DBX1.2: cmd_staff_outbound_stop = True
+    PLC->>Conveyor: Dừng động cơ băng tải
+    Backend->>Lock: unlock_station() (Mở khóa phần cứng)
+    Backend-->>UI: Thông báo "Hoàn tất xuất 2 kiện hàng ra băng tải!"
+```
+
+---
+
+### 5.4. Trình tự Bắt tay Nạp hàng Nhân viên vào Kho (Flow STAFF_INBOUND)
+
+Trình tự này mô tả quy trình nạp hàng chủ động (chế độ liên tục): nhân viên đặt kiện hàng tại vị trí O1, camera tự động quét mã QR, robot gắp từ O1 cất vào ô trống khả dụng trong kho và tự động lặp lại cho đến khi đầy kho hoặc nhân viên bấm Kết thúc:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Staff as 👨‍💼 Nhân viên kho
+    participant Cam as 📷 Camera QR Vision
+    participant Conveyor as 🔄 Vị trí nạp O1 (Cảm biến)
+    participant UI as 🖥️ HMI Dashboard (Staff Portal)
+    participant Backend as ⚡ FastAPI (StaffOperationManager)
+    participant Lock as 🔒 DeviceLockManager
+    participant Grid as 📦 Kệ Kho 3x3
+    participant Robot as 🤖 Robot FAIRINO (192.168.57.2)
+    participant PLC as ⚙️ PLC S7-1200 (192.168.58.10)
+
+    Staff->>UI: Bấm "BẮT ĐẦU NẠP HÀNG" (Chế độ liên tục)
+    UI->>Backend: POST /api/staff/inbound/start
+    Backend->>Lock: lock_device(STATION, PLC01, ROBOT01 by "STAFF_OPERATION")
+    Backend->>PLC: DB15.DBX1.0: cmd_staff_mode_enable = True
+    Backend->>PLC: DB15.DBX1.3: cmd_staff_inbound_start = True
+
+    loop Cho mỗi kiện hàng nạp vào (tới khi bấm Dừng hoặc đầy kho 9/9)
+        Backend->>Grid: Tìm ô kho trống (find_available_slot)
+        Grid-->>Backend: Cấp phát ô trống khả dụng: "C2"
+        
+        Staff->>Conveyor: Đặt kiện hàng vào vị trí nạp O1
+        Conveyor->>PLC: Cảm biến O1 phát hiện kiện hàng (sensor_o1_detected = True)
+        PLC->>Robot: Kích tín hiệu DI3 (Hardware trigger Robot có hàng tại O1)
+
+        Backend->>Cam: capture_and_scan_qr(timeout_sec=2.5)
+        Cam->>Cam: Tiền xử lý CLAHE & Quét mã QR trên kiện hàng
+        Cam-->>Backend: Nhận diện mã "PROD_C2" (hoặc fallback SP_STAFF_xxx)
+
+        Backend->>Robot: TCP Socket 8090: INBOUND_CYCLE C2
+        Robot->>Conveyor: Quỹ đạo PickFromSlot(O1): Gắp hàng tại vị trí O1
+        Robot->>Robot: Rút về vị trí an toàn HOME
+        Robot->>Grid: Quỹ đạo PlaceToSlot(C2): Cất hàng vào ô kho C2
+        Robot->>Robot: SafeSetDO(3, 1, 0, 0) kích xung báo PLC đã cất xong
+        Robot-->>Backend: Response: SUCCESS INBOUND C2
+        Robot->>Robot: Quay về vị trí nghỉ HOME
+
+        Backend->>Grid: Cập nhật CSDL Slot C2 -> OCCUPIED (gắn product_id)
+        Backend-->>UI: WebSocket broadcast STORAGE_UPDATE & Inbound counter
+    end
+
+    Staff->>UI: Bấm "KẾT THÚC NẠP HÀNG"
+    UI->>Backend: POST /api/staff/inbound/stop
+    Backend->>PLC: DB15.DBX1.4: cmd_staff_inbound_stop = True
+    Backend->>Lock: unlock_station() (Mở khóa phần cứng)
+    Backend-->>UI: Thông báo "Đã dừng nạp hàng. Trạm sẵn sàng phục vụ Drone!"
+```
+
+---
+
 ## 6. Bảng Ánh xạ Giao thức Phần cứng Chi tiết
 
 ### 6.1. Bản đồ Ô nhớ PLC Siemens S7-1200 (DB15 Protocol)
 
 ```
-Byte 0: Backend -> PLC (Command bits, ghi xung điều khiển)
-  DB15.DBX0.0 : cmd_lock_drone       - Yêu cầu đóng kẹp khóa cố định Drone
-  DB15.DBX0.1 : cmd_unlock_drone     - Yêu cầu mở kẹp giải phóng Drone
-  DB15.DBX0.2 : cmd_z_up             - Yêu cầu nâng trục Z lên độ cao gắp
-  DB15.DBX0.3 : cmd_z_down           - Yêu cầu hạ trục Z về vị trí cất cánh
-  DB15.DBX0.4 : cmd_stop_plc         - Yêu cầu dừng chu kỳ hoạt động
-  DB15.DBX0.5 : cmd_start_plc        - Yêu cầu khởi động / cho phép hệ thống
-  DB15.DBX0.6 : cmd_reset_plc        - Yêu cầu reset lỗi & khôi phục trạng thái
+Byte 0: Backend -> PLC (Command bits điều khiển Drone & Trạm, ghi xung)
+  DB15.DBX0.0 : cmd_lock_drone          - Yêu cầu đóng kẹp khóa cố định Drone
+  DB15.DBX0.1 : cmd_unlock_drone        - Yêu cầu mở kẹp giải phóng Drone
+  DB15.DBX0.2 : cmd_z_up                - Yêu cầu nâng trục Z lên độ cao gắp
+  DB15.DBX0.3 : cmd_z_down              - Yêu cầu hạ trục Z về vị trí cất cánh
+  DB15.DBX0.4 : cmd_stop_plc            - Yêu cầu dừng chu kỳ hoạt động
+  DB15.DBX0.5 : cmd_start_plc           - Yêu cầu khởi động / cho phép hệ thống
+  DB15.DBX0.6 : cmd_reset_plc           - Yêu cầu reset lỗi & khôi phục trạng thái
+  DB15.DBX0.7 : cmd_watchdog_toggle     - Xung nhịp tim Watchdog 1Hz giữ kết nối
 
-Byte 2: PLC -> Backend (Status bits, đọc trạng thái phản hồi)
-  DB15.DBX2.0 : drone_detected       - Phát hiện Drone đã tiếp đất trên Pad
-  DB15.DBX2.1 : plc_locked_state     - Cơ cấu kẹp khóa Drone đã hoàn thành (1 = Locked)
-  DB15.DBX2.2 : plc_z_is_up          - Trục Z đã nâng đến vị trí trên (1 = Z Top)
-  DB15.DBX2.3 : plc_z_is_down        - Trục Z đã hạ về vị trí ban đầu (1 = Z Bottom)
-  DB15.DBX2.4 : plc_on               - PLC đang hoạt động và sẵn sàng (1 = Ready)
-  DB15.DBX2.5 : plc_error            - PLC phát hiện lỗi vận hành (1 = Error)
-  DB15.DBX2.6 : emergency_stop       - Nút dừng khẩn cấp E-Stop đang kích hoạt (1 = E-Stop)
+Byte 1: Backend -> PLC (Command bits điều khiển Chế độ Nhân viên & Băng tải)
+  DB15.DBX1.0 : cmd_staff_mode_enable   - Bật chế độ nhân viên kho (chuyển phân hệ)
+  DB15.DBX1.1 : cmd_staff_outbound_start- Khởi động chu trình xuất hàng ra băng tải
+  DB15.DBX1.2 : cmd_staff_outbound_stop - Dừng chu trình xuất hàng
+  DB15.DBX1.3 : cmd_staff_inbound_start - Khởi động chu trình nạp hàng từ O1
+  DB15.DBX1.4 : cmd_staff_inbound_stop  - Dừng chu trình nạp hàng
+  DB15.DBX1.5 : cmd_conveyor_run        - Bật động cơ băng tải chạy
+
+Byte 2: PLC -> Backend (Status bits phản hồi trạng thái Drone & Cơ cấu Z)
+  DB15.DBX2.0 : drone_detected          - Phát hiện Drone đã tiếp đất trên Pad
+  DB15.DBX2.1 : plc_locked_state        - Cơ cấu kẹp khóa Drone đã hoàn thành (1 = Locked)
+  DB15.DBX2.2 : plc_z_is_up             - Trục Z đã nâng đến vị trí trên (1 = Z Top)
+  DB15.DBX2.3 : plc_z_is_down           - Trục Z đã hạ về vị trí ban đầu (1 = Z Bottom)
+  DB15.DBX2.4 : plc_on                  - PLC đang hoạt động và sẵn sàng (1 = Ready)
+  DB15.DBX2.5 : plc_error               - PLC phát hiện lỗi vận hành (1 = Error)
+  DB15.DBX2.6 : emergency_stop          - Nút dừng khẩn cấp E-Stop đang kích hoạt (1 = E-Stop)
+
+Byte 3: PLC -> Backend (Status bits phản hồi phân hệ Nhân viên & Băng tải)
+  DB15.DBX3.0 : staff_mode_active       - Phân hệ nhân viên kho đang kích hoạt (1 = Active)
+  DB15.DBX3.1 : staff_outbound_busy     - Đang trong chu trình xuất hàng ra băng tải
+  DB15.DBX3.2 : staff_inbound_busy      - Đang trong chu trình nạp hàng vào kho
+  DB15.DBX3.3 : sensor_o1_detected      - Cảm biến phát hiện kiện hàng tại vị trí O1
+  DB15.DBX3.4 : sensor_conveyor_end     - Cảm biến phát hiện kiện hàng tại cuối băng tải
 ```
 
 ### 6.2. Giao thức Lệnh TCP Socket Robot FAIRINO FR3 (Port 8090)
 
-* Định dạng gói tin: Chuỗi ký tự ASCII kết thúc bằng ký tự ngắt dòng `\r\n` hoặc `\n`.
-* Danh sách lệnh hỗ trợ:
+* **Định dạng gói tin**: Chuỗi ký tự ASCII kết thúc bằng ký tự ngắt dòng `\r\n` hoặc `\n`.
+* **Danh sách lệnh hỗ trợ**:
   * `MOVE_HOME`: Di chuyển 6 khớp tay về vị trí an toàn HOME (`SUCCESS MOVE_HOME\n`).
   * `PICK <slot>` (Ví dụ: `PICK A1`): Gắp kiện hàng từ ô kho A1 (`SUCCESS PICK A1\n`).
   * `STORE <slot>` (Ví dụ: `STORE B2`): Cất kiện hàng vào ô kho B2 (`SUCCESS STORE B2\n`).
-  * `PICK_PRODUCT DOCK`: Gắp hàng từ gá Drone trên bệ Dock (`SUCCESS PICK DOCK\n`).
-  * `PLACE_PRODUCT DOCK`: Đặt hàng lên gá Drone trên bệ Dock (`SUCCESS PLACE DOCK\n`).
+  * `PICK_PRODUCT DOCK`: Gắp hàng từ gá Drone trên bệ Dock N1 (`SUCCESS PICK DOCK\n`).
+  * `PLACE_PRODUCT DOCK`: Đặt hàng lên gá Drone trên bệ Dock N1 (`SUCCESS PLACE DOCK\n`).
+  * `OUTBOUND_CYCLE <slot>`: Chu trình xuất hàng nhân viên (Gắp từ `<slot>` -> HOME -> Thả vào O1 trên băng tải -> HOME -> Xung DO1).
+  * `INBOUND_CYCLE <slot>`: Chu trình nạp hàng nhân viên (Gắp từ O1 -> HOME -> Cất vào `<slot>` -> HOME -> Xung DO3).
   * `STATUS`: Đọc trạng thái hoạt động hiện tại (`STATE:IDLE BUSY:FALSE POSITION:HOME\n`).
   * `STOP` / `ESTOP`: Dừng khẩn cấp mọi chuyển động của Robot (`STOP SUCCESS\n`).
+
+* **Bảng Đấu nối Tín hiệu Bắt tay Phần cứng (Hardware IO Handshake)**:
+  Do sai khác chuẩn ngõ ra giữa NPN (Robot Fairino) và Source (PLC Siemens S7-1200), hàm `SafeSetDO()` trong script Lua đã đảo trạng thái phần mềm (`SafeSetDO(p, 1) -> SetDO(p, 0)`):
+
+| Chân Robot | Chân PLC | Tên tín hiệu | Hướng | Ý nghĩa nghiệp vụ |
+|---|---|---|---|---|
+| **DI1** | **DO_PLC1** | `TRIG_OUTBOUND` | PLC $\rightarrow$ Robot | PLC kích xung yêu cầu Robot lấy hàng ra băng tải |
+| **DO1** | **DI_PLC1** | `DONE_OUTBOUND` | Robot $\rightarrow$ PLC | Robot xung SafeSetDO báo đã thả hàng xong tại O1 |
+| **DI2** | **DO_PLC2** | `TRIG_PICK_AUTO`| PLC $\rightarrow$ Robot | PLC kích xung yêu cầu Robot gắp hàng tự động |
+| **DO2** | **DI_PLC2** | `DONE_PICK_AUTO`| Robot $\rightarrow$ PLC | Robot xung SafeSetDO báo đã gắp xong |
+| **DI3** | **DO_PLC3** | `TRIG_INBOUND`  | PLC $\rightarrow$ Robot | PLC kích báo Cảm biến O1 có hàng cần nạp vào kho |
+| **DO3** | **DI_PLC3** | `DONE_INBOUND`  | Robot $\rightarrow$ PLC | Robot xung SafeSetDO báo đã cất hàng vào ô kho xong |
 
 ---
 
@@ -589,3 +790,11 @@ erDiagram
 ### 8.6. WebSocket Realtime Endpoints
 * **`WS /ws/system`**: Kênh phát sóng đồng bộ trạng thái thời gian thực toàn hệ thống tới Dashboard HMI (Heartbeat thiết bị, Telemetry Drone, PLC DB15, Robot State, Kho 9 ô, Mission Queue).
 * **`WS /ws/drone/{drone_id}`**: Kênh truyền thông hai chiều giữa Central Backend và máy tính nhúng Companion RPi 5 trên UAV.
+
+### 8.7. API Cổng Nhân viên Kho (`/api/staff`)
+* `GET /api/staff/status`: Lấy trạng thái hiện tại của phân hệ nhân viên kho, hàng đợi xuất hàng, tiến độ nạp hàng và trạng thái khóa phần cứng.
+* `POST /api/staff/mode`: Chuyển đổi phân hệ vận hành giữa `STATION_AUTO` (Kho trạm tự động) và `STAFF_OPERATION` (Nhân viên kho).
+* `POST /api/staff/outbound/start`: Khởi động chu trình lấy hàng từ các ô chỉ định ra băng tải (`{slots: ["A1", "B2"]}` hoặc `{quantity: 2}`).
+* `POST /api/staff/outbound/cancel`: Hủy tiến trình xuất hàng và dừng băng tải.
+* `POST /api/staff/inbound/start`: Khởi động chu trình nạp hàng chủ động (chế độ liên tục, quét QR tự động tại O1 và cất vào kho).
+* `POST /api/staff/inbound/stop`: Dừng chu trình nạp hàng, giải phóng khóa trạm cho Drone hoạt động.
