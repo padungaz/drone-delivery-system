@@ -267,7 +267,7 @@ export async function getInventorySlots(): Promise<Response> {
   return fetch(`${API_BASE}/api/inventory/slots`);
 }
 
-export async function clearStorageSlot(slotId: number): Promise<Response> {
+export async function clearStorageSlot(slotId: number | string): Promise<Response> {
   return fetch(`${API_BASE}/api/inventory/slots/${slotId}/clear`, { method: "POST" });
 }
 
@@ -557,6 +557,56 @@ export async function resetSampleOrders(): Promise<Response> {
     method: "POST",
   });
 }
+
+// =========================================================================
+// STAFF OPERATIONS API
+// =========================================================================
+
+/** Get full status of staff operation and system mode. */
+export async function getStaffStatus(): Promise<Response> {
+  return fetch(`${API_BASE}/api/staff/status`);
+}
+
+/** Switch operation mode (STATION_AUTO vs STAFF_OPERATION). */
+export async function setStaffOperationMode(operationMode: "STATION_AUTO" | "STAFF_OPERATION"): Promise<Response> {
+  return fetch(`${API_BASE}/api/staff/mode`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ operation_mode: operationMode }),
+  });
+}
+
+/** Start Outbound picking flow for selected storage slots or target quantity. */
+export async function startStaffOutbound(slots?: string[], quantity?: number): Promise<Response> {
+  return fetch(`${API_BASE}/api/staff/outbound/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slots, quantity }),
+  });
+}
+
+/** Cancel running Outbound picking flow. */
+export async function cancelStaffOutbound(): Promise<Response> {
+  return fetch(`${API_BASE}/api/staff/outbound/cancel`, {
+    method: "POST",
+  });
+}
+
+/** Start continuous Inbound storing flow from O1 to storage slots. */
+export async function startStaffInbound(): Promise<Response> {
+  return fetch(`${API_BASE}/api/staff/inbound/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/** Stop running Inbound storing flow. */
+export async function stopStaffInbound(): Promise<Response> {
+  return fetch(`${API_BASE}/api/staff/inbound/stop`, {
+    method: "POST",
+  });
+}
+
 
 
 

@@ -9,6 +9,7 @@ interface Props {
   onClose: () => void;
   onPick?: (slotId: string) => void;
   onStore?: (slotId: string) => void;
+  onClear?: (slotId: string) => void;
 }
 
 export function SlotDetailModal({
@@ -22,6 +23,7 @@ export function SlotDetailModal({
   onClose,
   onPick,
   onStore,
+  onClear,
 }: Props) {
   if (!isOpen) return null;
 
@@ -63,7 +65,7 @@ export function SlotDetailModal({
           </div>
         </div>
 
-        <div className="modal-footer flex-center">
+        <div className="modal-footer flex-center" style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
           {onPick && (
             <button
               type="button"
@@ -82,8 +84,18 @@ export function SlotDetailModal({
               📥 STORE
             </button>
           )}
+          {onClear && (
+            <button
+              type="button"
+              className="btn-hmi btn-danger"
+              style={{ background: "#ef4444", color: "#fff", fontWeight: "bold" }}
+              onClick={() => onClear(slotId)}
+            >
+              🗑️ XÓA HÀNG (CLEAR)
+            </button>
+          )}
           <button type="button" className="btn-hmi btn-secondary" onClick={onClose}>
-            CLOSE
+            ĐÓNG
           </button>
         </div>
       </div>

@@ -20,6 +20,7 @@ import { SettingsView } from "./settings/SettingsView";
 import { MapPanel } from "./MapPanel";
 import { TelemetryPanel } from "./TelemetryPanel";
 import { DeliveryRequestsPanel } from "./DeliveryRequestsPanel";
+import { StaffPortal } from "./StaffPortal";
 import {
   sendRobotCommand,
   sendPlcCommand,
@@ -29,6 +30,7 @@ import {
   startSystemAuto,
   pauseSystemAuto,
   getMissionQueue,
+  getStaffStatus,
 } from "../services/api";
 import type { MissionLocations } from "../types/drone";
 
@@ -94,6 +96,8 @@ export function HmiDashboard() {
   // System Global Mode: "AUTO" (Full automation) vs "MANUAL" (Manual override / maintenance)
   const [systemMode, setSystemModeState] = useState<"AUTO" | "MANUAL">("AUTO");
   const [autoState, setAutoState] = useState<"STANDBY" | "RUNNING" | "PAUSED" | "ERROR">("STANDBY");
+  const [operationMode, setOperationMode] = useState<"STATION_AUTO" | "STAFF_OPERATION">("STATION_AUTO");
+  const [isStaffRunning, setIsStaffRunning] = useState<boolean>(false);
   const [isLoadingAuto, setIsLoadingAuto] = useState<boolean>(false);
 
   // Mission Queue State for next waiting orders
@@ -118,6 +122,15 @@ export function HmiDashboard() {
         const data = await res.json();
         if (data.mode) setSystemModeState(data.mode);
         if (data.auto_state) setAutoState(data.auto_state);
+        if (data.operation_mode) setOperationMode(data.operation_mode);
+      }
+      const staffRes = await getStaffStatus().catch(() => null);
+      if (staffRes && staffRes.ok) {
+        const staffData = await staffRes.json();
+        setIsStaffRunning(staffData.staff_op?.status === "RUNNING");
+        if (staffData.system_mode?.operation_mode) {
+          setOperationMode(staffData.system_mode.operation_mode);
+        }
       }
     } catch {
       // Ignore
@@ -186,11 +199,19 @@ export function HmiDashboard() {
       if (e.detail?.auto_state) {
         setAutoState(e.detail.auto_state);
       }
+      if (e.detail?.operation_mode) {
+        setOperationMode(e.detail.operation_mode);
+      }
+    };
+
+    const handleStaffOpUpdate = (e: any) => {
+      setIsStaffRunning(e.detail?.status === "RUNNING");
     };
 
     const handleQueueUpdate = () => fetchMissionQueue();
 
     window.addEventListener("system_mode_update", handleModeUpdate);
+    window.addEventListener("staff_operation_update", handleStaffOpUpdate);
     window.addEventListener("mission_queue_update", handleQueueUpdate);
     window.addEventListener("mission_started", handleQueueUpdate);
     window.addEventListener("mission_completed", handleQueueUpdate);
@@ -199,6 +220,7 @@ export function HmiDashboard() {
     return () => {
       clearInterval(interval);
       window.removeEventListener("system_mode_update", handleModeUpdate);
+      window.removeEventListener("staff_operation_update", handleStaffOpUpdate);
       window.removeEventListener("mission_queue_update", handleQueueUpdate);
       window.removeEventListener("mission_started", handleQueueUpdate);
       window.removeEventListener("mission_completed", handleQueueUpdate);
@@ -400,6 +422,8 @@ export function HmiDashboard() {
         cameraOnline={cameraActive}
         systemMode={systemMode}
         autoState={autoState}
+        operationMode={operationMode}
+        isStaffRunning={isStaffRunning}
         isLoadingAuto={isLoadingAuto}
         onModeToggle={handleSystemModeToggle}
         onStartAuto={handleStartAutoSystem}
@@ -496,6 +520,13 @@ export function HmiDashboard() {
                 />
                 <SystemLog initialLogs={logs} />
               </div>
+            </div>
+          )}
+
+          {/* Staff Warehouse Portal Tab */}
+          {activeTab === "staff" && (
+            <div className="hmi-grid-container">
+              <StaffPortal storageSlots={storage} onRefreshStorage={refreshSystemState} />
             </div>
           )}
 

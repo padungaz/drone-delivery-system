@@ -194,8 +194,9 @@ export const UavFleetControlWidget = React.memo(function UavFleetControlWidget({
     }
   };
 
-  // Find priority actionable UAVs
+  // Find priority actionable UAVs with safe fallback
   const activeUav = fleet.find((u) => u.drone_id === activeMissionDroneId) || fleet[0];
+  const activeDroneId = activeUav?.drone_id || activeMissionDroneId || (fleet.length > 0 ? fleet[0].drone_id : "DRONE_01");
 
   return (
     <div className="uav-fleet-widget-container hmi-card">
@@ -233,87 +234,96 @@ export const UavFleetControlWidget = React.memo(function UavFleetControlWidget({
           <button
             type="button"
             className="btn-hmi btn-action-arrive"
-            onClick={() => handleSignalArrive(activeUav.drone_id)}
+            onClick={() => handleSignalArrive(activeDroneId)}
+            disabled={loading || !activeDroneId}
             title="Mô phỏng UAV đã hạ cánh tại bãi đáp N1"
           >
-            🛬 MÔ PHỎNG [{activeUav.drone_id}] ĐÃ ĐÁP TẠI TRẠM N1
+            🛬 MÔ PHỎNG [{activeDroneId}] ĐÃ ĐÁP TẠI TRẠM N1
           </button>
 
           {/* Simulation button for Drone Depart Home */}
           <button
             type="button"
             className="btn-hmi btn-action-depart-home"
-            onClick={() => handleSignalDepartHome(activeUav.drone_id)}
+            onClick={() => handleSignalDepartHome(activeDroneId)}
+            disabled={loading || !activeDroneId}
             title="Mô phỏng UAV dỡ hàng xong và cất cánh về Home (giải phóng bãi đáp)"
           >
-            🛫 MÔ PHỎNG [{activeUav.drone_id}] CẤT CÁNH VỀ HOME
+            🛫 MÔ PHỎNG [{activeDroneId}] CẤT CÁNH VỀ HOME
           </button>
 
           {/* Simulation button for Drone Depart Delivery */}
           <button
             type="button"
             className="btn-hmi btn-action-depart-delivery"
-            onClick={() => handleSignalDepartDelivery(activeUav.drone_id)}
+            onClick={() => handleSignalDepartDelivery(activeDroneId)}
+            disabled={loading || !activeDroneId}
             title="Mô phỏng UAV nhận hàng và cất cánh đi giao hàng cho khách"
           >
-            🚀 MÔ PHỎNG [{activeUav.drone_id}] CẤT CÁNH ĐI GIAO HÀNG
+            🚀 MÔ PHỎNG [{activeDroneId}] CẤT CÁNH ĐI GIAO HÀNG
           </button>
         </div>
       </div>
 
       {/* UAV Fleet Cards List */}
       <div className="fleet-cards-grid">
-        {fleet.map((uav) => {
-          const isAssigned = uav.drone_id === activeMissionDroneId;
-          return (
-            <div
-              key={uav.drone_id}
-              className={`uav-fleet-card ${uav.is_real ? "real-uav" : "sim-uav"} ${isAssigned ? "assigned-active" : ""}`}
-            >
-              <div className="uav-card-top flex-between">
-                <div className="uav-id-badge">
-                  <span className="uav-name">{uav.drone_id}</span>
-                  <span className={`uav-type-tag ${uav.is_real ? "type-real" : "type-sim"}`}>
-                    {uav.is_real ? "REAL HARDWARE" : "VIRTUAL FLEET"}
-                  </span>
+        {fleet.length === 0 ? (
+          <div style={{ padding: "1.5rem", textAlign: "center", color: "#94a3b8", gridColumn: "1 / -1", fontStyle: "italic" }}>
+            Đang đồng bộ danh sách đội bay UAV...
+          </div>
+        ) : (
+          fleet.map((uav) => {
+            const isAssigned = uav.drone_id === activeMissionDroneId;
+            const flightMode = uav.flight_mode || "AUTO";
+            return (
+              <div
+                key={uav.drone_id}
+                className={`uav-fleet-card ${uav.is_real ? "real-uav" : "sim-uav"} ${isAssigned ? "assigned-active" : ""}`}
+              >
+                <div className="uav-card-top flex-between">
+                  <div className="uav-id-badge">
+                    <span className="uav-name">{uav.drone_id}</span>
+                    <span className={`uav-type-tag ${uav.is_real ? "type-real" : "type-sim"}`}>
+                      {uav.is_real ? "REAL HARDWARE" : "VIRTUAL FLEET"}
+                    </span>
+                  </div>
+                  <div className="uav-mode-badge">
+                    {uav.is_real ? (
+                      <button
+                        type="button"
+                        className={`btn-mode-toggle ${flightMode.toLowerCase()}`}
+                        onClick={() => handleToggleFlightMode(uav.drone_id, flightMode as "AUTO" | "MANUAL")}
+                        title="Chuyển đổi Chế độ Bay AUTO / MANUAL"
+                      >
+                        {flightMode === "AUTO" ? "🤖 AUTO" : "🎮 MANUAL"}
+                      </button>
+                    ) : (
+                      <span className="mode-auto-tag">🤖 AUTO</span>
+                    )}
+                  </div>
                 </div>
-                <div className="uav-mode-badge">
-                  {uav.is_real ? (
-                    <button
-                      type="button"
-                      className={`btn-mode-toggle ${uav.flight_mode.toLowerCase()}`}
-                      onClick={() => handleToggleFlightMode(uav.drone_id, uav.flight_mode)}
-                      title="Chuyển đổi Chế độ Bay AUTO / MANUAL"
-                    >
-                      {uav.flight_mode === "AUTO" ? "🤖 AUTO" : "🎮 MANUAL"}
-                    </button>
-                  ) : (
-                    <span className="mode-auto-tag">🤖 AUTO</span>
+
+                <div className="uav-card-status-row">
+                  <span className={`uav-status-pill ${getStateBadgeClass(uav.state || "READY")}`}>
+                    ● {formatStateText(uav.state || "READY")}
+                  </span>
+                  {uav.current_mission_id && (
+                    <span className="uav-mission-ref font-mono text-cyan">
+                      Mission #{uav.current_mission_id}
+                    </span>
                   )}
                 </div>
-              </div>
 
-              <div className="uav-card-status-row">
-                <span className={`uav-status-pill ${getStateBadgeClass(uav.state)}`}>
-                  ● {formatStateText(uav.state)}
-                </span>
-                {uav.current_mission_id && (
-                  <span className="uav-mission-ref font-mono text-cyan">
-                    Mission #{uav.current_mission_id}
-                  </span>
-                )}
-              </div>
-
-              <div className="uav-telemetry-mini-grid">
-                <div className="mini-cell">
-                  <span className="lbl">Pin (Battery):</span>
-                  <span className="val text-emerald font-mono">{uav.battery}%</span>
+                <div className="uav-telemetry-mini-grid">
+                  <div className="mini-cell">
+                    <span className="lbl">Pin (Battery):</span>
+                    <span className="val text-emerald font-mono">{uav.battery ?? 100}%</span>
+                  </div>
+                  <div className="mini-cell">
+                    <span className="lbl">Độ cao AGL:</span>
+                    <span className="val font-mono">{(uav.altitude_agl ?? 0).toFixed(1)}m</span>
+                  </div>
                 </div>
-                <div className="mini-cell">
-                  <span className="lbl">Độ cao AGL:</span>
-                  <span className="val font-mono">{uav.altitude_agl.toFixed(1)}m</span>
-                </div>
-              </div>
 
               {/* Individual quick triggers */}
               <div className="uav-quick-actions flex-between">
@@ -344,7 +354,7 @@ export const UavFleetControlWidget = React.memo(function UavFleetControlWidget({
               </div>
             </div>
           );
-        })}
+        }))}
       </div>
     </div>
   );

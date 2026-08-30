@@ -8,6 +8,8 @@ interface Props {
   cameraOnline?: boolean;
   systemMode?: "AUTO" | "MANUAL";
   autoState?: "STANDBY" | "RUNNING" | "PAUSED" | "ERROR";
+  operationMode?: "STATION_AUTO" | "STAFF_OPERATION";
+  isStaffRunning?: boolean;
   isLoadingAuto?: boolean;
   onModeToggle?: (mode: "AUTO" | "MANUAL") => void;
   onStartAuto?: () => void;
@@ -23,6 +25,8 @@ export function SystemHeader({
   cameraOnline = true,
   systemMode = "AUTO",
   autoState = "STANDBY",
+  operationMode = "STATION_AUTO",
+  isStaffRunning = false,
   isLoadingAuto = false,
   onModeToggle,
   onStartAuto,
@@ -128,6 +132,13 @@ export function SystemHeader({
                 <strong className="action-value">KHÓA TỰ ĐỘNG</strong>
               </div>
             </button>
+          ) : isStaffRunning ? (
+            <div className="auto-running-controls">
+              <div className="auto-running-badge staff-running-badge" title="Nhân viên kho đang xuất hoặc nhập hàng qua băng tải">
+                <span className="pulse-dot"></span>
+                <span className="running-text">👨‍💼 NHÂN VIÊN ĐANG CHẠY</span>
+              </div>
+            </div>
           ) : autoState === "RUNNING" ? (
             <div className="auto-running-controls">
               <div className="auto-running-badge">
@@ -150,7 +161,11 @@ export function SystemHeader({
               className={`btn-auto-action action-start pulse-start ${isLoadingAuto ? "loading" : ""}`}
               onClick={onStartAuto}
               disabled={isLoadingAuto}
-              title="Kiểm tra tiền khởi động, đưa Robot về Home & chạy hàng đợi FIFO"
+              title={
+                operationMode === "STAFF_OPERATION"
+                  ? "Bấm để kích hoạt Chế độ Kho Trạm (Drone) và chạy tự động hàng đợi FIFO"
+                  : "Kiểm tra tiền khởi động, đưa Robot về Home & chạy hàng đợi FIFO"
+              }
             >
               <span className="action-icon">{isLoadingAuto ? "⏳" : "▶️"}</span>
               <div className="action-text-group">

@@ -10,6 +10,7 @@ import { WarehouseConfigPanel } from "./WarehouseConfigPanel";
 import { ManualControlModal } from "./ManualControlModal";
 import { MapPanel } from "./MapPanel";
 import { IntralogisticsPanel } from "./IntralogisticsPanel";
+import { StaffPortal } from "./StaffPortal";
 
 const DEFAULT_LOCATIONS: MissionLocations = {
   home_lat: 0,
@@ -20,7 +21,7 @@ const DEFAULT_LOCATIONS: MissionLocations = {
   drop_lon: 0,
 };
 
-type ActiveTab = "intralogistics" | "dashboard" | "map" | "split";
+type ActiveTab = "intralogistics" | "staff" | "dashboard" | "map" | "split";
 
 export function Dashboard() {
   const { telemetry, droneOnline, lastError } =
@@ -112,6 +113,13 @@ export function Dashboard() {
             </button>
             <button
               type="button"
+              className={`tab-btn ${activeTab === "staff" ? "active" : ""}`}
+              onClick={() => setActiveTab("staff")}
+            >
+              👨‍💼 Nhân viên kho
+            </button>
+            <button
+              type="button"
               className={`tab-btn ${activeTab === "dashboard" ? "active" : ""}`}
               onClick={() => setActiveTab("dashboard")}
             >
@@ -167,6 +175,13 @@ export function Dashboard() {
             stationOp={stationOp}
             cameraActive={cameraActive}
           />
+        </div>
+      )}
+
+      {/* Tab: Nhân viên kho (Staff Portal) */}
+      {activeTab === "staff" && (
+        <div className="view-container">
+          <StaffPortal storageSlots={storage} />
         </div>
       )}
 

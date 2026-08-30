@@ -18,6 +18,7 @@ class SystemModeManager:
     def __init__(self):
         self.mode: str = "AUTO"  # "AUTO" | "MANUAL"
         self.auto_state: str = "STANDBY"  # "STANDBY" | "RUNNING" | "PAUSED" | "ERROR"
+        self.operation_mode: str = "STATION_AUTO"  # "STATION_AUTO" | "STAFF_OPERATION"
         self.is_scheduler_active: bool = False  # False until Operator presses START KHO TRAM
 
     @classmethod
@@ -32,11 +33,40 @@ class SystemModeManager:
     def is_manual(self) -> bool:
         return self.mode.upper() == "MANUAL"
 
+    def is_staff_mode(self) -> bool:
+        return self.operation_mode == "STAFF_OPERATION"
+
     def is_auto_running(self) -> bool:
-        return self.is_auto() and self.auto_state == "RUNNING" and self.is_scheduler_active
+        return self.is_auto() and self.auto_state == "RUNNING" and self.is_scheduler_active and not self.is_staff_mode()
 
     def can_auto_dispatch(self) -> bool:
         return self.is_auto_running()
+
+    async def set_operation_mode(self, op_mode: str) -> str:
+        """Switch between STATION_AUTO (Drone Station Flow 8&9) and STAFF_OPERATION (Warehouse Staff)."""
+        val_op = op_mode.upper().strip()
+        if val_op not in ("STATION_AUTO", "STAFF_OPERATION"):
+            raise ValueError("Operation mode must be 'STATION_AUTO' or 'STAFF_OPERATION'")
+        
+        old_op = self.operation_mode
+        self.operation_mode = val_op
+
+        # If switching to STAFF_OPERATION, pause station scheduler to prevent resource conflict with drone
+        if self.operation_mode == "STAFF_OPERATION":
+            self.is_scheduler_active = False
+            self.auto_state = "STANDBY"
+        
+        logger.info("[SystemModeManager] Operation Mode changed: %s -> %s (Scheduler Active: %s)",
+                    old_op, self.operation_mode, self.is_scheduler_active)
+
+        await system_ws_manager.broadcast("SYSTEM_MODE_UPDATE", {
+            "mode": self.mode,
+            "auto_state": self.auto_state,
+            "operation_mode": self.operation_mode,
+            "is_scheduler_active": self.is_scheduler_active,
+            "message": f"Chế độ vận hành đã chuyển sang: {self.operation_mode}",
+        })
+        return self.operation_mode
 
     async def set_mode(self, new_mode: str) -> str:
         validated_mode = new_mode.upper().strip()
@@ -61,6 +91,7 @@ class SystemModeManager:
         await system_ws_manager.broadcast("SYSTEM_MODE_UPDATE", {
             "mode": self.mode,
             "auto_state": self.auto_state,
+            "operation_mode": self.operation_mode,
             "is_scheduler_active": self.is_scheduler_active,
             "message": f"Chế độ hệ thống đã chuyển sang: {self.mode} ({self.auto_state})",
         })
@@ -70,6 +101,7 @@ class SystemModeManager:
         """Activate full AUTO RUNNING mode and enable FIFO Scheduler."""
         if not self.is_auto():
             self.mode = "AUTO"
+        self.operation_mode = "STATION_AUTO"
         self.auto_state = "RUNNING"
         self.is_scheduler_active = True
         logger.info("[SystemModeManager] ⚡ AUTO STATE -> RUNNING (Scheduler Active: True)")
@@ -77,6 +109,7 @@ class SystemModeManager:
         await system_ws_manager.broadcast("SYSTEM_MODE_UPDATE", {
             "mode": self.mode,
             "auto_state": self.auto_state,
+            "operation_mode": self.operation_mode,
             "is_scheduler_active": self.is_scheduler_active,
             "message": "⚡ Hệ thống kho trạm đã KHỞI ĐỘNG TỰ ĐỘNG (RUNNING)!",
         })
@@ -90,6 +123,7 @@ class SystemModeManager:
         await system_ws_manager.broadcast("SYSTEM_MODE_UPDATE", {
             "mode": self.mode,
             "auto_state": self.auto_state,
+            "operation_mode": self.operation_mode,
             "is_scheduler_active": self.is_scheduler_active,
             "message": "⏸️ Hệ thống kho trạm đã TẠM DỪNG TỰ ĐỘNG (PAUSED).",
         })
@@ -98,13 +132,16 @@ class SystemModeManager:
         return {
             "mode": self.mode,
             "auto_state": self.auto_state,
+            "operation_mode": self.operation_mode,
             "is_auto": self.is_auto(),
             "is_manual": self.is_manual(),
+            "is_staff_mode": self.is_staff_mode(),
             "is_auto_running": self.is_auto_running(),
             "is_scheduler_active": self.is_scheduler_active,
         }
 
 
 system_mode_manager = SystemModeManager.get_instance()
+
 
 

@@ -23,7 +23,7 @@ export function StorageSlotsGrid({ slots }: Props) {
     return slots.find((s) => s.slot_name === name || `Slot-${s.id}` === name);
   };
 
-  const handleClear = async (slotId: number) => {
+  const handleClear = async (slotId: number | string) => {
     setLoading(true);
     setMsg(null);
     try {
@@ -34,7 +34,7 @@ export function StorageSlotsGrid({ slots }: Props) {
         return;
       }
       const data = await res.json();
-      setMsg(data.message || `Đã dọn dẹp ô kho #${slotId}`);
+      setMsg(data.message || `Đã xóa hàng / giải phóng ô kho ${slotId} thành công!`);
       setSelectedSlot(null);
     } catch (err) {
       setMsg(`Lỗi: ${err instanceof Error ? err.message : "Thất bại"}`);
@@ -164,14 +164,15 @@ export function StorageSlotsGrid({ slots }: Props) {
             )}
           </div>
 
-          <div className="slot-actions">
+          <div className="slot-actions" style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
             <button
               type="button"
               className="btn btn-danger btn-sm"
-              onClick={() => handleClear(selectedSlot.id)}
+              style={{ background: "#ef4444", color: "#fff", fontWeight: "bold" }}
+              onClick={() => handleClear(selectedSlot.slot_name || selectedSlot.id)}
               disabled={loading}
             >
-              🗑️ Giải phóng Ô kho
+              🗑️ Xóa Hàng Trong Ô (Clear Slot)
             </button>
             <button
               type="button"

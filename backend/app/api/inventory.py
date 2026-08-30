@@ -39,30 +39,34 @@ async def update_inventory_slot(
     if not updated:
         raise HTTPException(status_code=404, detail=f"Storage slot {slot_name} not found")
 
-    await system_ws_manager.broadcast("INVENTORY_STATUS", {
-        "slot_name": updated.slot_name,
-        "status": updated.status,
-        "product_id": updated.product_id,
-    })
+    all_slots = await mgr.get_all_slots()
+    slots_data = [
+        StorageSlotResponse.model_validate(s, from_attributes=True).model_dump(mode="json")
+        for s in all_slots
+    ]
+    await system_ws_manager.broadcast("INVENTORY_STATUS", slots_data)
 
     return updated
 
 
 @inventory_router.post("/slots/{slot_id}/clear", response_model=StorageSlotResponse)
+@inventory_router.delete("/slots/{slot_id}", response_model=StorageSlotResponse)
+@inventory_router.delete("/slots/{slot_id}/clear", response_model=StorageSlotResponse, include_in_schema=False)
 async def clear_inventory_slot(
-    slot_id: int,
+    slot_id: str,
     session: AsyncSession = Depends(get_session),
 ):
     mgr = InventoryManager(session)
-    cleared = await mgr.clear_slot_by_id(slot_id)
+    cleared = await mgr.clear_slot(slot_id)
     if not cleared:
-        raise HTTPException(status_code=404, detail=f"Storage slot ID {slot_id} not found")
+        raise HTTPException(status_code=404, detail=f"Storage slot '{slot_id}' not found")
 
-    await system_ws_manager.broadcast("INVENTORY_STATUS", {
-        "slot_name": cleared.slot_name,
-        "status": cleared.status,
-        "product_id": None,
-    })
+    all_slots = await mgr.get_all_slots()
+    slots_data = [
+        StorageSlotResponse.model_validate(s, from_attributes=True).model_dump(mode="json")
+        for s in all_slots
+    ]
+    await system_ws_manager.broadcast("INVENTORY_STATUS", slots_data)
 
     return cleared
 

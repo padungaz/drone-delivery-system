@@ -107,7 +107,14 @@ class InventoryManager:
 
     async def clear_slot_by_id(self, slot_id: int) -> Optional[StorageSlotRecord]:
         """Clear/reset a storage slot by its ID."""
-        stmt = select(StorageSlotRecord).where(StorageSlotRecord.id == slot_id)
+        return await self.clear_slot(slot_id)
+
+    async def clear_slot(self, slot_identifier: str | int) -> Optional[StorageSlotRecord]:
+        """Clear/reset a storage slot by its ID or slot_name."""
+        if isinstance(slot_identifier, int) or (isinstance(slot_identifier, str) and slot_identifier.isdigit()):
+            stmt = select(StorageSlotRecord).where(StorageSlotRecord.id == int(slot_identifier))
+        else:
+            stmt = select(StorageSlotRecord).where(StorageSlotRecord.slot_name == str(slot_identifier).upper())
         res = await self.session.execute(stmt)
         slot = res.scalar_one_or_none()
         if not slot:
@@ -116,9 +123,10 @@ class InventoryManager:
         slot.status = StorageSlotStatus.EMPTY.value
         slot.product_id = None
         slot.qr_code = None
+        slot.sender_name = None
         slot.updated_time = datetime.utcnow()
 
-        logger.info("Cleared slot ID %d (%s)", slot_id, slot.slot_name)
+        logger.info("Cleared slot %s (ID: %d)", slot.slot_name, slot.id)
         await self.session.commit()
         await self.session.refresh(slot)
         return slot

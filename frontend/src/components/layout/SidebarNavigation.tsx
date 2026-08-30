@@ -1,5 +1,6 @@
 export type NavTab =
   | "dashboard"
+  | "staff"
   | "uav"
   | "robot"
   | "warehouse"
@@ -17,6 +18,7 @@ interface Props {
 export function SidebarNavigation({ activeTab, onTabChange }: Props) {
   const navItems: { id: NavTab; label: string; icon: string }[] = [
     { id: "dashboard", label: "Dashboard", icon: "🎛️" },
+    { id: "staff", label: "Nhân viên kho", icon: "👨‍💼" },
     { id: "uav", label: "Drone (UAV)", icon: "🚁" },
     { id: "robot", label: "Robot Arm", icon: "🤖" },
     { id: "warehouse", label: "Warehouse", icon: "📦" },

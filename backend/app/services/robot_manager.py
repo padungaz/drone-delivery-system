@@ -304,6 +304,36 @@ class RobotManager:
             self.state = "READY"
             logger.info("FAIRINO Robot: Successfully placed product into %s (DONE)", target)
 
+        elif cmd == RobotCommand.OUTBOUND_CYCLE:
+            self.state = "MOVING"
+            self.current_slot = target
+            payload = f"OUTBOUND_CYCLE {target}"
+            if self.simulator_mode:
+                await asyncio.sleep(1.0)
+                success = True
+            else:
+                success = await self._send_socket_command(payload, timeout=45.0)
+            if not success:
+                raise RuntimeError(f"FAIRINO Robot OUTBOUND_CYCLE {target} execution failed")
+            self.holding_product = None
+            self.state = "READY"
+            logger.info("FAIRINO Robot: Successfully completed OUTBOUND_CYCLE (%s -> HOME -> O1 -> HOME -> DO2) (DONE)", target)
+
+        elif cmd == RobotCommand.INBOUND_CYCLE:
+            self.state = "MOVING"
+            self.current_slot = target
+            payload = f"INBOUND_CYCLE {target}"
+            if self.simulator_mode:
+                await asyncio.sleep(1.0)
+                success = True
+            else:
+                success = await self._send_socket_command(payload, timeout=45.0)
+            if not success:
+                raise RuntimeError(f"FAIRINO Robot INBOUND_CYCLE {target} execution failed")
+            self.holding_product = None
+            self.state = "READY"
+            logger.info("FAIRINO Robot: Successfully completed INBOUND_CYCLE (O1 -> HOME -> %s -> HOME -> DO3) (DONE)", target)
+
         elif cmd == RobotCommand.PICK_UAV:
             self.state = "PICKING"
             self.current_slot = "N1"

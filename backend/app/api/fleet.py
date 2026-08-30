@@ -130,6 +130,14 @@ async def system_auto_start(session: AsyncSession = Depends(get_session)):
             detail="Không thể khởi động tự động! Hệ thống đang ở trạng thái Dừng Khẩn Cấp (E-STOP). Vui lòng Reset trước."
         )
 
+    # Check staff operation interlock
+    from app.services.staff_operation_manager import staff_operation_manager
+    if staff_operation_manager.status == "RUNNING":
+        raise HTTPException(
+            status_code=409,
+            detail="Không thể Khởi động Tự động Kho Trạm khi Nhân viên đang lấy hoặc thêm hàng! Vui lòng dừng hoặc chờ chu trình nhân viên hoàn tất."
+        )
+
     await system_ws_manager.broadcast("SYSTEM_ALERT", {
         "level": "INFO",
         "message": "⚡ Đang kiểm tra an toàn và kích hoạt PLC S7-1200 (Homing Trục Z & Khởi Động Trạm)...",

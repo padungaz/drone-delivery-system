@@ -1,7 +1,7 @@
 # Hệ Thống Kho Thông Minh & Trạm Giao Nhận Drone (Smart Intralogistics & UAV Fleet System)
 ## Báo Cáo Tiến Độ Dự Án & Kế Hoạch Triển Khai (task.md)
 
-Cập nhật lần cuối: **18/08/2026**
+Cập nhật lần cuối: **24/08/2026**
 
 ---
 
@@ -126,11 +126,35 @@ Hệ thống tự động hóa kho thông minh kết hợp giao nhận bằng m�
   - Bọc `try ... finally` đảm bảo luôn gọi `CameraManager.stop_camera()` sau khi quét xong hoặc khi có Exception.
   - Bổ sung mã lỗi chi tiết tiếng Việt (`ERROR_DRONE_NOT_DETECTED`, `ERROR_PLC_LOCK_FAILED`, `ERROR_ROBOT_PICK_FAILED`, `ERROR_QR_SCAN_FAILED`, `ERROR_QR_VERIFY_FAILED`, `ERROR_PLC_Z_UP_FAILED`, `ERROR_PLC_Z_DOWN_FAILED`, `ERROR_PLC_UNLOCK_FAILED`).
 
+### 👨‍💼 2.9. Phân Hệ Vận Hành Kho Cho Nhân Viên & Tích Hợp Băng Tải (Staff Portal & Conveyor Integration - Cập nhật 24/08/2026)
+- [x] **Tách Biệt Hai Chế Độ Vận Hành Độc Lập ([system_mode_manager.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/system_mode_manager.py))**:
+  - Hỗ trợ chuyển đổi giữa **`START KHO TRẠM` (Station Auto)** và **`CHẾ ĐỘ NHÂN VIÊN` (Staff Operation)**.
+  - Khi ở `CHẾ ĐỘ NHÂN VIÊN`: Hệ thống tự động cô lập hàng đợi Drone, tạm dừng Scheduler tự động của trạm Drone để đảm bảo không xung đột tài nguyên robot/kho.
+- [x] **Chu Trình Lấy Hàng Ra Băng Tải (Staff Outbound Picking Queue)**:
+  - Cho phép nhân viên chọn danh sách các ô cần lấy từ ma trận kho $3\times3$ ($A1..C3$).
+  - Backend điều phối lần lượt từng ô: Kiểm tra cảm biến đầu băng tải $\rightarrow$ Robot FR3 gắp sản phẩm từ ô kho đặt ra vị trí $O1$ trên băng tải $\rightarrow$ Robot kích $DO1$ báo PLC $\rightarrow$ Cập nhật CSDL ô trống $\rightarrow$ PLC kích động cơ băng tải chạy đưa hàng về phía nhân viên.
+- [x] **Chu Trình Thêm Hàng Vào Kho (Staff Inbound Storing Flow)**:
+  - Hỗ trợ 3 chế độ nạp hàng: *Theo số lượng chỉ định (Quantity)*, *Nạp liên tục chủ động (Continuous)*, và *Tự dừng khi đầy kho 9 ô (Full Stop)*.
+  - Tự động tìm ô trống gần nhất $\rightarrow$ Camera quét mã QR kiện hàng tại $O1$ $\rightarrow$ Robot gắp từ $O1$ cất vào ô kho $\rightarrow$ Lưu thông tin sản phẩm và mã QR vào CSDL.
+- [x] **Mở Rộng Giao Thức PLC DB15 Siemens S7-1200 ([plc_manager.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/services/plc_manager.py), [schemas.py](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/backend/app/models/schemas.py))**:
+  - **Byte 1 (Lệnh Backend $\rightarrow$ PLC)**: `DB15.DBX1.0` (Staff Mode Enable), `DB15.DBX1.1` (Staff Outbound Start), `DB15.DBX1.2` (Staff Outbound Cancel), `DB15.DBX1.3` (Staff Inbound Start), `DB15.DBX1.4` (Staff Inbound Stop), `DB15.DBX1.5` (Conveyor Run), `DB15.DBX1.6` (Conveyor Stop).
+  - **Byte 3 (Trạng thái PLC $\rightarrow$ Backend)**: `DB15.DBX3.0` (Cảm biến 1: Đầu băng tải/O1), `DB15.DBX3.1` (Cảm biến 2: Cuối băng tải/Nhân viên), `DB15.DBX3.2` (Băng tải RUN), `DB15.DBX3.3` (Outbound Busy), `DB15.DBX3.4` (Outbound Done), `DB15.DBX3.5` (Inbound Busy), `DB15.DBX3.6` (Inbound Done), `DB15.DBX3.7` (Staff Mode Active).
+- [x] **Giao Diện HMI Chuyên Dụng Cho Nhân Viên ([StaffPortal.tsx](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/frontend/src/components/StaffPortal.tsx))**:
+  - Thêm tab **`👨‍💼 Nhân viên kho`** trên thanh điều hướng [SidebarNavigation.tsx](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/frontend/src/components/layout/SidebarNavigation.tsx).
+  - Giao diện trực quan ma trận kho $3\times3$ hiển thị realtime vị trí còn hàng/trống.
+  - Tab **Lấy hàng**: Bộ chọn hàng đợi (Queue Picker), nút *Bắt đầu lấy hàng*, nút *Hủy*, hiển thị tiến độ từng ô.
+  - Tab **Thêm hàng**: 3 chế độ nạp, khung Live QR Scanner, danh sách kiện đã nạp thành công.
+  - **Bộ Mô Phỏng Băng Tải Realtime**: Hiển thị trạng thái Cảm biến 1 (Đầu/O1), Cảm biến 2 (Cuối), và Động cơ Băng tải đang chạy/dừng.
+- [x] **Cập Nhật Lua Script Robot FAIRINO (`code-robot.lua`)**:
+  - Bổ sung vị trí tọa độ `O1` (Đầu băng tải) cho cả lệnh gắp và lệnh đặt sản phẩm.
+- [x] **Tự Động Hóa & Kiểm Thử (`test_staff_operations.py`)**:
+  - 100% Passed: Kiểm tra chuyển đổi Mode, Outbound Queue, Inbound Flow, và đồng bộ I/O DB15.
+
 ---
 
 ## ⏳ 3. Những Gì CHƯA LÀM ĐƯỢC / CẦN NÂNG CẤP (Pending & Improvements)
 - [ ] **Kiểm thử trực tiếp trên phần cứng vật lý tại xưởng**:
-  - Cần cắm cáp LAN kết nối thực tế với Controller Robot FAIRINO FR3 (IP `192.168.58.2:8090`) và PLC Siemens S7-1200 (IP `192.168.58.10`, Rack 0, Slot 1) để xác thực thời gian đáp ứng cơ khí thật.
+  - Cần cắm cáp LAN kết nối thực tế với Controller Robot FAIRINO FR3 (IP `192.168.58.2:8090`), PLC Siemens S7-1200 (IP `192.168.58.10`, Rack 0, Slot 1) và 2 cảm biến quang + động cơ băng tải để xác thực thời gian đáp ứng cơ khí thật.
 - [ ] **Báo cáo thống kê hiệu suất ca làm việc (OEE Analytics)**:
   - Lưu trữ thời gian chu kỳ (Cycle Time) từng bước vào database để vẽ biểu đồ thống kê số lượng đơn xử lý theo giờ/ngày.
 - [ ] **Âm thanh cảnh báo (Audio Alerts)**:
@@ -141,7 +165,7 @@ Hệ thống tự động hóa kho thông minh kết hợp giao nhận bằng m�
 ## 🚀 4. KẾ HOẠCH TIẾP THEO (Next Steps Roadmap)
 
 1. **Giai đoạn 1: Chạy thử nghiệm chuỗi đơn hàng liên hoàn (End-to-End Stress Test)**:
-   - Tạo kịch bản 5 đơn hàng liên tiếp (3 Nhận hàng, 2 Giao hàng).
+   - Tạo kịch bản 5 đơn hàng liên tiếp (3 Nhận hàng, 2 Giao hàng) và kiểm tra chuyển đổi qua lại giữa Kho Trạm $\leftrightarrow$ Chế độ Nhân viên.
    - Kiểm tra việc luân chuyển tự động giữa Camera USB $\leftrightarrow$ Robot FR3 $\leftrightarrow$ PLC S7-1200 trên Dashboard HMI.
 2. **Giai đoạn 2: Tối ưu hóa trải nghiệm tương tác (UX Polish)**:
    - Thêm hiệu ứng âm thanh cảnh báo công nghiệp (Audio sound effects cho sự kiện Start/Done/Error).
@@ -149,5 +173,6 @@ Hệ thống tự động hóa kho thông minh kết hợp giao nhận bằng m�
 3. **Giai đoạn 3: Đóng gói và hướng dẫn bàn giao**:
    - Viết tài liệu hướng dẫn vận hành cho kỹ sư trực ca HMI.
    - Tạo script khởi động 1-click cho toàn bộ hệ sinh thái (Backend Uvicorn + Frontend Vite + Hardware Drivers).
+
 
 

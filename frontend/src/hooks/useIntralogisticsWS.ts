@@ -178,10 +178,25 @@ export function useIntralogisticsWS() {
                 }
                 break;
               case "INVENTORY_STATUS":
+              case "STORAGE_UPDATE":
                 if (Array.isArray(msg.data)) {
                   setStorage(msg.data);
                 } else if (msg.data && Array.isArray(msg.data.slots)) {
                   setStorage(msg.data.slots);
+                } else if (msg.data && (msg.data.slot_name || msg.data.id)) {
+                  setStorage((prev) =>
+                    prev.map((s) =>
+                      s.slot_name === msg.data.slot_name || s.id === msg.data.id
+                        ? {
+                            ...s,
+                            status: msg.data.status || "EMPTY",
+                            product_id: msg.data.product_id || null,
+                            qr_code: msg.data.qr_code || null,
+                            is_empty: msg.data.status === "EMPTY" || !msg.data.product_id,
+                          }
+                        : s
+                    )
+                  );
                 }
                 break;
               case "STATION_STATUS":
@@ -215,6 +230,12 @@ export function useIntralogisticsWS() {
                 break;
               case "SYSTEM_ALERT":
                 window.dispatchEvent(new CustomEvent("system_alert", { detail: msg.data }));
+                break;
+              case "SYSTEM_MODE_UPDATE":
+                window.dispatchEvent(new CustomEvent("system_mode_update", { detail: msg.data }));
+                break;
+              case "STAFF_OPERATION_UPDATE":
+                window.dispatchEvent(new CustomEvent("staff_operation_update", { detail: msg.data }));
                 break;
               default:
                 // Unknown event type — ignore

@@ -360,6 +360,15 @@ class PLCCommand(str, Enum):
     STOP_PLC = "STOP_PLC"
     START_PLC = "START_PLC"
     RESET_PLC = "RESET_PLC"
+    # Staff Mode & Conveyor Commands (DB15 Byte 1)
+    STAFF_MODE_ENABLE = "STAFF_MODE_ENABLE"
+    STAFF_MODE_DISABLE = "STAFF_MODE_DISABLE"
+    STAFF_OUTBOUND_START = "STAFF_OUTBOUND_START"
+    STAFF_OUTBOUND_CANCEL = "STAFF_OUTBOUND_CANCEL"
+    STAFF_INBOUND_START = "STAFF_INBOUND_START"
+    STAFF_INBOUND_STOP = "STAFF_INBOUND_STOP"
+    CONVEYOR_RUN = "CONVEYOR_RUN"
+    CONVEYOR_STOP = "CONVEYOR_STOP"
 
 
 class PLCCommandRequest(BaseModel):
@@ -381,6 +390,19 @@ class PLCStatusResponse(BaseModel):
     plc_busy: bool = False
     watchdog_active: bool = False      # True when DB15.DBX0.7 heartbeat task is running
 
+    # Staff Mode & Conveyor Status (DB15 Byte 3 & Words 4, 6)
+    sensor_conveyor_head: bool = False # DB15.DBX3.0 (Cảm biến đầu băng tải / O1)
+    sensor_conveyor_end: bool = False  # DB15.DBX3.1 (Cảm biến cuối băng tải / Nhân viên)
+    conveyor_running: bool = False     # DB15.DBX3.2 (Băng tải đang chạy)
+    staff_outbound_busy: bool = False  # DB15.DBX3.3 (PLC đang xuất hàng)
+    staff_outbound_done: bool = False  # DB15.DBX3.4 (PLC đã xuất xong danh sách)
+    staff_inbound_busy: bool = False   # DB15.DBX3.5 (PLC đang nhận hàng)
+    staff_inbound_done: bool = False   # DB15.DBX3.6 (PLC kết thúc nhận hàng)
+    staff_mode_active: bool = False    # DB15.DBX3.7 (Xác nhận PLC ở Chế độ Nhân viên)
+    staff_target_count: int = 0        # DB15.DBW4 (Số lượng hàng Backend yêu cầu PLC)
+    staff_current_count: int = 0       # DB15.DBW6 (Số lượng hàng PLC đã đếm được)
+
+
 
 class RobotCommand(str, Enum):
     MOVE_HOME = "MOVE_HOME"
@@ -389,6 +411,8 @@ class RobotCommand(str, Enum):
     PLACE_PRODUCT = "PLACE_PRODUCT"
     PICK = "PICK"
     STORE = "STORE"
+    OUTBOUND_CYCLE = "OUTBOUND_CYCLE"
+    INBOUND_CYCLE = "INBOUND_CYCLE"
     PICK_UAV = "PICK_UAV"
     PLACE_UAV = "PLACE_UAV"
     SCAN_QR_POS = "SCAN_QR_POS"
@@ -406,6 +430,8 @@ class RobotCommand(str, Enum):
                 "MOVE_HOME": cls.MOVE_HOME,
                 "STANDBY": cls.STANDBY,
                 "MOVE_STANDBY": cls.STANDBY,
+                "OUTBOUND": cls.OUTBOUND_CYCLE,
+                "INBOUND": cls.INBOUND_CYCLE,
                 "SCAN_QR": cls.SCAN_QR_POS,
                 "SCAN_QR_POS": cls.SCAN_QR_POS,
                 "PICK_PAD": cls.PICK_UAV,

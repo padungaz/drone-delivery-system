@@ -15,6 +15,7 @@ from app.api.plc import plc_router
 from app.api.robot import robot_router
 from app.api.station import station_router
 from app.api.fleet import fleet_router
+from app.api.staff import staff_router
 from app.api.routes import router
 from app.config import settings
 from app.database.repository import async_session, init_db
@@ -235,6 +236,7 @@ app.include_router(station_router)
 app.include_router(inventory_router)
 app.include_router(mission_router)
 app.include_router(fleet_router)
+app.include_router(staff_router)
 
 
 @app.websocket("/ws/system")

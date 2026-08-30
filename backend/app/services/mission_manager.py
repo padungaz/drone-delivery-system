@@ -91,7 +91,7 @@ class MissionManager:
     ) -> IntralogisticsMissionRecord:
         """Flow Nhập Kho (DRONE_PICKUP) — Layer 2 Mission Orchestration & Queue Manager."""
         active = await self.get_active_mission()
-        should_run_now = auto_run and (active is None) and system_mode_manager.is_auto()
+        should_run_now = auto_run and (active is None) and system_mode_manager.can_auto_dispatch()
 
         free_slot_rec = await self.inventory_mgr.find_available_slot()
         target_slot = free_slot_rec.slot_name if free_slot_rec else "A1"
@@ -144,7 +144,7 @@ class MissionManager:
     ) -> IntralogisticsMissionRecord:
         """Flow Xuất Kho (DRONE_DELIVERY) — Layer 2 Mission Orchestration & Queue Manager."""
         active = await self.get_active_mission()
-        should_run_now = auto_run and (active is None) and system_mode_manager.is_auto()
+        should_run_now = auto_run and (active is None) and system_mode_manager.can_auto_dispatch()
 
         slot_record = await self.inventory_mgr.find_slot_by_product_id(product_id)
         if not slot_record:

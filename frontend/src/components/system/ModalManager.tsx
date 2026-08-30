@@ -5,6 +5,8 @@ import { SafetyAlarmModal } from "../modals/SafetyAlarmModal";
 import { InputSlotModal } from "../modals/InputSlotModal";
 import type { DeviceInfo } from "../../types/drone";
 
+import { clearStorageSlot } from "../../services/api";
+
 export type ModalType =
   | "slot_detail"
   | "confirm_action"
@@ -53,6 +55,14 @@ export function ModalManager({
           onClose();
           if (onConfirmAction) {
             onConfirmAction({ action: "STORE", slotId: modalData?.slotId, cmd: "STORE", slot: modalData?.slotId });
+          }
+        }}
+        onClear={async (slotId) => {
+          onClose();
+          try {
+            await clearStorageSlot(slotId);
+          } catch (e) {
+            console.error("Failed to clear slot:", e);
           }
         }}
       />
