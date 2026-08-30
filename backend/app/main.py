@@ -61,62 +61,89 @@ class RoutinePollingFilter(logging.Filter):
 logging.getLogger("uvicorn.access").addFilter(RoutinePollingFilter())
 
 
+_last_device_statuses: dict[str, DeviceStatus] = {}
+_db_sync_counter: int = 0
+
+
 async def heartbeat_monitor_task():
-    """Background task syncing device heartbeats and checking timeouts every 5 seconds."""
+    """Background task syncing device heartbeats and checking timeouts every 5 seconds.
+    Optimized: In-memory status tracking eliminates repetitive SQLite disk I/O;
+    only writes to DB when status changes or periodically every 60 seconds.
+    """
+    global _db_sync_counter
     while True:
         try:
             await asyncio.sleep(5)
-            async with async_session() as session:
-                mgr = DeviceManager(session)
+            _db_sync_counter += 1
+            should_sync_db = (_db_sync_counter % 12 == 0)  # Every 60 seconds (12 x 5s)
 
-                # Sync PLC01 heartbeat — ping PLC to check if TCP connection is still alive
-                plc_mgr = PLCManager.get_instance()
-                await plc_mgr.check_connection()
-                plc_status = DeviceStatus.ONLINE if (plc_mgr.is_connected or plc_mgr.simulator_mode) else DeviceStatus.OFFLINE
-                await mgr.update_heartbeat(DeviceHeartbeatRequest(name="PLC01", status=plc_status))
+            # Check PLC01
+            plc_mgr = PLCManager.get_instance()
+            await plc_mgr.check_connection()
+            plc_status = DeviceStatus.ONLINE if (plc_mgr.is_connected or plc_mgr.simulator_mode) else DeviceStatus.OFFLINE
 
-                # Sync ROBOT01 heartbeat based on RobotManager state
-                robot_mgr = RobotManager.get_instance()
-                await robot_mgr.check_connection()
-                robot_status = DeviceStatus.ONLINE if (robot_mgr.is_connected or robot_mgr.simulator_mode) else DeviceStatus.OFFLINE
-                await mgr.update_heartbeat(DeviceHeartbeatRequest(name="ROBOT01", status=robot_status))
+            # Check ROBOT01
+            robot_mgr = RobotManager.get_instance()
+            await robot_mgr.check_connection()
+            robot_status = DeviceStatus.ONLINE if (robot_mgr.is_connected or robot_mgr.simulator_mode) else DeviceStatus.OFFLINE
 
-                # Sync CAM01 heartbeat based on CameraManager state
-                cam_mgr = CameraManager.get_instance()
-                cam_info = cam_mgr.get_status()
-                cam_status = DeviceStatus.ONLINE if (cam_info.get("is_active") or cam_info.get("simulator_mode")) else DeviceStatus.OFFLINE
-                await mgr.update_heartbeat(DeviceHeartbeatRequest(name="CAM01", status=cam_status))
+            # Check CAM01
+            cam_mgr = CameraManager.get_instance()
+            cam_info = cam_mgr.get_status()
+            cam_status = DeviceStatus.ONLINE if (cam_info.get("is_active") or cam_info.get("simulator_mode")) else DeviceStatus.OFFLINE
 
-                # Sync UAV01 heartbeat based on Drone WebSocket connection or simulator mode
-                uav_sim = os.getenv("UAV_SIMULATOR_MODE", "false").lower() in ("true", "1")
-                uav_connected = drone_ws_manager.is_drone_connected("UAV01") or drone_ws_manager.is_drone_connected("drone-01") or uav_sim
-                uav_status = DeviceStatus.ONLINE if uav_connected else DeviceStatus.OFFLINE
-                await mgr.update_heartbeat(DeviceHeartbeatRequest(name="UAV01", status=uav_status))
+            # Check UAV01
+            uav_sim = os.getenv("UAV_SIMULATOR_MODE", "false").lower() in ("true", "1")
+            uav_connected = drone_ws_manager.is_drone_connected("UAV01") or drone_ws_manager.is_drone_connected("drone-01") or uav_sim
+            uav_status = DeviceStatus.ONLINE if uav_connected else DeviceStatus.OFFLINE
 
-                # Broadcast realtime heartbeat & status via WebSocket
-                await system_ws_manager.broadcast("DEVICE_HEARTBEAT", {
-                    "device_name": "PLC01",
-                    "status": plc_status.value,
-                })
-                await system_ws_manager.broadcast("DEVICE_HEARTBEAT", {
-                    "device_name": "ROBOT01",
-                    "status": robot_status.value,
-                })
-                await system_ws_manager.broadcast("DEVICE_HEARTBEAT", {
-                    "device_name": "CAM01",
-                    "status": cam_status.value,
-                })
-                await system_ws_manager.broadcast("PLC_STATUS", plc_mgr.get_status().model_dump())
-                await system_ws_manager.broadcast("ROBOT_STATUS", robot_mgr.get_status().model_dump())
-                await system_ws_manager.broadcast("CAMERA_STATUS", cam_info)
-                await fleet_manager.broadcast_fleet_state()
+            current_statuses = {
+                "PLC01": plc_status,
+                "ROBOT01": robot_status,
+                "CAM01": cam_status,
+                "UAV01": uav_status,
+            }
 
-                timed_out = await mgr.check_device_timeouts()
-                for dev_name in timed_out:
-                    await system_ws_manager.broadcast("DEVICE_TIMEOUT", {
-                        "device_name": dev_name,
-                        "status": "OFFLINE",
-                    })
+            status_changed = any(
+                current_statuses[name] != _last_device_statuses.get(name)
+                for name in current_statuses
+            )
+
+            # Write to SQLite DB only when status changed or periodic 60s sync
+            if status_changed or should_sync_db or not _last_device_statuses:
+                async with async_session() as session:
+                    mgr = DeviceManager(session)
+                    for name, st in current_statuses.items():
+                        if current_statuses[name] != _last_device_statuses.get(name) or should_sync_db:
+                            await mgr.update_heartbeat(DeviceHeartbeatRequest(name=name, status=st))
+
+                    timed_out = await mgr.check_device_timeouts()
+                    for dev_name in timed_out:
+                        await system_ws_manager.broadcast("DEVICE_TIMEOUT", {
+                            "device_name": dev_name,
+                            "status": "OFFLINE",
+                        })
+
+            _last_device_statuses.update(current_statuses)
+
+            # Broadcast realtime heartbeat & status via WebSocket (always fast in-memory)
+            await system_ws_manager.broadcast("DEVICE_HEARTBEAT", {
+                "device_name": "PLC01",
+                "status": plc_status.value,
+            })
+            await system_ws_manager.broadcast("DEVICE_HEARTBEAT", {
+                "device_name": "ROBOT01",
+                "status": robot_status.value,
+            })
+            await system_ws_manager.broadcast("DEVICE_HEARTBEAT", {
+                "device_name": "CAM01",
+                "status": cam_status.value,
+            })
+            await system_ws_manager.broadcast("PLC_STATUS", plc_mgr.get_status().model_dump())
+            await system_ws_manager.broadcast("ROBOT_STATUS", robot_mgr.get_status().model_dump())
+            await system_ws_manager.broadcast("CAMERA_STATUS", cam_info)
+            await fleet_manager.broadcast_fleet_state()
+
         except asyncio.CancelledError:
             break
         except Exception as exc:

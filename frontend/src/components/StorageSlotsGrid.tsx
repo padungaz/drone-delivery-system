@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import type { StorageSlot } from "../types/drone";
 import { clearStorageSlot, scanQR } from "../services/api";
 
@@ -6,7 +6,7 @@ interface Props {
   slots: StorageSlot[];
 }
 
-export function StorageSlotsGrid({ slots }: Props) {
+export const StorageSlotsGrid = memo(function StorageSlotsGrid({ slots }: Props) {
   const [selectedSlot, setSelectedSlot] = useState<StorageSlot | null>(null);
   const [qrInput, setQrInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -213,4 +213,4 @@ export function StorageSlotsGrid({ slots }: Props) {
       {msg && <div className="action-msg text-sm mt-2">{msg}</div>}
     </div>
   );
-}
+});

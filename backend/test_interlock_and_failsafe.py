@@ -153,6 +153,8 @@ async def test_recovery_manager_cleans_orphaned_missions():
 if __name__ == "__main__":
     async def run_all():
         logger.info("=== Running Safety Interlock & Fail-Safe Test Suite ===")
+        PLCManager.get_instance().simulator_mode = True
+        RobotManager.get_instance().simulator_mode = True
         await test_safety_interlock_blocks_manual_commands()
         logger.info("✓ Test 1: Safety Interlock Blocked Manual Commands (HTTP 409) PASSED!")
 

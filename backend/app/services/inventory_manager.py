@@ -77,6 +77,14 @@ class InventoryManager:
         res = await self.session.execute(stmt)
         return res.scalars().first()
 
+    async def get_occupied_slots(self) -> List[StorageSlotRecord]:
+        """Fetch all OCCUPIED storage slots."""
+        stmt = select(StorageSlotRecord).where(
+            StorageSlotRecord.status == StorageSlotStatus.OCCUPIED.value
+        ).order_by(StorageSlotRecord.slot_name)
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
     async def update_slot(
         self,
         slot_name: str,

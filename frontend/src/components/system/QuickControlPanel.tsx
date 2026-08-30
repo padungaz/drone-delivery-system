@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 
 interface Props {
   onCommand?: (cmd: string, payload?: Record<string, unknown>) => void;
@@ -13,7 +13,7 @@ interface Props {
   brakeOk?: boolean;
 }
 
-export function QuickControlPanel({
+export const QuickControlPanel = memo(function QuickControlPanel({
   onCommand,
   systemMode = "AUTO",
   robotState = "IDLE",
@@ -245,4 +245,4 @@ export function QuickControlPanel({
       </div>
     </div>
   );
-}
+});

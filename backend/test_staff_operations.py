@@ -10,6 +10,11 @@ logger = logging.getLogger(__name__)
 async def main():
     logger.info("🧪 Bắt đầu In-Memory ASGI Integration Test cho Staff Operations Module...")
     transport = ASGITransport(app=app)
+    from app.services.plc_manager import PLCManager
+    from app.services.robot_manager import RobotManager
+    PLCManager.get_instance().simulator_mode = True
+    RobotManager.get_instance().simulator_mode = True
+
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Test Status
         res = await client.get("/api/staff/status")

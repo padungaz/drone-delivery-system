@@ -9,6 +9,7 @@ import {
   stopStaffInbound,
   getInventorySlots,
 } from "../services/api";
+import "./StaffPortal.css";
 
 interface StaffPortalProps {
   storageSlots?: StorageSlot[];
