@@ -1,12 +1,11 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Optional, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import IntralogisticsMissionRecord, SystemLogRecord, DeliveryRequestRecord
-from app.models.schemas import StorageSlotStatus
 from app.services.plc_manager import PLCManager
 from app.services.robot_manager import RobotManager
 from app.services.inventory_manager import InventoryManager

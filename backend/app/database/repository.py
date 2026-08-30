@@ -1,9 +1,8 @@
-import json
 import logging
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import event, select, text
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings

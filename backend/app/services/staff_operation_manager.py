@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.database.repository import async_session

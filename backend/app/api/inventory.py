@@ -149,10 +149,7 @@ async def generate_qr_pdf_endpoint(payload: QRScanPayload):
     from fastapi.responses import FileResponse
 
     try:
-        try:
-            from app.services.generate_qr_pdf import generate_qr_pdf
-        except ImportError:
-            from generate_qr_pdf import generate_qr_pdf
+        from app.services.generate_qr_pdf import generate_qr_pdf
 
         p_id = payload.product_id or payload.qr.strip()
         pdf_file = generate_qr_pdf(

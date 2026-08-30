@@ -1,7 +1,6 @@
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
-from app.websocket.manager import system_ws_manager
 
 logger = logging.getLogger(__name__)
 

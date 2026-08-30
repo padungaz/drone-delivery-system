@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 
 from app.models.schemas import PLCCommand, PLCCommandRequest, PLCStatusResponse
 from app.services.plc_manager import PLCManager

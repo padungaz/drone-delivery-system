@@ -14,7 +14,6 @@ import argparse
 from datetime import datetime
 import json
 import os
-import sys
 
 try:
     import qrcode

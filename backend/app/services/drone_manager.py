@@ -1,7 +1,7 @@
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
 
-from app.models.schemas import TelemetryPayload, DroneState
+from app.models.schemas import TelemetryPayload
 
 logger = logging.getLogger(__name__)
 

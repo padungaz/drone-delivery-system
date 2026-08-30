@@ -1,11 +1,10 @@
 import logging
-from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.repository import get_session
-from app.models.schemas import PLCCommand, RobotCommand
+from app.models.schemas import PLCCommand
 from app.services.fleet_manager import fleet_manager
 from app.services.system_mode_manager import system_mode_manager
 from app.services.mission_manager import MissionManager
