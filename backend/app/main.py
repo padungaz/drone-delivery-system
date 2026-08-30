@@ -200,6 +200,10 @@ async def lifespan(app: FastAPI):
                     camera_index=int(d.port) if d.port is not None else 0,
                 )
 
+        # Register main event loop with QRScannerService for threadsafe WebSocket broadcasting
+        from app.services.qr_scanner_service import QRScannerService
+        QRScannerService.get_instance().set_main_loop(asyncio.get_running_loop())
+
 
     # Start background heartbeat monitor
     monitor = asyncio.create_task(heartbeat_monitor_task())

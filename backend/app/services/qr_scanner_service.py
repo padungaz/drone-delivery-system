@@ -63,6 +63,8 @@ class QRScannerService:
         self.show_preview: bool = os.getenv("SHOW_CV2_WINDOW", "false").lower() in ("true", "1", "yes")
         self._last_station_qr_event: Optional[Dict[str, Any]] = None
         self._frame_lock: threading.Lock = threading.Lock()
+        self._latest_frame = None
+        self.main_loop: Optional[asyncio.AbstractEventLoop] = None
 
     @classmethod
     def get_instance(cls) -> "QRScannerService":
@@ -72,6 +74,64 @@ class QRScannerService:
             cls._instance = QRScannerService(camera_index=cam_idx, simulator_mode=sim_mode)
         return cls._instance
 
+    def set_main_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Register the main application asyncio event loop for thread-safe websocket broadcasts."""
+        self.main_loop = loop
+        logger.info("QRScannerService registered main asyncio event loop.")
+
+    def _dispatch_async(self, coro) -> None:
+        """Thread-safe coroutine scheduler to main event loop."""
+        if self.main_loop is not None and self.main_loop.is_running():
+            asyncio.run_coroutine_threadsafe(coro, self.main_loop)
+        else:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(coro)
+            except RuntimeError:
+                try:
+                    asyncio.run(coro)
+                except Exception as err:
+                    logger.debug("Failed to dispatch coroutine: %s", err)
+
+    def _decode_qr_enhanced(self, frame):
+        """Multi-stage QR Code detection pipeline for industrial & real-world lighting conditions:
+        Stage 1: Standard BGR detectAndDecode
+        Stage 2: Grayscale + CLAHE (Contrast Limited Adaptive Histogram Equalization) for glare/shadows
+        Stage 3: Otsu Binarization thresholding for low-contrast/dim lighting
+        """
+        if self.detector is None or frame is None or cv2 is None:
+            return "", None
+
+        # Stage 1: Native BGR
+        try:
+            data, points, _ = self.detector.detectAndDecode(frame)
+            if data and data.strip():
+                return data.strip(), points
+        except Exception:
+            pass
+
+        # Stage 2: Grayscale + CLAHE
+        try:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+            enhanced = clahe.apply(gray)
+            data, points, _ = self.detector.detectAndDecode(enhanced)
+            if data and data.strip():
+                return data.strip(), points
+        except Exception:
+            pass
+
+        # Stage 3: Otsu Adaptive Binarization
+        try:
+            _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+            data, points, _ = self.detector.detectAndDecode(thresh)
+            if data and data.strip():
+                return data.strip(), points
+        except Exception:
+            pass
+
+        return "", None
+
     def update_config(self, simulator_mode: Optional[bool] = None, camera_index: Optional[int] = None) -> None:
         """Dynamically update camera simulator mode and camera index."""
         if simulator_mode is not None:
@@ -80,7 +140,6 @@ class QRScannerService:
         if camera_index is not None:
             self.camera_index = camera_index
             logger.info("Updated QRScannerService camera_index: %d", self.camera_index)
-
 
     def _is_debounced(self, qr_text: str) -> bool:
         """Check if QR code was scanned recently (within debounce window)."""
@@ -306,9 +365,6 @@ class QRScannerService:
         self.latest_jpeg_bytes: Optional[bytes] = None
 
         window_name = "USB Camera QR Scanner - Smart Warehouse"
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         frame_counter = 0
 
         while self.is_active and self.cap.isOpened():
@@ -316,6 +372,9 @@ class QRScannerService:
                 if self.cap is None or not self.cap.isOpened():
                     break
                 ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    self._latest_frame = frame.copy()
+
             if not ret or frame is None:
                 time.sleep(0.05)
                 continue
@@ -325,10 +384,10 @@ class QRScannerService:
             qr_str = None
             points = None
 
-            # Throttle heavy CPU detectAndDecode to every 3 frames (~150ms) to save CPU
+            # Throttle heavy CPU detectAndDecode to every 3 frames (~120ms)
             if frame_counter % 3 == 0:
                 try:
-                    data, points, _ = self.detector.detectAndDecode(frame)
+                    data, points = self._decode_qr_enhanced(frame)
                     if data and data.strip():
                         qr_str = data.strip()
                         self._last_station_qr_event = {"product_id": qr_str, "qr_code": qr_str}
@@ -338,7 +397,7 @@ class QRScannerService:
                             status_text = f"OK -> {qr_str}"
                             self._mark_scanned(qr_str)
                             logger.info("📷 USB Camera detected QR code: %s", qr_str)
-                            loop.run_until_complete(self.process_qr_code(qr_str, source="USB_CAMERA"))
+                            self._dispatch_async(self.process_qr_code(qr_str, source="USB_CAMERA"))
                 except Exception as exc:
                     logger.error("Error in camera frame QR detection: %s", exc)
 
@@ -370,6 +429,7 @@ class QRScannerService:
                 if self.cap is not None:
                     self.cap.release()
                     self.cap = None
+                self._latest_frame = None
 
         if cv2 is not None and self.show_preview:
             try:
@@ -377,7 +437,6 @@ class QRScannerService:
             except Exception:
                 pass
 
-        loop.close()
         self.is_active = False
         logger.info("Backend Camera QR Scanner loop stopped.")
 
@@ -510,42 +569,40 @@ class QRScannerService:
                         "message": f"Camera USB quét thành công mã QR: {prod_id}",
                     }
 
-            # Check if camera frame has a detectable QR right now (thread-safe)
-            if self.cap is not None and self.cap.isOpened():
-                frame = None
-                with self._frame_lock:
-                    if self.cap is not None and self.cap.isOpened():
-                        ret, f = self.cap.read()
-                        if ret and f is not None:
-                            frame = f
-                if frame is not None:
-                    try:
-                        data, _, _ = self.detector.detectAndDecode(frame)
-                        if data and data.strip():
-                            raw_qr = data.strip()
-                            prod_id = raw_qr
-                            if raw_qr.startswith("{") and raw_qr.endswith("}"):
-                                try:
-                                    parsed = json.loads(raw_qr)
-                                    prod_id = str(parsed.get("productId") or parsed.get("product_id") or raw_qr)
-                                except Exception:
-                                    pass
+            # Check latest frame buffer (thread-safe, non-blocking on USB camera)
+            frame = None
+            with self._frame_lock:
+                if self._latest_frame is not None:
+                    frame = self._latest_frame.copy()
 
-                            if is_verify and expected_product_id and prod_id != expected_product_id:
-                                logger.warning("QR Verify mismatch: Scanned %s != Expected %s", prod_id, expected_product_id)
-                            else:
-                                self.last_scanned_qr = prod_id
-                                logger.info("✅ Station Camera auto-detected QR code: %s", prod_id)
-                                return {
-                                    "status": "success",
-                                    "product_id": prod_id,
-                                    "qr_code": raw_qr,
-                                    "is_verified": (prod_id == expected_product_id) if is_verify else None,
-                                    "source": "USB_CAMERA",
-                                    "message": f"Camera USB quét thành công mã QR: {prod_id}",
-                                }
-                    except Exception as err:
-                        logger.debug("QR frame decode error: %s", err)
+            if frame is not None:
+                try:
+                    data, _ = self._decode_qr_enhanced(frame)
+                    if data and data.strip():
+                        raw_qr = data.strip()
+                        prod_id = raw_qr
+                        if raw_qr.startswith("{") and raw_qr.endswith("}"):
+                            try:
+                                parsed = json.loads(raw_qr)
+                                prod_id = str(parsed.get("productId") or parsed.get("product_id") or raw_qr)
+                            except Exception:
+                                pass
+
+                        if is_verify and expected_product_id and prod_id != expected_product_id:
+                            logger.warning("QR Verify mismatch: Scanned %s != Expected %s", prod_id, expected_product_id)
+                        else:
+                            self.last_scanned_qr = prod_id
+                            logger.info("✅ Station Camera auto-detected QR code: %s", prod_id)
+                            return {
+                                "status": "success",
+                                "product_id": prod_id,
+                                "qr_code": raw_qr,
+                                "is_verified": (prod_id == expected_product_id) if is_verify else None,
+                                "source": "USB_CAMERA",
+                                "message": f"Camera USB quét thành công mã QR: {prod_id}",
+                            }
+                except Exception as err:
+                    logger.debug("QR frame decode error: %s", err)
 
             await asyncio.sleep(poll_interval)
 

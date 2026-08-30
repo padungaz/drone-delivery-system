@@ -300,10 +300,21 @@ class StaffOperationManager:
                     target_slot = empty_slot.slot_name
 
                 self.inbound_current_slot = target_slot
-                qr_code = f"SP_STAFF_{(self.inbound_current_count + 1):03d}"
-                prod_id = f"PROD_{target_slot}"
-                self.last_scanned_qr = qr_code
                 await self.log_event(f"📦 Sẵn sàng nạp kiện thứ {self.inbound_current_count + 1} vào ô trống {target_slot}...")
+
+                # Tự động nhận diện mã QR kiện hàng qua Camera tại điểm nạp O1 (timeout 2.5s)
+                scanned_qr_text = None
+                try:
+                    scan_res = await self.cam_mgr.scan_qr_auto(timeout_sec=2.5)
+                    if scan_res.get("status") == "success" and scan_res.get("product_id"):
+                        scanned_qr_text = scan_res.get("product_id")
+                        await self.log_event(f"📷 Camera đã nhận diện mã QR kiện hàng: {scanned_qr_text}")
+                except Exception as cam_err:
+                    logger.debug("Staff Inbound camera scan note: %s", cam_err)
+
+                qr_code = scanned_qr_text or f"SP_STAFF_{(self.inbound_current_count + 1):03d}"
+                prod_id = scanned_qr_text or f"PROD_{target_slot}"
+                self.last_scanned_qr = qr_code
 
                 # Giao toàn quyền chu trình cơ khí cho Robot & PLC:
                 # Cảm biến O1 phát hiện có hàng -> PLC kích DI3 -> Robot gắp O1 cất vào target_slot -> Kích DO3 sang PLC
