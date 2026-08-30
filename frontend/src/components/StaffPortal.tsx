@@ -234,6 +234,29 @@ export function StaffPortal({ storageSlots: propStorageSlots, onRefreshStorage }
   const isStaffModeActive = sysMode.operation_mode === "STAFF_OPERATION";
   const isRunning = staffOp.status === "RUNNING";
 
+  const handleSwitchMode = async (targetMode: "STATION_AUTO" | "STAFF_OPERATION") => {
+    setLoading(true);
+    setActionError(null);
+    try {
+      const res = await setStaffOperationMode(targetMode);
+      if (res.ok) {
+        setActionSuccess(
+          targetMode === "STAFF_OPERATION"
+            ? "Đã kích hoạt Phân hệ Nhân viên kho thành công."
+            : "Đã chuyển về Phân hệ Kho Trạm (Drone) tự động."
+        );
+        fetchStatus();
+      } else {
+        const err = await res.json();
+        setActionError(err.detail || "Không thể chuyển chế độ");
+      }
+    } catch (e: any) {
+      setActionError(e.message || "Lỗi khi chuyển chế độ");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="staff-portal-container">
       {/* Top Banner: Mode Switcher */}
@@ -249,8 +272,32 @@ export function StaffPortal({ storageSlots: propStorageSlots, onRefreshStorage }
         </div>
 
         <div className="banner-right">
+          <div className="auto-mode-switcher">
+            <span className="mode-label">CHUYỂN PHÂN HỆ:</span>
+            <div className="mode-toggle-group">
+              <button
+                type="button"
+                className={`mode-toggle-btn ${!isStaffModeActive ? "active station-active" : ""}`}
+                onClick={() => handleSwitchMode("STATION_AUTO")}
+                disabled={loading || isRunning}
+                title="Ưu tiên tự động chạy các nhiệm vụ Drone cất/hạ cánh"
+              >
+                🚁 KHO TRẠM AUTO
+              </button>
+              <button
+                type="button"
+                className={`mode-toggle-btn ${isStaffModeActive ? "active staff-active" : ""}`}
+                onClick={() => handleSwitchMode("STAFF_OPERATION")}
+                disabled={loading || isRunning}
+                title="Dành toàn quyền Robot và Băng tải cho Nhân viên kho"
+              >
+                👨‍💼 NHÂN VIÊN KHO
+              </button>
+            </div>
+          </div>
+
           <div className="staff-mode-badge-box">
-            <span className="mode-badge-label">PHÂN HỆ VẬN HÀNH:</span>
+            <span className="mode-badge-label">TRẠNG THÁI:</span>
             <div className={`mode-status-pill ${isRunning ? "pill-running" : isStaffModeActive ? "pill-staff" : "pill-station"}`}>
               <span className="pulse-dot"></span>
               <span className="mode-status-text">

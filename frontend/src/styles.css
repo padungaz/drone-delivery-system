@@ -4844,6 +4844,31 @@ input {
   transform: translateY(-1px);
 }
 
+.btn-system-mode-toggle.mode-staff-active {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.4));
+  border-color: #34d399;
+  color: #a7f3d0;
+  box-shadow: 0 0 14px rgba(52, 211, 153, 0.4);
+}
+
+.btn-system-mode-toggle.mode-staff-active:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.45), rgba(5, 150, 105, 0.6));
+  box-shadow: 0 0 20px rgba(52, 211, 153, 0.6);
+  transform: translateY(-1px);
+}
+
+.btn-system-mode-toggle.mode-station-active {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.2), rgba(3, 105, 161, 0.35));
+  border-color: #38bdf8;
+  color: #bae6fd;
+}
+
+.btn-system-mode-toggle.mode-station-active:hover {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.4), rgba(3, 105, 161, 0.55));
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+  transform: translateY(-1px);
+}
+
 .mode-icon {
   font-size: 1.2rem;
 }

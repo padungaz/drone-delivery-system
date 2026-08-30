@@ -14,6 +14,7 @@ interface Props {
   onModeToggle?: (mode: "AUTO" | "MANUAL") => void;
   onStartAuto?: () => void;
   onPauseAuto?: () => void;
+  onOperationModeToggle?: () => void;
   onEStopClick: () => void;
 }
 
@@ -31,6 +32,7 @@ export function SystemHeader({
   onModeToggle,
   onStartAuto,
   onPauseAuto,
+  onOperationModeToggle,
   onEStopClick,
 }: Props) {
   const [timeStr, setTimeStr] = useState("");
@@ -113,6 +115,28 @@ export function SystemHeader({
             <div className="mode-text-group">
               <span className="mode-label">CHẾ ĐỘ HỆ THỐNG</span>
               <strong className="mode-value">{systemMode === "AUTO" ? "🤖 AUTO (TỰ ĐỘNG)" : "🎮 MANUAL (THỦ CÔNG)"}</strong>
+            </div>
+          </button>
+        </div>
+
+        {/* Operation Mode Quick Toggle (Kho Trạm Auto vs Nhân viên kho) */}
+        <div className="system-op-mode-switch-box">
+          <button
+            type="button"
+            className={`btn-system-mode-toggle ${operationMode === "STAFF_OPERATION" ? "mode-staff-active" : "mode-station-active"}`}
+            onClick={onOperationModeToggle}
+            title={
+              operationMode === "STAFF_OPERATION"
+                ? "Đang ở Phân hệ Nhân viên kho. Bấm để trả về Kho Trạm Tự Động (Drone)."
+                : "Bấm để kích hoạt Phân hệ Nhân viên kho (xuất/nạp băng tải)."
+            }
+          >
+            <span className="mode-icon">{operationMode === "STAFF_OPERATION" ? "👨‍💼" : "🚁"}</span>
+            <div className="mode-text-group">
+              <span className="mode-label">PHÂN HỆ VẬN HÀNH</span>
+              <strong className="mode-value">
+                {operationMode === "STAFF_OPERATION" ? "NHÂN VIÊN KHO" : "KHO TRẠM AUTO"}
+              </strong>
             </div>
           </button>
         </div>

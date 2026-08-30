@@ -31,6 +31,7 @@ import {
   pauseSystemAuto,
   getMissionQueue,
   getStaffStatus,
+  setStaffOperationMode,
 } from "../services/api";
 import type { MissionLocations } from "../types/drone";
 
@@ -180,6 +181,27 @@ export function HmiDashboard() {
       }
     } catch {
       addLog("ERROR", "Không thể tạm dừng hệ thống tự động");
+    }
+  };
+
+  const handleOperationModeToggle = async () => {
+    const nextMode = operationMode === "STAFF_OPERATION" ? "STATION_AUTO" : "STAFF_OPERATION";
+    try {
+      const res = await setStaffOperationMode(nextMode);
+      if (res.ok) {
+        setOperationMode(nextMode);
+        addLog(
+          "INFO",
+          nextMode === "STAFF_OPERATION"
+            ? "👨‍💼 Đã kích hoạt Phân hệ Nhân viên kho"
+            : "🚁 Đã chuyển về Phân hệ Kho Trạm (Drone) tự động"
+        );
+        if (nextMode === "STAFF_OPERATION") {
+          setActiveTab("staff");
+        }
+      }
+    } catch (err: any) {
+      addLog("ERROR", `Không thể chuyển phân hệ vận hành: ${err.message}`);
     }
   };
 
@@ -428,6 +450,7 @@ export function HmiDashboard() {
         onModeToggle={handleSystemModeToggle}
         onStartAuto={handleStartAutoSystem}
         onPauseAuto={handlePauseAutoSystem}
+        onOperationModeToggle={handleOperationModeToggle}
         onEStopClick={handleEStopClick}
       />
 
