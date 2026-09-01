@@ -11,7 +11,24 @@ interface Props {
   currentSlot?: string | null;
   servoOk?: boolean;
   brakeOk?: boolean;
+  currentZLevel?: number;
+  zInPosition?: boolean;
 }
+
+const SLOT_Z_LEVELS: Record<string, number> = {
+  A1: 1, A2: 1, A3: 1,
+  B1: 2, B2: 2, B3: 2,
+  N1: 3, DOCK: 3, PAD: 3,
+  O1: 4, CONVEYOR: 4,
+};
+
+const Z_LEVEL_TITLES: Record<number, string> = {
+  0: "HOME (0)",
+  1: "TẦNG A (1)",
+  2: "TẦNG B (2)",
+  3: "DRONE N1 (3)",
+  4: "BĂNG TẢI O1 (4)",
+};
 
 export const QuickControlPanel = memo(function QuickControlPanel({
   onCommand,
@@ -24,8 +41,13 @@ export const QuickControlPanel = memo(function QuickControlPanel({
   currentSlot = null,
   servoOk = true,
   brakeOk = true,
+  currentZLevel = 0,
+  zInPosition = true,
 }: Props) {
   const [selectedSlot, setSelectedSlot] = useState<string>("A2");
+
+  const requiredZ = SLOT_Z_LEVELS[selectedSlot] ?? 1;
+  const isZAligned = currentZLevel === requiredZ && zInPosition;
 
   const send = (cmd: string, payload?: Record<string, unknown>) => {
     if (onCommand) {
@@ -226,6 +248,31 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                     Ô {s}
                   </button>
                 ))}
+              </div>
+
+              {/* Safety Interlock Z Status Alert Badge (Cách B) */}
+              <div
+                style={{
+                  margin: "8px 0",
+                  padding: "6px 10px",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  background: isZAligned ? "rgba(34, 197, 94, 0.12)" : "rgba(234, 179, 8, 0.12)",
+                  border: isZAligned ? "1px solid rgba(34, 197, 94, 0.4)" : "1px solid rgba(234, 179, 8, 0.4)",
+                  color: isZAligned ? "#22c55e" : "#eab308",
+                }}
+              >
+                <span>{isZAligned ? "✅" : "⚠️"}</span>
+                <span>
+                  {isZAligned ? (
+                    <>Trục Z đã sẵn sàng ở <strong>{Z_LEVEL_TITLES[requiredZ]}</strong>. Đủ điều kiện gửi lệnh Robot.</>
+                  ) : (
+                    <>Cần nhấn <strong>[{Z_LEVEL_TITLES[requiredZ]}]</strong> trên cụm PLC trước khi gắp/cất ô {selectedSlot}! (Hiện tại: {zInPosition ? Z_LEVEL_TITLES[currentZLevel] || `TẦNG ${currentZLevel}` : "ĐANG CHẠY..."})</>
+                  )}
+                </span>
               </div>
 
               <div className="manual-btn-grid-2">

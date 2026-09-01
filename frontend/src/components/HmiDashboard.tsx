@@ -537,6 +537,8 @@ export function HmiDashboard() {
                     currentSlot={robotCurrentSlot || (activeMission ? `Ô ${activeMission.target_slot}` : "HOME")}
                     servoOk={isRobotOnline}
                     brakeOk={isRobotOnline}
+                    currentZLevel={plc?.current_z_level ?? 0}
+                    zInPosition={plc?.plc_z_in_position ?? true}
                   />
                 </div>
               </div>

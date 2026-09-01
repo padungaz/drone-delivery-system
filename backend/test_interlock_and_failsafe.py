@@ -193,6 +193,39 @@ async def test_recovery_manager_cleans_orphaned_missions():
         assert updated.error_reason == "SYSTEM_RESTART_ORPHANED_TASK"
 
 
+@pytest.mark.asyncio
+async def test_manual_robot_pick_blocked_if_z_axis_not_aligned():
+    """Phase 6 Test: In MANUAL mode, robot pick/store is blocked with HTTP 400 if Z-axis is not at the target level."""
+    await init_db()
+    plc_mgr = PLCManager.get_instance()
+    plc_mgr.simulator_mode = True
+    RobotManager.get_instance().simulator_mode = True
+    device_lock_manager.unlock_station()
+
+    # 1. Trục Z đang ở HOME (level 0)
+    await plc_mgr.move_z_to_level(0)
+    assert plc_mgr.current_z_level == 0
+    assert plc_mgr.plc_z_in_position is True
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 2. Thử gắp ô A2 (yêu cầu tầng 1) -> Phải bị chặn với HTTP 400 và cảnh báo
+        res_blocked = await client.post("/api/robot/pick", json={"slot": "A2"})
+        assert res_blocked.status_code == 400
+        assert "CẢNH BÁO AN TOÀN TRỤC Z" in res_blocked.json()["detail"]
+        assert "HÀNG A" in res_blocked.json()["detail"]
+
+        # 3. Người vận hành bấm nâng Z lên tầng 1 (Hàng A)
+        await plc_mgr.move_z_to_level(1)
+        assert plc_mgr.current_z_level == 1
+        assert plc_mgr.plc_z_in_position is True
+
+        # 4. Gắp lại ô A2 -> Thành công HTTP 200!
+        res_ok = await client.post("/api/robot/pick", json={"slot": "A2"})
+        assert res_ok.status_code == 200
+        assert "thành công" in res_ok.json()["message"]
+
+
 if __name__ == "__main__":
     async def run_all():
         logger.info("=== Running Safety Interlock & Fail-Safe Test Suite ===")
@@ -212,6 +245,9 @@ if __name__ == "__main__":
 
         await test_recovery_manager_cleans_orphaned_missions()
         logger.info("✓ Test 5: Recovery Manager Startup Orphan Clean-up PASSED!")
+
+        await test_manual_robot_pick_blocked_if_z_axis_not_aligned()
+        logger.info("✓ Test 6: Manual Robot Pre-condition Check (HTTP 400 warning) PASSED!")
 
         logger.info("=== ALL SAFETY, INTERLOCK & RECOVERY TESTS PASSED! ===")
 

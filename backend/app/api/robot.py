@@ -4,6 +4,7 @@ from typing import Optional
 
 from app.models.schemas import RobotCommand, RobotCommandRequest, RobotStatusResponse
 from app.services.robot_manager import RobotManager
+from app.services.plc_manager import PLCManager, slot_to_z_level, Z_LEVEL_LABELS
 from app.services.device_lock_manager import device_lock_manager
 from app.websocket.manager import system_ws_manager
 
@@ -14,6 +15,35 @@ class RobotSlotRequest(BaseModel):
     slot: Optional[str] = None
 
 
+def check_z_axis_precondition(slot: Optional[str]) -> None:
+    """Safety Interlock Pre-condition Check (Cách B):
+    Ngăn không gửi lệnh xuống Robot nếu Trục Z chưa được nâng/hạ đúng tầng mục tiêu hoặc đang di chuyển.
+    Yêu cầu người vận hành phải chủ động kích hoạt tầng Z trên cụm điều khiển PLC trước.
+    """
+    if not slot:
+        return
+    norm = slot.upper().strip()
+    if norm in ("HOME", "STANDBY", "SCAN_QR", "SCAN_QR_POS"):
+        return
+
+    required_z = slot_to_z_level(norm)
+    plc_mgr = PLCManager.get_instance()
+
+    # Kiểm tra nếu trục Z chưa đúng tầng yêu cầu hoặc cờ in_position chưa bật
+    if plc_mgr.current_z_level != required_z or not plc_mgr.plc_z_in_position:
+        target_name = Z_LEVEL_LABELS.get(required_z, f"TẦNG {required_z}")
+        curr_name = Z_LEVEL_LABELS.get(plc_mgr.current_z_level, f"TẦNG {plc_mgr.current_z_level}")
+        status_text = "ĐANG DI CHUYỂN" if not plc_mgr.plc_z_in_position else f"đang ở {curr_name} (Mã {plc_mgr.current_z_level})"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"⚠️ CẢNH BÁO AN TOÀN TRỤC Z: Thao tác tại ô [{norm}] yêu cầu Trục Z phải ở {target_name} (Mã {required_z}), "
+                f"nhưng hiện tại Trục Z {status_text}! "
+                f"Vui lòng nhấn nút [{target_name}] trên cụm điều khiển PLC trước khi gửi lệnh xuống Robot."
+            ),
+        )
+
+
 @robot_router.post("/command", response_model=RobotStatusResponse)
 async def execute_robot_command(req: RobotCommandRequest):
     if device_lock_manager.is_device_locked("ROBOT01"):
@@ -21,6 +51,17 @@ async def execute_robot_command(req: RobotCommandRequest):
             status_code=409,
             detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
         )
+
+    # Khóa an toàn liên động Trục Z (Cách B)
+    if req.command in (
+        RobotCommand.PICK,
+        RobotCommand.PICK_PRODUCT,
+        RobotCommand.STORE,
+        RobotCommand.PLACE_PRODUCT,
+        RobotCommand.OUTBOUND_CYCLE,
+        RobotCommand.INBOUND_CYCLE,
+    ) and req.slot:
+        check_z_axis_precondition(req.slot)
 
     mgr = RobotManager.get_instance()
     status = await mgr.execute_command(req.command, slot=req.slot)
@@ -37,6 +78,9 @@ async def robot_pick(req: RobotSlotRequest):
             status_code=409,
             detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
         )
+
+    # Khóa an toàn liên động Trục Z (Cách B)
+    check_z_axis_precondition(req.slot)
 
     mgr = RobotManager.get_instance()
     status = await mgr.execute_command(RobotCommand.PICK, slot=req.slot)
@@ -55,6 +99,9 @@ async def robot_store(req: RobotSlotRequest):
             status_code=409,
             detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
         )
+
+    # Khóa an toàn liên động Trục Z (Cách B)
+    check_z_axis_precondition(req.slot)
 
     mgr = RobotManager.get_instance()
     status = await mgr.execute_command(RobotCommand.STORE, slot=req.slot)
@@ -91,6 +138,9 @@ async def robot_place(req: RobotSlotRequest):
             status_code=409,
             detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
         )
+
+    # Khóa an toàn liên động Trục Z (Cách B)
+    check_z_axis_precondition(req.slot or "N1")
 
     mgr = RobotManager.get_instance()
     status = await mgr.execute_command(RobotCommand.PLACE_PRODUCT, slot=req.slot)
