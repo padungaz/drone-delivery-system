@@ -8,7 +8,7 @@ from app.models.schemas import (
     StationOperationResponse,
     StorageSlotStatus,
 )
-from app.services.plc_manager import PLCManager
+from app.services.plc_manager import PLCManager, slot_to_z_level, Z_LEVEL_LABELS, Z_LEVEL_HOME
 from app.services.robot_manager import RobotManager
 from app.services.camera_manager import CameraManager
 from app.services.inventory_manager import InventoryManager
@@ -165,52 +165,57 @@ class StationService:
                 "ERROR_PLC_LOCK_FAILED: PLC không thể khóa ngàm kẹp cố định Drone (>5s)",
             )
 
-            # 3. Robot Pick From Storage
-            await self._broadcast_status("3. ROBOT_PICK_SLOT", f"Robot picking product from slot {target_slot}...")
+            # 3. PLC Z-Axis: Nâng trục Z đến tầng ô kho (A hoặc B)
+            z_level = slot_to_z_level(target_slot)
+            z_label = Z_LEVEL_LABELS.get(z_level, str(z_level))
+            await self._broadcast_status("3. PLC_Z_TO_SLOT", f"PLC nâng trục Z đến tầng {z_label} (DB15.DBW8={z_level})...")
+            if not await self.plc_mgr.move_z_to_level(z_level):
+                raise RuntimeError(f"ERROR_PLC_Z_MOVE_FAILED: PLC không thể di chuyển trục Z đến tầng {z_label} (>20s)")
+
+            # 4. Robot Pick From Storage
+            await self._broadcast_status("4. ROBOT_PICK_SLOT", f"Robot picking product from slot {target_slot}...")
             try:
                 await self.robot_mgr.execute_command(RobotCommand.PICK, slot=target_slot)
             except Exception as e:
                 raise RuntimeError(f"ERROR_ROBOT_PICK_FAILED: Robot gắp hàng từ ô {target_slot} thất bại ({e})")
 
-            # 4. QR Verify (Đối soát mã QR ngay tại vị trí dưới trước khi nâng Z)
-            await self._broadcast_status("4. QR_VERIFY", f"Camera verifying QR code for product {product_id}...")
+            # 5. QR Verify (Đối soát mã QR ngay tại vị trí dưới trước khi nâng Z)
+            await self._broadcast_status("5. QR_VERIFY", f"Camera verifying QR code for product {product_id}...")
             scan_res = await cam_mgr.scan_qr_auto(expected_product_id=product_id, timeout_sec=8.0, is_verify=True)
             if scan_res.get("status") != "success":
                 err_msg = scan_res.get("message", f"Không thể xác thực mã QR cho sản phẩm {product_id}")
                 raise RuntimeError(f"ERROR_QR_VERIFY_FAILED: {err_msg}")
             logger.info("✅ QR Code verified for product %s (%s)", product_id, scan_res.get("message"))
 
-            # 5. Z Up (PLC tự động interlock với Robot)
-            await self._broadcast_status("5. PLC_Z_UP", "PLC Raising Z-axis lift to UP position (DB15.DBX0.2)...")
-            await self._plc_cmd(
-                PLCCommand.Z_UP, "plc_z_is_up", True,
-                "ERROR_PLC_Z_UP_FAILED: PLC nâng trục Z thất bại hoặc quá thời gian (>5s)",
-            )
+            # 6. PLC Z-Axis: Nâng trục Z đến tầng Drone N1
+            z_dock = slot_to_z_level("N1")
+            z_dock_label = Z_LEVEL_LABELS.get(z_dock, str(z_dock))
+            await self._broadcast_status("6. PLC_Z_TO_DOCK", f"PLC nâng trục Z đến tầng {z_dock_label} (DB15.DBW8={z_dock})...")
+            if not await self.plc_mgr.move_z_to_level(z_dock):
+                raise RuntimeError(f"ERROR_PLC_Z_MOVE_FAILED: PLC không thể di chuyển trục Z đến tầng {z_dock_label} (>20s)")
 
-            # 6. Robot Place Product onto Drone Dock N1
-            await self._broadcast_status("6. ROBOT_PLACE_DOCK", "Robot placing product onto Drone Dock N1...")
+            # 7. Robot Place Product onto Drone Dock N1
+            await self._broadcast_status("7. ROBOT_PLACE_DOCK", "Robot placing product onto Drone Dock N1...")
             try:
                 await self.robot_mgr.execute_command(RobotCommand.PLACE_PRODUCT, slot="N1")
             except Exception as e:
                 raise RuntimeError(f"ERROR_ROBOT_PLACE_FAILED: Robot đặt hàng lên Drone N1 thất bại ({e})")
 
-            # 7. Z Down
-            await self._broadcast_status("7. PLC_Z_DOWN", "PLC Lowering Z-axis lift to DOWN position (DB15.DBX0.3)...")
-            await self._plc_cmd(
-                PLCCommand.Z_DOWN, "plc_z_is_down", True,
-                "ERROR_PLC_Z_DOWN_FAILED: PLC hạ trục Z thất bại hoặc quá thời gian (>5s)",
-            )
+            # 8. PLC Z-Axis: Đưa trục Z về HOME an toàn
+            await self._broadcast_status("8. PLC_Z_TO_HOME", "PLC đưa trục Z về vị trí HOME an toàn (DB15.DBW8=0)...")
+            if not await self.plc_mgr.move_z_to_level(Z_LEVEL_HOME):
+                raise RuntimeError("ERROR_PLC_Z_MOVE_FAILED: PLC không thể đưa trục Z về vị trí HOME an toàn (>20s)")
 
-            # 8. Unlock Drone
-            await self._broadcast_status("8. UNLOCK_DRONE", "PLC Unlocking drone clamps (DB15.DBX0.1)...")
+            # 9. Unlock Drone
+            await self._broadcast_status("9. UNLOCK_DRONE", "PLC Unlocking drone clamps (DB15.DBX0.1)...")
             await self._plc_cmd(
                 PLCCommand.UNLOCK_DRONE, "plc_locked_state", False,
                 "ERROR_PLC_UNLOCK_FAILED: PLC mở ngàm kẹp Drone thất bại (>5s)",
             )
 
-            # 9. Clear Storage Slot in Inventory & Finish
+            # 10. Clear Storage Slot in Inventory & Finish
             await inv_mgr.update_slot(target_slot, StorageSlotStatus.EMPTY, product_id=None)
-            await self._broadcast_status("9. TAKEOFF_COMPLETE", f"Đã nạp sản phẩm {product_id} lên Drone thành công. Sẵn sàng cất cánh!", status="COMPLETED")
+            await self._broadcast_status("10. TAKEOFF_COMPLETE", f"Đã nạp sản phẩm {product_id} lên Drone thành công. Sẵn sàng cất cánh!", status="COMPLETED")
             return True
 
         except Exception as err:
@@ -261,12 +266,12 @@ class StationService:
                 "ERROR_PLC_LOCK_FAILED: PLC không thể khóa ngàm kẹp cố định Drone (>5s)",
             )
 
-            # 3. Z Up (PLC tự động interlock với Robot)
-            await self._broadcast_status("3. PLC_Z_UP", "PLC Raising Z-axis lift to UP position (DB15.DBX0.2)...")
-            await self._plc_cmd(
-                PLCCommand.Z_UP, "plc_z_is_up", True,
-                "ERROR_PLC_Z_UP_FAILED: PLC nâng trục Z thất bại hoặc quá thời gian (>5s)",
-            )
+            # 3. PLC Z-Axis: Nâng trục Z đến tầng Drone N1
+            z_dock = slot_to_z_level("N1")
+            z_dock_label = Z_LEVEL_LABELS.get(z_dock, str(z_dock))
+            await self._broadcast_status("3. PLC_Z_TO_DOCK", f"PLC nâng trục Z đến tầng {z_dock_label} (DB15.DBW8={z_dock})...")
+            if not await self.plc_mgr.move_z_to_level(z_dock):
+                raise RuntimeError(f"ERROR_PLC_Z_MOVE_FAILED: PLC không thể di chuyển trục Z đến tầng {z_dock_label} (>20s)")
 
             # 4. Robot Pick from Drone Dock N1
             await self._broadcast_status("4. ROBOT_PICK_DOCK", "Robot picking product from Drone Dock N1...")
@@ -275,12 +280,10 @@ class StationService:
             except Exception as e:
                 raise RuntimeError(f"ERROR_ROBOT_PICK_FAILED: Robot gắp hàng từ Drone N1 thất bại ({e})")
 
-            # 5. Z Down
-            await self._broadcast_status("5. PLC_Z_DOWN", "PLC Lowering Z-axis lift to DOWN position (DB15.DBX0.3)...")
-            await self._plc_cmd(
-                PLCCommand.Z_DOWN, "plc_z_is_down", True,
-                "ERROR_PLC_Z_DOWN_FAILED: PLC hạ trục Z thất bại hoặc quá thời gian (>5s)",
-            )
+            # 5. PLC Z-Axis: Đưa trục Z về HOME an toàn để quét QR
+            await self._broadcast_status("5. PLC_Z_TO_HOME", "PLC đưa trục Z về vị trí HOME an toàn (DB15.DBW8=0)...")
+            if not await self.plc_mgr.move_z_to_level(Z_LEVEL_HOME):
+                raise RuntimeError("ERROR_PLC_Z_MOVE_FAILED: PLC không thể đưa trục Z về vị trí HOME an toàn (>20s)")
 
             # 6. QR Scan
             await self._broadcast_status("6. QR_SCAN", f"Camera scanning QR code for product {product_id}...")
@@ -293,23 +296,33 @@ class StationService:
                 self.product_id = product_id
                 logger.info("✅ QR Code scanned: assigned product ID %s", product_id)
 
-            # 7. Store Product into Storage Slot
-            await self._broadcast_status("7. ROBOT_STORE_SLOT", f"Robot storing product into slot {target_slot}...")
+            # 7. PLC Z-Axis: Nâng trục Z đến tầng ô kho (A hoặc B)
+            z_slot = slot_to_z_level(target_slot)
+            z_slot_label = Z_LEVEL_LABELS.get(z_slot, str(z_slot))
+            await self._broadcast_status("7. PLC_Z_TO_SLOT", f"PLC di chuyển trục Z đến tầng {z_slot_label} (DB15.DBW8={z_slot})...")
+            if not await self.plc_mgr.move_z_to_level(z_slot):
+                raise RuntimeError(f"ERROR_PLC_Z_MOVE_FAILED: PLC không thể di chuyển trục Z đến tầng {z_slot_label} (>20s)")
+
+            # 8. Store Product into Storage Slot
+            await self._broadcast_status("8. ROBOT_STORE_SLOT", f"Robot storing product into slot {target_slot}...")
             try:
                 await self.robot_mgr.execute_command(RobotCommand.STORE, slot=target_slot)
             except Exception as e:
                 raise RuntimeError(f"ERROR_ROBOT_STORE_FAILED: Robot cất hàng vào ô {target_slot} thất bại ({e})")
 
-            # 8. Unlock Drone
-            await self._broadcast_status("8. UNLOCK_DRONE", "PLC Unlocking drone clamps (DB15.DBX0.1)...")
+            # 8.5. PLC Z-Axis: Đưa trục Z về HOME an toàn
+            await self.plc_mgr.move_z_to_level(Z_LEVEL_HOME)
+
+            # 9. Unlock Drone
+            await self._broadcast_status("9. UNLOCK_DRONE", "PLC Unlocking drone clamps (DB15.DBX0.1)...")
             await self._plc_cmd(
                 PLCCommand.UNLOCK_DRONE, "plc_locked_state", False,
                 "ERROR_PLC_UNLOCK_FAILED: PLC mở ngàm kẹp Drone thất bại (>5s)",
             )
 
-            # 9. Assign product to Storage Slot in Inventory & Finish
+            # 10. Assign product to Storage Slot in Inventory & Finish
             await inv_mgr.update_slot(target_slot, StorageSlotStatus.OCCUPIED, product_id=product_id)
-            await self._broadcast_status("9. TAKEOFF_COMPLETE", f"Đã cất sản phẩm {product_id} vào ô {target_slot} thành công. Drone sẵn sàng cất cánh!", status="COMPLETED")
+            await self._broadcast_status("10. TAKEOFF_COMPLETE", f"Đã cất sản phẩm {product_id} vào ô {target_slot} thành công. Drone sẵn sàng cất cánh!", status="COMPLETED")
             return True
 
         except Exception as err:

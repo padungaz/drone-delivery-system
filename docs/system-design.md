@@ -599,41 +599,52 @@ sequenceDiagram
 ## 6. Bảng Ánh xạ Giao thức Phần cứng Chi tiết
 
 ### 6.1. Bản đồ Ô nhớ PLC Siemens S7-1200 (DB15 Protocol)
+*Chi tiết chuyên sâu xem tại [plc-db15-io-mapping.md](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/docs/plc-db15-io-mapping.md)*
 
 ```
 Byte 0: Backend -> PLC (Command bits điều khiển Drone & Trạm, ghi xung)
   DB15.DBX0.0 : cmd_lock_drone          - Yêu cầu đóng kẹp khóa cố định Drone
   DB15.DBX0.1 : cmd_unlock_drone        - Yêu cầu mở kẹp giải phóng Drone
-  DB15.DBX0.2 : cmd_z_up                - Yêu cầu nâng trục Z lên độ cao gắp
-  DB15.DBX0.3 : cmd_z_down              - Yêu cầu hạ trục Z về vị trí cất cánh
+  DB15.DBX0.2 : (Reserved)              - Đã loại bỏ (Thay thế toàn diện bằng DB15.DBW8)
+  DB15.DBX0.3 : (Reserved)              - Đã loại bỏ (Thay thế toàn diện bằng DB15.DBW8)
   DB15.DBX0.4 : cmd_stop_plc            - Yêu cầu dừng chu kỳ hoạt động
   DB15.DBX0.5 : cmd_start_plc           - Yêu cầu khởi động / cho phép hệ thống
   DB15.DBX0.6 : cmd_reset_plc           - Yêu cầu reset lỗi & khôi phục trạng thái
   DB15.DBX0.7 : cmd_watchdog_toggle     - Xung nhịp tim Watchdog 1Hz giữ kết nối
 
 Byte 1: Backend -> PLC (Command bits điều khiển Chế độ Nhân viên & Băng tải)
-  DB15.DBX1.0 : cmd_staff_mode_enable   - Bật chế độ nhân viên kho (chuyển phân hệ)
+  DB15.DBX1.0 : cmd_staff_mode_enable   - Bật chế độ nhân viên kho (1 = Staff Mode, 0 = Auto)
   DB15.DBX1.1 : cmd_staff_outbound_start- Khởi động chu trình xuất hàng ra băng tải
-  DB15.DBX1.2 : cmd_staff_outbound_stop - Dừng chu trình xuất hàng
+  DB15.DBX1.2 : cmd_staff_outbound_stop - Hủy chu trình xuất hàng
   DB15.DBX1.3 : cmd_staff_inbound_start - Khởi động chu trình nạp hàng từ O1
   DB15.DBX1.4 : cmd_staff_inbound_stop  - Dừng chu trình nạp hàng
-  DB15.DBX1.5 : cmd_conveyor_run        - Bật động cơ băng tải chạy
+  DB15.DBX1.5 : (Reserved)              - PLC quản lý động cơ băng tải nội bộ
+  DB15.DBX1.6 : (Reserved)              - PLC quản lý động cơ băng tải nội bộ
 
 Byte 2: PLC -> Backend (Status bits phản hồi trạng thái Drone & Cơ cấu Z)
-  DB15.DBX2.0 : drone_detected          - Phát hiện Drone đã tiếp đất trên Pad
+  DB15.DBX2.0 : drone_detected          - Phát hiện Drone đã tiếp đất trên Pad N1
   DB15.DBX2.1 : plc_locked_state        - Cơ cấu kẹp khóa Drone đã hoàn thành (1 = Locked)
-  DB15.DBX2.2 : plc_z_is_up             - Trục Z đã nâng đến vị trí trên (1 = Z Top)
-  DB15.DBX2.3 : plc_z_is_down           - Trục Z đã hạ về vị trí ban đầu (1 = Z Bottom)
+  DB15.DBX2.2 : (Reserved)              - Đã loại bỏ (Thay thế bằng DB15.DBX2.7 & DBW8)
+  DB15.DBX2.3 : (Reserved)              - Đã loại bỏ (Thay thế bằng DB15.DBX2.7 & DBW8)
   DB15.DBX2.4 : plc_on                  - PLC đang hoạt động và sẵn sàng (1 = Ready)
   DB15.DBX2.5 : plc_error               - PLC phát hiện lỗi vận hành (1 = Error)
   DB15.DBX2.6 : emergency_stop          - Nút dừng khẩn cấp E-Stop đang kích hoạt (1 = E-Stop)
+  DB15.DBX2.7 : plc_z_in_position       - Trục Z đã đến đúng tầng mục tiêu và đứng yên an toàn
 
 Byte 3: PLC -> Backend (Status bits phản hồi phân hệ Nhân viên & Băng tải)
-  DB15.DBX3.0 : staff_mode_active       - Phân hệ nhân viên kho đang kích hoạt (1 = Active)
-  DB15.DBX3.1 : staff_outbound_busy     - Đang trong chu trình xuất hàng ra băng tải
-  DB15.DBX3.2 : staff_inbound_busy      - Đang trong chu trình nạp hàng vào kho
-  DB15.DBX3.3 : sensor_o1_detected      - Cảm biến phát hiện kiện hàng tại vị trí O1
-  DB15.DBX3.4 : sensor_conveyor_end     - Cảm biến phát hiện kiện hàng tại cuối băng tải
+  DB15.DBX3.0 : sensor_conveyor_head    - Cảm biến 1: Đầu băng tải (Vị trí O1 Robot) có kiện hàng
+  DB15.DBX3.1 : sensor_conveyor_end     - Cảm biến 2: Cuối băng tải (Vị trí Nhân viên) có kiện hàng
+  DB15.DBX3.2 : conveyor_running        - Trạng thái Động cơ băng tải đang RUN
+  DB15.DBX3.3 : staff_outbound_busy     - PLC đang trong chu trình xuất hàng ra băng tải
+  DB15.DBX3.4 : staff_outbound_done     - PLC báo đã xuất xong toàn bộ danh sách hàng ra băng tải
+  DB15.DBX3.5 : staff_inbound_busy      - PLC đang trong chu trình nạp hàng từ O1 vào kho
+  DB15.DBX3.6 : staff_inbound_done      - PLC báo đã kết thúc chu trình nạp hàng
+  DB15.DBX3.7 : staff_mode_active       - PLC xác nhận đang ở Chế độ Nhân viên (Staff Mode)
+
+Vùng nhớ Words (Int16 - 2 Bytes):
+  DB15.DBW4   : staff_target_count      - Backend -> PLC: Số lượng kiện hàng yêu cầu xuất/nhập
+  DB15.DBW6   : staff_current_count     - PLC -> Backend: Số lượng kiện hàng thực tế đã đếm
+  DB15.DBW8   : target_z_level          - Backend -> PLC: Mã tầng Z (0=Home, 1=Hàng A, 2=Hàng B, 3=N1, 4=O1)
 ```
 
 ### 6.2. Giao thức Lệnh TCP Socket Robot FAIRINO FR3 (Port 8090)

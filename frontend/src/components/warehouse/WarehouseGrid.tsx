@@ -20,9 +20,9 @@ const DEFAULT_SLOTS: SlotData[] = [
   { slot_id: "B1", status: "EMPTY" },
   { slot_id: "B2", status: "MOVING", product_id: "PRD-1002" },
   { slot_id: "B3", status: "OCCUPIED", product_id: "PRD-1003" },
-  { slot_id: "C1", status: "EMPTY" },
-  { slot_id: "C2", status: "EMPTY" },
-  { slot_id: "C3", status: "OCCUPIED", product_id: "PRD-1004" },
+  { slot_id: "C1", status: "RESERVED" },
+  { slot_id: "C2", status: "RESERVED" },
+  { slot_id: "C3", status: "RESERVED" },
 ];
 
 export const WarehouseGrid = React.memo(function WarehouseGrid({
@@ -33,7 +33,10 @@ export const WarehouseGrid = React.memo(function WarehouseGrid({
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
 
   const getSlot = (id: string) =>
-    slots.find((s) => s.slot_id === id) || { slot_id: id, status: "EMPTY" as const };
+    slots.find((s) => s.slot_id === id) || {
+      slot_id: id,
+      status: id.startsWith("C") ? ("RESERVED" as const) : ("EMPTY" as const),
+    };
 
   const handleSlotClick = (id: string) => {
     setSelectedSlot(id);
@@ -45,12 +48,12 @@ export const WarehouseGrid = React.memo(function WarehouseGrid({
   return (
     <div className="hmi-card warehouse-grid-card">
       <div className="card-header flex-between">
-        <h3>📦 WAREHOUSE MAP (3x3) + N1 DRONE DOCK</h3>
+        <h3>📦 WAREHOUSE MAP (3x3: A1..B3 HOẠT ĐỘNG) + N1 DOCK</h3>
         <div className="legend-pills">
           <span className="legend-item"><span className="dot empty"></span> EMPTY</span>
           <span className="legend-item"><span className="dot occupied"></span> OCCUPIED</span>
           <span className="legend-item"><span className="dot moving"></span> MOVING</span>
-          <span className="legend-item"><span className="dot reserved"></span> RESERVED</span>
+          <span className="legend-item"><span className="dot reserved"></span> DỰ PHÒNG</span>
           <span className="legend-item"><span className="dot error"></span> ERROR</span>
         </div>
       </div>
@@ -75,6 +78,7 @@ export const WarehouseGrid = React.memo(function WarehouseGrid({
               {[1, 2, 3].map((col) => {
                 const slotId = `${row}${col}`;
                 const slot = getSlot(slotId);
+                const isSymbolic = row === "C" || slot.status === "RESERVED";
                 const isSelected = selectedSlot === slotId;
 
                 return (
@@ -82,17 +86,26 @@ export const WarehouseGrid = React.memo(function WarehouseGrid({
                     key={slotId}
                     type="button"
                     className={`slot-card status-${slot.status.toLowerCase()} ${
-                      isSelected ? "selected" : ""
-                    }`}
-                    onClick={() => handleSlotClick(slotId)}
+                      isSymbolic ? "symbolic-slot" : ""
+                    } ${isSelected ? "selected" : ""}`}
+                    onClick={() => {
+                      if (!isSymbolic) {
+                        handleSlotClick(slotId);
+                      }
+                    }}
+                    title={isSymbolic ? `Ô ${slotId} là ô kho dự phòng tượng trưng` : undefined}
                   >
                     <div className="slot-header flex-between">
                       <span className="slot-name">{slotId}</span>
-                      <span className="status-badge">{slot.status}</span>
+                      <span className="status-badge">
+                        {isSymbolic ? "DỰ PHÒNG" : slot.status}
+                      </span>
                     </div>
 
                     <div className="slot-body">
-                      {slot.product_id ? (
+                      {isSymbolic ? (
+                        <span className="symbolic-placeholder">DỰ PHÒNG</span>
+                      ) : slot.product_id ? (
                         <div className="product-box">
                           <span className="prod-icon">📦</span>
                           <span className="prod-id">{slot.product_id}</span>

@@ -128,17 +128,20 @@ export interface PLCState {
   drone_detected: boolean;       // DB15.DBX2.0
   plc_locked_state: boolean;     // DB15.DBX2.1
   drone_locked: boolean;         // Alias for plc_locked_state
-  plc_z_is_up: boolean;          // DB15.DBX2.2
-  plc_z_is_down: boolean;        // DB15.DBX2.3
   plc_on: boolean;               // DB15.DBX2.4
   plc_error: boolean;            // DB15.DBX2.5
   emergency_stop: boolean;       // DB15.DBX2.6
 
   // System & Connection State
-  z_axis: string;                // "HOME" | "UP" | "DOWN" | "MOVING"
+  z_axis: string;                // "HOME" | "HÀNG A" | "HÀNG B" | "DRONE N1" | "BĂNG TẢI O1" | "MOVING"
   connected: boolean;
   simulator_mode: boolean;
   plc_busy: boolean;
+
+  // Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7)
+  plc_z_in_position?: boolean;   // DB15.DBX2.7 (Z đã đến tầng mục tiêu)
+  target_z_level?: number;       // DB15.DBW8 (Mã tầng mục tiêu 0..4)
+  current_z_level?: number;      // DB15.DBW8 (Mã tầng hiện tại)
 
   // Derived convenience fields
   hatch_open: boolean;

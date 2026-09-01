@@ -31,6 +31,8 @@ interface Props {
   lastCycleDuration?: number | null;
   socketLogs?: SocketLogEntry[];
   latencyMs?: number;
+  simulatorMode?: boolean;
+  onToggleSimulator?: (sim: boolean) => void;
 }
 
 export const RobotStatusCard = React.memo(function RobotStatusCard({
@@ -50,6 +52,8 @@ export const RobotStatusCard = React.memo(function RobotStatusCard({
   lastCycleDuration = null,
   socketLogs = [],
   latencyMs = 1.5,
+  simulatorMode = false,
+  onToggleSimulator,
 }: Props & { _program?: string; _errorCode?: string }) {
   const [showSocketTraffic, setShowSocketTraffic] = useState(false);
   const [internalElapsed, setInternalElapsed] = useState(0);
@@ -75,7 +79,7 @@ export const RobotStatusCard = React.memo(function RobotStatusCard({
 
   const isMoving = state === "MOVING" || state === "PICKING" || state === "PLACING" || Boolean(activeCommand);
   const isError = state === "ERROR" || state === "ESTOP";
-  const isOnline = state !== "OFFLINE";
+  const isOnline = state !== "OFFLINE" || simulatorMode;
 
   // Calculate Motion Progress (approx 13s for PICK/STORE, 3.5s for MOVE_HOME)
   const isHomeCmd = activeCommand?.includes("HOME");
@@ -105,20 +109,32 @@ export const RobotStatusCard = React.memo(function RobotStatusCard({
           <div className="title-with-badge">
             <h3>🤖 FAIRINO FR3 ROBOT</h3>
             <span className={`status-pill ${isMoving ? "pill-moving" : isError ? "pill-error" : isOnline ? "pill-online" : "pill-offline"}`}>
-              {isMoving ? "⚡ ĐANG CHẠY" : isError ? "⚠️ BÁO LỖI" : isOnline ? "🟢 SẴN SÀNG" : "🔴 OFFLINE"}
+              {isMoving ? "⚡ ĐANG CHẠY" : isError ? "⚠️ BÁO LỖI" : isOnline ? (simulatorMode ? "🟢 SẴN SÀNG (SIM)" : "🟢 SẴN SÀNG") : "🔴 OFFLINE"}
             </span>
           </div>
           <span className="card-subtitle font-mono">COBOT 6-DOF • TCP: 192.168.57.2:8090 ({latencyMs}ms)</span>
         </div>
 
-        <button
-          type="button"
-          className="btn-toggle-traffic"
-          onClick={() => setShowSocketTraffic(!showSocketTraffic)}
-          title="Bật/Tắt nhật ký truyền nhận Socket LUA"
-        >
-          {showSocketTraffic ? "Ẩn Socket ▲" : "🔌 Socket Logs ▼"}
-        </button>
+        <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+          {onToggleSimulator && (
+            <button
+              type="button"
+              className={`btn-toggle-traffic ${simulatorMode ? "active-sim" : ""}`}
+              onClick={() => onToggleSimulator(!simulatorMode)}
+              title={simulatorMode ? "Đang bật chế độ mô phỏng (Click để tắt)" : "Bật chế độ mô phỏng Robot ảo"}
+            >
+              {simulatorMode ? "🎮 SIM: BẬT" : "🎮 BẬT SIM"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-toggle-traffic"
+            onClick={() => setShowSocketTraffic(!showSocketTraffic)}
+            title="Bật/Tắt nhật ký truyền nhận Socket LUA"
+          >
+            {showSocketTraffic ? "Ẩn Socket ▲" : "🔌 Socket Logs ▼"}
+          </button>
+        </div>
       </div>
 
       <div className="card-body robot-status-grid-cyber">

@@ -37,8 +37,8 @@ DEFAULT_DB_NUMBER = 15
 # Byte 0: Backend -> PLC (Station Command bits, written by Backend)
 #   0.0: cmd_lock_drone           - Yêu cầu PLC kích hoạt cơ cấu khóa cố định Drone
 #   0.1: cmd_unlock_drone         - Yêu cầu PLC mở khóa, giải phóng Drone
-#   0.2: cmd_z_up                 - Yêu cầu PLC điều khiển trục Z nâng lên
-#   0.3: cmd_z_down               - Yêu cầu PLC điều khiển trục Z hạ xuống
+#   0.2: (Reserved - Thay thế bằng DB15.DBW8 target_z_level)
+#   0.3: (Reserved - Thay thế bằng DB15.DBW8 target_z_level)
 #   0.4: cmd_stop_plc             - Yêu cầu PLC dừng chu trình hoạt động
 #   0.5: cmd_start_plc            - Yêu cầu PLC khởi động / cho phép hệ thống hoạt động
 #   0.6: cmd_reset_plc            - Yêu cầu PLC reset lỗi và đưa hệ thống về trạng thái sẵn sàng
@@ -57,12 +57,12 @@ DEFAULT_DB_NUMBER = 15
 # Byte 2: PLC -> Backend (Station Status bits, read-only by Backend)
 #   2.0: drone_detected           - PLC phát hiện Drone đã hạ cánh đúng vị trí Dock
 #   2.1: plc_locked_state         - Trạng thái cơ cấu khóa Drone đã hoàn thành
-#   2.2: plc_z_is_up              - Trạng thái trục Z đã nâng đến vị trí trên
-#   2.3: plc_z_is_down            - Trạng thái trục Z đã hạ về vị trí ban đầu
+#   2.2: (Reserved - Thay thế bằng DB15.DBX2.7 plc_z_in_position)
+#   2.3: (Reserved - Thay thế bằng DB15.DBX2.7 plc_z_in_position)
 #   2.4: plc_on                   - PLC đang hoạt động và sẵn sàng nhận lệnh
 #   2.5: plc_error                - PLC phát hiện lỗi trong quá trình vận hành
 #   2.6: emergency_stop           - Trạng thái nút dừng khẩn cấp được kích hoạt
-#   2.7: (reserved)
+#   2.7: plc_z_in_position       - PLC báo trục Z đã đến đúng tầng mục tiêu và đứng yên sẵn sàng
 #
 # Byte 3: PLC -> Backend (Staff Mode & Conveyor Status bits, read-only by Backend)
 #   3.0: sensor_conveyor_head     - Cảm biến 1: Đầu băng tải (Vị trí Robot & Điểm O1) có hàng
@@ -79,8 +79,7 @@ DEFAULT_DB_NUMBER = 15
 # Byte 0: Backend -> PLC (Station Commands)
 OFFSET_CMD_LOCK               = (0, 0)  # cmd_lock_drone: Bool 0.0
 OFFSET_CMD_UNLOCK             = (0, 1)  # cmd_unlock_drone: Bool 0.1
-OFFSET_CMD_Z_UP               = (0, 2)  # cmd_z_up: Bool 0.2
-OFFSET_CMD_Z_DOWN             = (0, 3)  # cmd_z_down: Bool 0.3
+# Bits 0.2 & 0.3: Reserved (Thay thế bằng DB15.DBW8 target_z_level)
 OFFSET_CMD_STOP               = (0, 4)  # cmd_stop_plc: Bool 0.4
 OFFSET_CMD_START              = (0, 5)  # cmd_start_plc: Bool 0.5
 OFFSET_CMD_RESET              = (0, 6)  # cmd_reset_plc: Bool 0.6
@@ -97,11 +96,11 @@ OFFSET_CMD_STAFF_IN_STOP      = (1, 4)  # cmd_staff_inbound_stop: Bool 1.4
 # Byte 2: PLC -> Backend (Station Status bits)
 OFFSET_DRONE_DETECTED         = (2, 0)  # drone_detected: Bool 2.0
 OFFSET_PLC_LOCKED_STATE       = (2, 1)  # plc_locked_state: Bool 2.1
-OFFSET_PLC_Z_IS_UP            = (2, 2)  # plc_z_is_up: Bool 2.2
-OFFSET_PLC_Z_IS_DOWN          = (2, 3)  # plc_z_is_down: Bool 2.3
+# Bits 2.2 & 2.3: Reserved (Thay thế bằng DB15.DBX2.7 plc_z_in_position)
 OFFSET_PLC_ON                 = (2, 4)  # plc_on: Bool 2.4
 OFFSET_PLC_ERROR              = (2, 5)  # plc_error: Bool 2.5
 OFFSET_E_STOP                 = (2, 6)  # emergency_stop: Bool 2.6
+OFFSET_PLC_Z_IN_POSITION      = (2, 7)  # plc_z_in_position: Bool 2.7 (Z đã đến tầng mục tiêu)
 
 # Byte 3: PLC -> Backend (Staff Mode & Conveyor Status bits)
 OFFSET_SENSOR_CONVEYOR_HEAD   = (3, 0)  # sensor_conveyor_head: Bool 3.0 (Cảm biến đầu / O1)
@@ -116,6 +115,40 @@ OFFSET_STAFF_MODE_ACTIVE      = (3, 7)  # staff_mode_active: Bool 3.7
 # DB15 Words (Int16) for Staff Quantity Handshake
 OFFSET_STAFF_TARGET_COUNT     = 4       # DB15.DBW4 (Int16 - Số lượng Backend yêu cầu PLC)
 OFFSET_STAFF_CURRENT_COUNT    = 6       # DB15.DBW6 (Int16 - Số lượng PLC đã đếm được)
+
+# DB15 Word (Int16) for Z-Axis Multi-Level Control
+OFFSET_CMD_TARGET_Z_LEVEL     = 8       # DB15.DBW8 (Int16 - Backend ghi mã tầng Z mục tiêu)
+
+# Z Level Integer Mapping
+Z_LEVEL_HOME      = 0   # Vị trí gốc / nghỉ
+Z_LEVEL_ROW_A     = 1   # Tầng A (ô A1, A2, A3)
+Z_LEVEL_ROW_B     = 2   # Tầng B (ô B1, B2, B3)
+Z_LEVEL_DOCK_N    = 3   # Bãi đáp Drone (N1)
+Z_LEVEL_CONVEYOR  = 4   # Đầu băng tải (O1)
+
+Z_LEVEL_LABELS = {
+    Z_LEVEL_HOME: "HOME",
+    Z_LEVEL_ROW_A: "HÀNG A",
+    Z_LEVEL_ROW_B: "HÀNG B",
+    Z_LEVEL_DOCK_N: "DRONE N1",
+    Z_LEVEL_CONVEYOR: "BĂNG TẢI O1",
+}
+
+
+def slot_to_z_level(slot: Optional[str]) -> int:
+    """Convert a slot name (A1, B2, N1, O1, etc.) to the corresponding Z level integer code."""
+    if not slot:
+        return Z_LEVEL_HOME
+    s = slot.upper().strip()
+    if s.startswith("A"):
+        return Z_LEVEL_ROW_A
+    elif s.startswith("B"):
+        return Z_LEVEL_ROW_B
+    elif s in ("N1", "DOCK", "PAD", "PAD_N1"):
+        return Z_LEVEL_DOCK_N
+    elif s in ("O1", "CONVEYOR"):
+        return Z_LEVEL_CONVEYOR
+    return Z_LEVEL_HOME
 
 # Handshake timing defaults
 DEFAULT_HANDSHAKE_TIMEOUT = 25.0   # Seconds to wait for target status signal
@@ -161,12 +194,10 @@ class PLCManager:
         self.drone_detected: bool = False
         self.plc_locked_state: bool = False
         self.drone_locked: bool = False       # Alias for plc_locked_state
-        self.plc_z_is_up: bool = False
-        self.plc_z_is_down: bool = True       # Default DOWN at home
         self.plc_on: bool = True              # Active & ready by default
         self.plc_error: bool = False
         self.emergency_stop: bool = False
-        self.z_axis: str = "DOWN"             # "UP", "DOWN", "MOVING", "HOME"
+        self.z_axis: str = "HOME"             # "HOME", "HÀNG A", "HÀNG B", "DRONE N1", "BĂNG TẢI O1", "MOVING"
         self.plc_busy: bool = False
         self._reconnect_attempts: int = 0
         self._next_reconnect_time: float = 0.0
@@ -182,6 +213,11 @@ class PLCManager:
         self.staff_mode_active: bool = False     # DB15.DBX3.7
         self.staff_target_count: int = 0         # DB15.DBW4
         self.staff_current_count: int = 0        # DB15.DBW6
+
+        # Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7)
+        self.plc_z_in_position: bool = True      # DB15.DBX2.7 - Z đã sẵn sàng tại tầng mục tiêu
+        self.target_z_level: int = 0              # Mã tầng Z Backend yêu cầu (ghi vào DB15.DBW8)
+        self.current_z_level: int = 0             # Mã tầng Z hiện tại PLC phản hồi
 
         # Watchdog state
         self._watchdog_bit: bool = False       # Current toggle state of bit 0.7
@@ -320,23 +356,22 @@ class PLCManager:
     # ----------------------------------------------------------------
 
     async def read_plc_status(self) -> None:
-        """Reads DB15 Byte 2 & Byte 3 status bits and Words 4, 6 from PLC (non-blocking)."""
+        """Reads DB15 Bytes 0-9 status bits, Words 4/6/8 from PLC (non-blocking)."""
         if self.simulator_mode or not self.is_connected or self.client is None:
             return
 
         try:
-            # Read 8 bytes from DB15: Bytes 0-3 (flags), Words 4-5 (target count), Words 6-7 (current count)
-            data = await self._async_db_read(0, 8)
+            # Read 10 bytes from DB15: Bytes 0-3 (flags), Words 4-5 (target count), Words 6-7 (current count), Words 8-9 (Z level)
+            data = await self._async_db_read(0, 10)
 
             # Byte 2: Station status
             self.drone_detected = get_bool(data, OFFSET_DRONE_DETECTED[0], OFFSET_DRONE_DETECTED[1])
             self.plc_locked_state = get_bool(data, OFFSET_PLC_LOCKED_STATE[0], OFFSET_PLC_LOCKED_STATE[1])
             self.drone_locked = self.plc_locked_state
-            self.plc_z_is_up = get_bool(data, OFFSET_PLC_Z_IS_UP[0], OFFSET_PLC_Z_IS_UP[1])
-            self.plc_z_is_down = get_bool(data, OFFSET_PLC_Z_IS_DOWN[0], OFFSET_PLC_Z_IS_DOWN[1])
             self.plc_on = get_bool(data, OFFSET_PLC_ON[0], OFFSET_PLC_ON[1])
             self.plc_error = get_bool(data, OFFSET_PLC_ERROR[0], OFFSET_PLC_ERROR[1])
             self.emergency_stop = get_bool(data, OFFSET_E_STOP[0], OFFSET_E_STOP[1])
+            self.plc_z_in_position = get_bool(data, OFFSET_PLC_Z_IN_POSITION[0], OFFSET_PLC_Z_IN_POSITION[1])
 
             # Byte 3: Staff & Conveyor status
             self.sensor_conveyor_head = get_bool(data, OFFSET_SENSOR_CONVEYOR_HEAD[0], OFFSET_SENSOR_CONVEYOR_HEAD[1])
@@ -348,19 +383,19 @@ class PLCManager:
             self.staff_inbound_done = get_bool(data, OFFSET_STAFF_INBOUND_DONE[0], OFFSET_STAFF_INBOUND_DONE[1])
             self.staff_mode_active = get_bool(data, OFFSET_STAFF_MODE_ACTIVE[0], OFFSET_STAFF_MODE_ACTIVE[1])
 
+            import struct
             if len(data) >= 8:
-                import struct
                 self.staff_target_count = struct.unpack(">h", data[4:6])[0]
                 self.staff_current_count = struct.unpack(">h", data[6:8])[0]
+            if len(data) >= 10:
+                self.current_z_level = struct.unpack(">h", data[8:10])[0]
 
-            if self.plc_z_is_up:
-                self.z_axis = "UP"
-                self.plc_busy = False
-            elif self.plc_z_is_down:
-                self.z_axis = "DOWN"
+            if self.plc_z_in_position:
+                self.z_axis = Z_LEVEL_LABELS.get(self.current_z_level, "HOME")
                 self.plc_busy = False
             else:
                 self.z_axis = "MOVING"
+                self.plc_busy = True
 
         except Exception as e:
             logger.error("Error reading PLC DB%d status: %s", self.db_number, str(e))
@@ -412,6 +447,75 @@ class PLCManager:
         return self.staff_current_count
 
     # ----------------------------------------------------------------
+    # Z-Axis Multi-Level Control: Write DB15.DBW8 + Poll DB15.DBX2.7
+    # ----------------------------------------------------------------
+
+    async def move_z_to_level(self, level: int, timeout_sec: float = 20.0) -> bool:
+        """Request PLC to move Z-axis to target level and wait for confirmation.
+
+        Protocol:
+          1. Backend writes target level (Int16) to DB15.DBW8.
+          2. PLC reads DB15.DBW8, compares with current position, drives Z-axis motor.
+          3. PLC sets DB15.DBX2.7 (plc_z_in_position) = True when arrived.
+          4. Backend polls DB15.DBX2.7 until True or timeout.
+
+        Safety: PLC hardware interlocks with Robot HOME signal (DO0).
+                Backend does NOT need to verify Robot position.
+        """
+        level_label = Z_LEVEL_LABELS.get(level, f"UNKNOWN({level})")
+
+        # Skip if already at the requested level
+        if self.current_z_level == level and self.plc_z_in_position:
+            logger.info("PLC Z-Axis: Already at %s (level %d). Skipping move.", level_label, level)
+            return True
+
+        self.target_z_level = level
+        self.plc_z_in_position = False
+        logger.info("PLC Z-Axis: Requesting move to %s (level %d -> DB15.DBW8)...", level_label, level)
+
+        if self.simulator_mode or not SNAP7_AVAILABLE:
+            await asyncio.sleep(0.3)
+            self.current_z_level = level
+            self.plc_z_in_position = True
+            logger.info("PLC Z-Axis [Sim]: Arrived at %s (level %d). DB15.DBX2.7 = True", level_label, level)
+            return True
+
+        # Real PLC: Write target level to DB15.DBW8
+        if not self.is_connected or self.client is None:
+            if not self._connect_plc():
+                logger.error("PLC Z-Axis: Cannot connect to PLC to write Z level.")
+                return False
+
+        try:
+            import struct
+            packed = struct.pack(">h", level)
+            await self._async_db_write(OFFSET_CMD_TARGET_Z_LEVEL, bytearray(packed))
+            logger.info("PLC Z-Axis: Written level %d to DB15.DBW8", level)
+        except Exception as err:
+            logger.error("PLC Z-Axis: Failed to write DB15.DBW8: %s", err)
+            return False
+
+        # Poll DB15.DBX2.7 until True
+        import time
+        start_time = time.time()
+        while (time.time() - start_time) < timeout_sec:
+            await asyncio.sleep(DEFAULT_POLL_INTERVAL)
+            try:
+                data = await self._async_db_read(2, 1)
+                z_in_pos = get_bool(data, 0, 7)  # Bit 2.7 relative to offset 2
+                if z_in_pos:
+                    self.plc_z_in_position = True
+                    self.current_z_level = level
+                    logger.info("PLC Z-Axis: Confirmed at %s (level %d). DB15.DBX2.7 = True (%.1fs)",
+                                level_label, level, time.time() - start_time)
+                    return True
+            except Exception as poll_err:
+                logger.warning("PLC Z-Axis: Poll error: %s", poll_err)
+
+        logger.error("PLC Z-Axis: TIMEOUT waiting for level %d (%s) after %.1fs!", level, level_label, timeout_sec)
+        return False
+
+    # ----------------------------------------------------------------
     # Handshake: Send command (Byte 0 & 1) + poll status (Byte 2 & 3)
     # ----------------------------------------------------------------
 
@@ -426,8 +530,6 @@ class PLCManager:
                 # Clear Station command bits (Byte 0), keeping bit 0.7 (watchdog) untouched
                 set_bool(cmd_data, 0, OFFSET_CMD_LOCK[1], False)
                 set_bool(cmd_data, 0, OFFSET_CMD_UNLOCK[1], False)
-                set_bool(cmd_data, 0, OFFSET_CMD_Z_UP[1], False)
-                set_bool(cmd_data, 0, OFFSET_CMD_Z_DOWN[1], False)
                 set_bool(cmd_data, 0, OFFSET_CMD_STOP[1], False)
                 set_bool(cmd_data, 0, OFFSET_CMD_START[1], False)
                 set_bool(cmd_data, 0, OFFSET_CMD_RESET[1], False)
@@ -437,10 +539,6 @@ class PLCManager:
                     set_bool(cmd_data, 0, OFFSET_CMD_LOCK[1], True)
                 elif cmd == PLCCommand.UNLOCK_DRONE:
                     set_bool(cmd_data, 0, OFFSET_CMD_UNLOCK[1], True)
-                elif cmd == PLCCommand.Z_UP:
-                    set_bool(cmd_data, 0, OFFSET_CMD_Z_UP[1], True)
-                elif cmd == PLCCommand.Z_DOWN:
-                    set_bool(cmd_data, 0, OFFSET_CMD_Z_DOWN[1], True)
                 elif cmd == PLCCommand.STOP_PLC:
                     set_bool(cmd_data, 0, OFFSET_CMD_STOP[1], True)
                 elif cmd == PLCCommand.START_PLC:
@@ -478,8 +576,6 @@ class PLCManager:
             if not is_staff_cmd:
                 set_bool(reset_data, 0, OFFSET_CMD_LOCK[1], False)
                 set_bool(reset_data, 0, OFFSET_CMD_UNLOCK[1], False)
-                set_bool(reset_data, 0, OFFSET_CMD_Z_UP[1], False)
-                set_bool(reset_data, 0, OFFSET_CMD_Z_DOWN[1], False)
                 set_bool(reset_data, 0, OFFSET_CMD_STOP[1], False)
                 set_bool(reset_data, 0, OFFSET_CMD_START[1], False)
                 set_bool(reset_data, 0, OFFSET_CMD_RESET[1], False)
@@ -494,44 +590,45 @@ class PLCManager:
     async def _send_command_and_wait(
         self,
         cmd: PLCCommand,
-        timeout: float = DEFAULT_HANDSHAKE_TIMEOUT,
+        timeout_sec: float = DEFAULT_HANDSHAKE_TIMEOUT,
     ) -> bool:
-        """Core execution: write command bit to Byte 0 or Byte 1, then poll Byte 2 / Byte 3 for target state flag."""
-        if not self.is_connected or self.client is None:
-            return False
+        """Send command bit via pulse handshake and wait for PLC status bit to confirm.
+
+        Safety Rules:
+          - If emergency_stop becomes True during wait: abort immediately.
+          - If plc_error becomes True (and command is not RESET_PLC): abort immediately.
+          - Command bits are pulsed: set True, wait confirmation (or min pulse time), then cleared.
+        """
+        is_staff_cmd = cmd in (
+            PLCCommand.STAFF_MODE_ENABLE,
+            PLCCommand.STAFF_MODE_DISABLE,
+            PLCCommand.STAFF_OUTBOUND_START,
+            PLCCommand.STAFF_OUTBOUND_CANCEL,
+            PLCCommand.STAFF_INBOUND_START,
+            PLCCommand.STAFF_INBOUND_STOP,
+        )
 
         try:
-            # Determine whether this is a Byte 0 (Station) or Byte 1 (Staff) command
-            is_staff_cmd = cmd in (
-                PLCCommand.STAFF_MODE_ENABLE,
-                PLCCommand.STAFF_MODE_DISABLE,
-                PLCCommand.STAFF_OUTBOUND_START,
-                PLCCommand.STAFF_OUTBOUND_CANCEL,
-                PLCCommand.STAFF_INBOUND_START,
-                PLCCommand.STAFF_INBOUND_STOP,
-            )
-
-            # Step 1: Write command bit atomically to DB15
+            # 1. Assert command bit under lock
             await self._write_command_bits(cmd, is_staff_cmd)
-            logger.info("PLC Command: Sent %s to DB15 (Byte %d)", cmd.value, 1 if is_staff_cmd else 0)
+            logger.debug("PLC Handshake: Asserted bit for command %s", cmd.value)
 
-            # Step 2: Poll DB15 Byte 2 & Byte 3 for target status flag
-            elapsed = 0.0
-            while elapsed < timeout:
+            # 2. Poll for target status bit
+            import time
+            start_time = time.time()
+
+            while (time.time() - start_time) < timeout_sec:
                 await asyncio.sleep(DEFAULT_POLL_INTERVAL)
-                elapsed += DEFAULT_POLL_INTERVAL
+                elapsed = time.time() - start_time
 
                 status_data = await self._async_db_read(0, 4)
 
                 plc_locked = get_bool(status_data, OFFSET_PLC_LOCKED_STATE[0], OFFSET_PLC_LOCKED_STATE[1])
-                plc_z_up = get_bool(status_data, OFFSET_PLC_Z_IS_UP[0], OFFSET_PLC_Z_IS_UP[1])
-                plc_z_down = get_bool(status_data, OFFSET_PLC_Z_IS_DOWN[0], OFFSET_PLC_Z_IS_DOWN[1])
                 plc_on = get_bool(status_data, OFFSET_PLC_ON[0], OFFSET_PLC_ON[1])
                 plc_err = get_bool(status_data, OFFSET_PLC_ERROR[0], OFFSET_PLC_ERROR[1])
                 is_estop = get_bool(status_data, OFFSET_E_STOP[0], OFFSET_E_STOP[1])
 
                 staff_active = get_bool(status_data, OFFSET_STAFF_MODE_ACTIVE[0], OFFSET_STAFF_MODE_ACTIVE[1])
-                conveyor_run = get_bool(status_data, OFFSET_CONVEYOR_RUNNING[0], OFFSET_CONVEYOR_RUNNING[1])
                 out_busy = get_bool(status_data, OFFSET_STAFF_OUTBOUND_BUSY[0], OFFSET_STAFF_OUTBOUND_BUSY[1])
                 in_busy = get_bool(status_data, OFFSET_STAFF_INBOUND_BUSY[0], OFFSET_STAFF_INBOUND_BUSY[1])
 
@@ -549,8 +646,6 @@ class PLCManager:
                 is_target_reached = (
                     (cmd == PLCCommand.LOCK_DRONE and plc_locked) or
                     (cmd == PLCCommand.UNLOCK_DRONE and not plc_locked) or
-                    (cmd == PLCCommand.Z_UP and plc_z_up) or
-                    (cmd == PLCCommand.Z_DOWN and plc_z_down) or
                     (cmd == PLCCommand.START_PLC and plc_on) or
                     (cmd == PLCCommand.STOP_PLC and not plc_on) or
                     (cmd == PLCCommand.RESET_PLC and not plc_err) or
@@ -625,8 +720,6 @@ class PLCManager:
             drone_detected=self.drone_detected,
             plc_locked_state=self.plc_locked_state or self.drone_locked,
             drone_locked=self.drone_locked or self.plc_locked_state,
-            plc_z_is_up=self.plc_z_is_up or (self.z_axis == "UP"),
-            plc_z_is_down=self.plc_z_is_down or (self.z_axis == "DOWN"),
             plc_on=self.plc_on,
             plc_error=self.plc_error,
             emergency_stop=self.emergency_stop,
@@ -645,11 +738,24 @@ class PLCManager:
             staff_mode_active=self.staff_mode_active,
             staff_target_count=self.staff_target_count,
             staff_current_count=self.staff_current_count,
+            plc_z_in_position=self.plc_z_in_position,
+            target_z_level=self.target_z_level,
+            current_z_level=self.current_z_level,
         )
 
     async def execute_command(self, cmd: PLCCommand) -> PLCStatusResponse:
         """Execute a PLC command using Handshake Signal Protocol."""
         logger.info("Executing PLC command: %s (DB%d, Simulator Mode: %s)", cmd.value, self.db_number, self.simulator_mode)
+
+        # Legacy Z commands: Redirect directly to multi-level control (DB15.DBW8)
+        if cmd == PLCCommand.Z_UP:
+            logger.info("PLC execute_command: Legacy Z_UP redirected to move_z_to_level(Z_LEVEL_DOCK_N)")
+            await self.move_z_to_level(Z_LEVEL_DOCK_N)
+            return self.get_status()
+        elif cmd == PLCCommand.Z_DOWN:
+            logger.info("PLC execute_command: Legacy Z_DOWN redirected to move_z_to_level(Z_LEVEL_HOME)")
+            await self.move_z_to_level(Z_LEVEL_HOME)
+            return self.get_status()
 
         # Safety Interlock: Block motion/station commands if PLC is in E-Stop or Error state.
         # STOP_PLC and RESET_PLC are always permitted as emergency/recovery actions.
@@ -677,11 +783,6 @@ class PLCManager:
         # Update intermediate state
         if cmd in (PLCCommand.LOCK_DRONE, PLCCommand.START_PLC, PLCCommand.STOP_PLC, PLCCommand.RESET_PLC):
             self.plc_busy = True
-        elif cmd in (PLCCommand.Z_UP, PLCCommand.Z_DOWN):
-            self.z_axis = "MOVING"
-            self.plc_z_is_up = False
-            self.plc_z_is_down = False
-            self.plc_busy = True
         elif cmd in (PLCCommand.STAFF_OUTBOUND_START, PLCCommand.STAFF_INBOUND_START):
             self.plc_busy = True
 
@@ -704,14 +805,6 @@ class PLCManager:
             elif cmd == PLCCommand.UNLOCK_DRONE:
                 self.plc_locked_state = False
                 self.drone_locked = False
-            elif cmd == PLCCommand.Z_UP:
-                self.z_axis = "UP"
-                self.plc_z_is_up = True
-                self.plc_z_is_down = False
-            elif cmd == PLCCommand.Z_DOWN:
-                self.z_axis = "DOWN"
-                self.plc_z_is_up = False
-                self.plc_z_is_down = True
             elif cmd == PLCCommand.STAFF_MODE_ENABLE:
                 self.staff_mode_active = True
             elif cmd == PLCCommand.STAFF_MODE_DISABLE:
@@ -778,30 +871,6 @@ class PLCManager:
             self.drone_locked = False
             logger.info("PLC [Sim]: Drone unlocked and clamps released")
 
-        elif cmd == PLCCommand.Z_UP:
-            self.z_axis = "MOVING"
-            self.plc_z_is_up = False
-            self.plc_z_is_down = False
-            self.plc_busy = True
-            await asyncio.sleep(0.3)
-            self.z_axis = "UP"
-            self.plc_z_is_up = True
-            self.plc_z_is_down = False
-            self.plc_busy = False
-            logger.info("PLC [Sim]: Lift Z-axis moved to UP position")
-
-        elif cmd == PLCCommand.Z_DOWN:
-            self.z_axis = "MOVING"
-            self.plc_z_is_up = False
-            self.plc_z_is_down = False
-            self.plc_busy = True
-            await asyncio.sleep(0.3)
-            self.z_axis = "DOWN"
-            self.plc_z_is_up = False
-            self.plc_z_is_down = True
-            self.plc_busy = False
-            logger.info("PLC [Sim]: Lift Z-axis moved to DOWN position")
-
         # Staff Mode & Conveyor Commands in Simulator
         elif cmd == PLCCommand.STAFF_MODE_ENABLE:
             self.staff_mode_active = True
@@ -848,7 +917,7 @@ class PLCManager:
     ) -> None:
         """Wait for a PLC status attribute to reach the target value.
 
-        Used by StationService for the 11-step FSM handshake protocol:
+        Used by StationService for FSM handshake protocol:
             Command → Execute → Feedback → Next Step
 
         In simulator mode, the execute_command method already sets the
@@ -859,7 +928,7 @@ class PLCManager:
         Args:
             status_key: Name of the cached boolean attribute
                         (e.g. 'drone_detected', 'plc_locked_state',
-                         'plc_z_is_up', 'plc_z_is_down').
+                         'plc_z_in_position', 'plc_on', 'plc_error').
             target_value: The boolean value to wait for.
             timeout_sec: Maximum wait time in seconds before raising TimeoutError.
             poll_interval: Seconds between polling attempts.
@@ -871,8 +940,8 @@ class PLCManager:
         if not hasattr(self, status_key):
             raise AttributeError(
                 f"PLCManager has no status attribute '{status_key}'. "
-                f"Valid keys: drone_detected, plc_locked_state, plc_z_is_up, "
-                f"plc_z_is_down, plc_on, plc_error, emergency_stop"
+                f"Valid keys: drone_detected, plc_locked_state, plc_z_in_position, "
+                f"plc_on, plc_error, emergency_stop"
             )
 
         elapsed = 0.0

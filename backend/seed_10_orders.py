@@ -85,9 +85,9 @@ async def reset_and_seed_orders():
             "B1": {"prod": "PRD-1004", "name": "Bộ Điều Khiển MAVLink CTL-04", "status": StorageSlotStatus.OCCUPIED.value},
             "B2": {"prod": None, "name": None, "status": StorageSlotStatus.EMPTY.value},
             "B3": {"prod": None, "name": None, "status": StorageSlotStatus.EMPTY.value},
-            "C1": {"prod": None, "name": None, "status": StorageSlotStatus.EMPTY.value},
-            "C2": {"prod": None, "name": None, "status": StorageSlotStatus.EMPTY.value},
-            "C3": {"prod": None, "name": None, "status": StorageSlotStatus.EMPTY.value},
+            "C1": {"prod": None, "name": None, "status": StorageSlotStatus.RESERVED.value},
+            "C2": {"prod": None, "name": None, "status": StorageSlotStatus.RESERVED.value},
+            "C3": {"prod": None, "name": None, "status": StorageSlotStatus.RESERVED.value},
         }
 
         now = datetime.utcnow()
@@ -161,7 +161,7 @@ async def reset_and_seed_orders():
                 pickup_lat, pickup_lon, pickup_addr = c_info["lat"], c_info["lon"], c_info["addr"]
                 drop_lat, drop_lon, drop_addr = wh_lat, wh_lon, wh_addr
                 mission_type = "DRONE_PICKUP"
-                assigned_slot = ["B2", "B3", "C1", "C2", "C3"][i - 5]
+                assigned_slot = ["B2", "B3", "B2", "B3", "B2"][i - 5]
                 note = f"Nhập hàng từ khách hàng {c_info['name']} về lưu trữ tại ô kho {assigned_slot}"
 
             # Create Delivery Request Record

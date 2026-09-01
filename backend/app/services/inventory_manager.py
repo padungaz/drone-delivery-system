@@ -9,8 +9,10 @@ from app.models.schemas import StorageSlotStatus, QRScanPayload
 
 logger = logging.getLogger(__name__)
 
-# Standard 9 slots for smart warehouse grid
-SLOT_NAMES = ["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"]
+# Smart warehouse grid slots: 6 active operational slots (A1..B3) + 3 symbolic reserved slots (C1..C3)
+ACTIVE_SLOT_NAMES = ["A1", "A2", "A3", "B1", "B2", "B3"]
+SYMBOLIC_SLOT_NAMES = ["C1", "C2", "C3"]
+SLOT_NAMES = ACTIVE_SLOT_NAMES + SYMBOLIC_SLOT_NAMES
 
 
 class InventoryManager:
@@ -18,7 +20,7 @@ class InventoryManager:
         self.session = session
 
     async def init_default_slots(self) -> None:
-        """Seed 9 storage slots (A1..C3) if table is empty or missing slot_names."""
+        """Seed 9 storage slots (A1..C3) with C1..C3 marked as RESERVED (symbolic)."""
         stmt = select(StorageSlotRecord).order_by(StorageSlotRecord.id)
         res = await self.session.execute(stmt)
         existing = list(res.scalars().all())
@@ -26,36 +28,48 @@ class InventoryManager:
         if not existing:
             now = datetime.utcnow()
             for idx, name in enumerate(SLOT_NAMES, start=1):
+                initial_status = (
+                    StorageSlotStatus.EMPTY.value
+                    if name in ACTIVE_SLOT_NAMES
+                    else StorageSlotStatus.RESERVED.value
+                )
                 slot = StorageSlotRecord(
                     id=idx,
                     slot_name=name,
-                    status=StorageSlotStatus.EMPTY.value,
+                    status=initial_status,
                     product_id=None,
                     qr_code=None,
                     updated_time=now,
                 )
                 self.session.add(slot)
             await self.session.commit()
-            logger.info("Initialized 9 default storage slots (A1..C3)")
+            logger.info("Initialized 9 default storage slots (A1..B3 Active, C1..C3 Reserved)")
         else:
             now = datetime.utcnow()
             for idx, slot in enumerate(existing):
                 if not slot.slot_name and idx < len(SLOT_NAMES):
                     slot.slot_name = SLOT_NAMES[idx]
-                    slot.status = slot.status or StorageSlotStatus.EMPTY.value
+                # Keep symbolic C1..C3 slots always RESERVED
+                if slot.slot_name in SYMBOLIC_SLOT_NAMES:
+                    slot.status = StorageSlotStatus.RESERVED.value
+                    slot.product_id = None
+                    slot.qr_code = None
+                elif not slot.status:
+                    slot.status = StorageSlotStatus.EMPTY.value
                 if slot.updated_time is None:
                     slot.updated_time = now
             await self.session.commit()
 
     async def get_all_slots(self) -> List[StorageSlotRecord]:
-        """Fetch all 9 storage slots."""
+        """Fetch all 9 storage slots (including symbolic C1..C3 for 3x3 grid display)."""
         stmt = select(StorageSlotRecord).order_by(StorageSlotRecord.slot_name)
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
     async def find_available_slot(self) -> Optional[StorageSlotRecord]:
-        """Find first EMPTY storage slot."""
+        """Find first EMPTY storage slot among active slots (A1..B3)."""
         stmt = select(StorageSlotRecord).where(
+            StorageSlotRecord.slot_name.in_(ACTIVE_SLOT_NAMES),
             StorageSlotRecord.status == StorageSlotStatus.EMPTY.value
         ).order_by(StorageSlotRecord.slot_name)
         res = await self.session.execute(stmt)
@@ -70,16 +84,18 @@ class InventoryManager:
         return res.scalars().first()
 
     async def find_occupied_slot(self) -> Optional[StorageSlotRecord]:
-        """Find first OCCUPIED storage slot (for delivery/export)."""
+        """Find first OCCUPIED storage slot among active slots (A1..B3) (for delivery/export)."""
         stmt = select(StorageSlotRecord).where(
+            StorageSlotRecord.slot_name.in_(ACTIVE_SLOT_NAMES),
             StorageSlotRecord.status == StorageSlotStatus.OCCUPIED.value
         ).order_by(StorageSlotRecord.slot_name)
         res = await self.session.execute(stmt)
         return res.scalars().first()
 
     async def get_occupied_slots(self) -> List[StorageSlotRecord]:
-        """Fetch all OCCUPIED storage slots."""
+        """Fetch all OCCUPIED storage slots among active slots (A1..B3)."""
         stmt = select(StorageSlotRecord).where(
+            StorageSlotRecord.slot_name.in_(ACTIVE_SLOT_NAMES),
             StorageSlotRecord.status == StorageSlotStatus.OCCUPIED.value
         ).order_by(StorageSlotRecord.slot_name)
         res = await self.session.execute(stmt)

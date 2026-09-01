@@ -7,7 +7,7 @@ from app.models.schemas import RobotCommand, StorageSlotStatus, PLCCommand
 from app.services.camera_manager import CameraManager
 from app.services.device_lock_manager import device_lock_manager
 from app.services.inventory_manager import InventoryManager
-from app.services.plc_manager import PLCManager
+from app.services.plc_manager import PLCManager, slot_to_z_level, Z_LEVEL_LABELS
 from app.services.robot_manager import RobotManager
 from app.services.system_mode_manager import system_mode_manager
 from app.websocket.manager import system_ws_manager
@@ -186,6 +186,15 @@ class StaffOperationManager:
                 self.outbound_current_slot = target_slot
                 await self.log_event(f"📦 Điều phối Robot xuất ô {target_slot} ra băng tải ({len(self.outbound_completed) + 1}/{total_items})...")
 
+                # Bước Z: PLC nâng/hạ trục Z đến tầng ô kho trước khi Robot gắp
+                z_level = slot_to_z_level(target_slot)
+                z_label = Z_LEVEL_LABELS.get(z_level, str(z_level))
+                await self.log_event(f"⬆️ PLC nâng trục Z đến tầng {z_label} (DB15.DBW8={z_level})...")
+                if not await self.plc_mgr.move_z_to_level(z_level):
+                    self.status = "ERROR"
+                    await self.log_event(f"❌ PLC trục Z không thể đến tầng {z_label}! Dừng chu trình xuất.")
+                    return
+
                 # Giao toàn quyền chu trình cơ khí cho Robot & PLC:
                 # Robot tự nhận tín hiệu DI2 (O1 trống) -> Gắp từ ô kho -> Đặt xuống O1 -> Kích xung DO2 sang PLC
                 # PLC tự nhận DO2 -> Tự kích động cơ băng tải chạy đưa hàng ra cho nhân viên
@@ -259,13 +268,13 @@ class StaffOperationManager:
         self.active_type = "INBOUND"
         self.status = "RUNNING"
         self.inbound_mode = "CONTINUOUS"
-        self.inbound_target_count = 9
+        self.inbound_target_count = 6
         self.inbound_current_count = 0
         self.inbound_current_slot = None
         self.last_scanned_qr = None
         self._stop_requested = False
 
-        await self.log_event("📥 Bắt đầu nạp hàng chủ động (Liên tục: Tự kết thúc khi đầy kho 9 ô hoặc nhân viên bấm Kết thúc)...")
+        await self.log_event("📥 Bắt đầu nạp hàng chủ động (Liên tục: Tự kết thúc khi đầy 6 ô hoạt động A1..B3 hoặc nhân viên bấm Kết thúc)...")
 
         self._current_task = asyncio.create_task(self._run_inbound_loop())
         return self.get_status()
@@ -287,12 +296,12 @@ class StaffOperationManager:
     async def _run_inbound_loop(self) -> None:
         try:
             while not self._stop_requested:
-                # Bước 1: Backend quản lý CSDL: Phân bổ vị trí kho (tìm ô trống trong ma trận A1..C3)
+                # Bước 1: Backend quản lý CSDL: Phân bổ vị trí kho (tìm ô trống trong 6 ô hoạt động A1..B3)
                 async with async_session() as session:
                     inv_mgr = InventoryManager(session)
                     empty_slot = await inv_mgr.find_available_slot()
                     if not empty_slot:
-                        await self.log_event("⚠️ Cả 9 ô kho đã ĐẦY (9/9)! Tự động kết thúc chu trình nạp hàng!")
+                        await self.log_event("⚠️ Cả 6 ô kho hoạt động đã ĐẦY (6/6)! Tự động kết thúc chu trình nạp hàng!")
                         self.status = "COMPLETED"
                         break
                     target_slot = empty_slot.slot_name
@@ -309,7 +318,16 @@ class StaffOperationManager:
                 if self._stop_requested:
                     break
 
-                # Bước 3: Backend nhận tín hiệu có hàng -> Yêu cầu Robot xuống gắp hàng tại O1 (PICK O1)
+                # Bước 3a: PLC nâng/hạ trục Z đến tầng Băng tải O1 trước khi Robot gắp
+                z_o1 = slot_to_z_level("O1")
+                z_o1_label = Z_LEVEL_LABELS.get(z_o1, str(z_o1))
+                await self.log_event(f"⬆️ PLC di chuyển trục Z đến tầng {z_o1_label} (DB15.DBW8={z_o1})...")
+                if not await self.plc_mgr.move_z_to_level(z_o1):
+                    self.status = "ERROR"
+                    await self.log_event(f"❌ PLC trục Z không thể đến tầng {z_o1_label}! Dừng chu trình nạp.")
+                    return
+
+                # Bước 3b: Backend nhận tín hiệu có hàng -> Yêu cầu Robot xuống gắp hàng tại O1 (PICK O1)
                 await self.log_event("🤖 Robot nhận tín hiệu DI2 từ PLC có hàng tại O1! Backend điều phối Robot gắp hàng tại O1...")
                 try:
                     await self.robot_mgr.execute_command(RobotCommand.PICK, slot="O1")
@@ -334,7 +352,16 @@ class StaffOperationManager:
                 prod_id = scanned_qr_text or f"PROD_{target_slot}"
                 self.last_scanned_qr = qr_code
 
-                # Bước 5: Quét mã QR xong, Robot di chuyển cất hàng vào ô kho trống đã phân bổ (STORE target_slot)
+                # Bước 5a: PLC nâng/hạ trục Z đến tầng ô kho trước khi Robot cất
+                z_slot = slot_to_z_level(target_slot)
+                z_slot_label = Z_LEVEL_LABELS.get(z_slot, str(z_slot))
+                await self.log_event(f"⬆️ PLC di chuyển trục Z đến tầng {z_slot_label} (DB15.DBW8={z_slot})...")
+                if not await self.plc_mgr.move_z_to_level(z_slot):
+                    self.status = "ERROR"
+                    await self.log_event(f"❌ PLC trục Z không thể đến tầng {z_slot_label}! Dừng chu trình nạp.")
+                    return
+
+                # Bước 5b: Quét mã QR xong, Robot di chuyển cất hàng vào ô kho trống đã phân bổ (STORE target_slot)
                 await self.log_event(f"📦 Robot di chuyển cất kiện hàng {prod_id} vào ô kho {target_slot}...")
                 try:
                     await self.robot_mgr.execute_command(RobotCommand.STORE, slot=target_slot)

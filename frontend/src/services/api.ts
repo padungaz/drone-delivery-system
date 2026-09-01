@@ -199,6 +199,14 @@ export async function controlPlcHatch(open: boolean): Promise<Response> {
   });
 }
 
+export async function controlPlcZLevel(level: number): Promise<Response> {
+  return fetch(`${API_BASE}/api/plc/z-level`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ level }),
+  });
+}
+
 export async function controlPlcLock(lock: boolean): Promise<Response> {
   return fetch(`${API_BASE}/api/plc/lock`, {
     method: "POST",
@@ -232,6 +240,14 @@ export async function setSimulatedDroneSensor(detected: boolean): Promise<Respon
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ detected }),
+  });
+}
+
+export async function setSimulatedEmergencyStop(active: boolean): Promise<Response> {
+  return fetch(`${API_BASE}/api/plc/emergency-stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ emergency_stop: active }),
   });
 }
 

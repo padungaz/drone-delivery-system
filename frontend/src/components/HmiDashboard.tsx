@@ -32,6 +32,7 @@ import {
   getMissionQueue,
   getStaffStatus,
   setStaffOperationMode,
+  updateDeviceConfig,
 } from "../services/api";
 import type { MissionLocations } from "../types/drone";
 
@@ -329,12 +330,15 @@ export function HmiDashboard() {
         { slot_id: "B1", status: "EMPTY" },
         { slot_id: "B2", status: "MOVING", product_id: "PRD-1002" },
         { slot_id: "B3", status: "OCCUPIED", product_id: "PRD-1003" },
-        { slot_id: "C1", status: "EMPTY" },
-        { slot_id: "C2", status: "EMPTY" },
-        { slot_id: "C3", status: "OCCUPIED", product_id: "PRD-1004" },
+        { slot_id: "C1", status: "RESERVED" },
+        { slot_id: "C2", status: "RESERVED" },
+        { slot_id: "C3", status: "RESERVED" },
       ];
 
   const handleSlotClick = (slotId: string) => {
+    if (slotId.startsWith("C")) {
+      return;
+    }
     const slot = mappedSlots.find((s) => s.slot_id === slotId);
     setModalData({
       slotId,
@@ -480,6 +484,15 @@ export function HmiDashboard() {
                   lastCycleDuration={lastRobotCycleDuration}
                   socketLogs={robotSocketLogs}
                   latencyMs={1.2}
+                  simulatorMode={robot?.simulator_mode}
+                  onToggleSimulator={async (isSim) => {
+                    try {
+                      await updateDeviceConfig("ROBOT01", { simulator_mode: isSim });
+                      addLog("INFO", `Đã ${isSim ? "bật" : "tắt"} chế độ mô phỏng Robot FR3.`);
+                    } catch {
+                      addLog("ERROR", "Không thể cập nhật cấu hình Robot.");
+                    }
+                  }}
                 />
                 <RobotDigitalTwin
                   tcpPosition={
@@ -510,6 +523,9 @@ export function HmiDashboard() {
                   stationOpStep={stationOp?.current_action}
                   stationOpDetails={stationOp?.message}
                   waitingQueue={waitingQueue}
+                  autoState={autoState}
+                  systemMode={systemMode}
+                  onStartAuto={handleStartAutoSystem}
                 />
                 <div className="controls-combined-col">
                   <QuickControlPanel
@@ -531,9 +547,11 @@ export function HmiDashboard() {
                   connected={isPlcOnline}
                   droneDetected={plc?.drone_detected ?? true}
                   lockClamp={plc?.plc_locked_state ?? true}
-                  zLiftUp={plc?.plc_z_is_up ?? true}
                   eStopOk={!(plc?.emergency_stop ?? false)}
                   systemMode={systemMode}
+                  currentZLevel={plc?.current_z_level ?? 0}
+                  targetZLevel={plc?.target_z_level ?? 0}
+                  zInPosition={plc?.plc_z_in_position ?? true}
                 />
                 <CameraVision
                   cameraActive={cameraActive}
@@ -608,9 +626,11 @@ export function HmiDashboard() {
                     connected={isPlcOnline}
                     droneDetected={plc?.drone_detected ?? true}
                     lockClamp={plc?.plc_locked_state ?? true}
-                    zLiftUp={plc?.plc_z_is_up ?? true}
                     eStopOk={!(plc?.emergency_stop ?? false)}
                     systemMode={systemMode}
+                    currentZLevel={plc?.current_z_level ?? 0}
+                    targetZLevel={plc?.target_z_level ?? 0}
+                    zInPosition={plc?.plc_z_in_position ?? true}
                   />
                 </div>
               </div>

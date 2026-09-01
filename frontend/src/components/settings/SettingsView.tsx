@@ -1165,7 +1165,7 @@ export function SettingsView({
               <div className="device-specs-box">
                 <div className="spec-item">
                   <span className="spec-name">Ma trận lưu trữ</span>
-                  <span className="spec-val">9 Ô Lưu Trữ (A1..A3, B1..B3, C1..C3)</span>
+                  <span className="spec-val">6 Ô Hoạt Động (A1..B3) + 3 Ô Dự Phòng (C1..C3)</span>
                 </div>
                 <div className="spec-item">
                   <span className="spec-name">Cửa nhận & Dock</span>

@@ -22,15 +22,12 @@ function mapPlcResponse(raw: Record<string, unknown>): PLCState {
   const droneDetected = (raw.drone_detected as boolean) ?? false;
   const lockedState = (raw.plc_locked_state as boolean) ?? (raw.drone_locked as boolean) ?? false;
   const zAxis = (raw.z_axis as string) ?? "HOME";
-  const zIsUp = (raw.plc_z_is_up as boolean) ?? (zAxis === "UP");
-  const zIsDown = (raw.plc_z_is_down as boolean) ?? (zAxis === "DOWN");
+  const currentZLevel = (raw.current_z_level as number) ?? 0;
 
   return {
     drone_detected: droneDetected,
     plc_locked_state: lockedState,
     drone_locked: lockedState,
-    plc_z_is_up: zIsUp,
-    plc_z_is_down: zIsDown,
     plc_on: (raw.plc_on as boolean) ?? true,
     plc_error: (raw.plc_error as boolean) ?? false,
     emergency_stop: (raw.emergency_stop as boolean) ?? false,
@@ -39,8 +36,13 @@ function mapPlcResponse(raw: Record<string, unknown>): PLCState {
     simulator_mode: (raw.simulator_mode as boolean) ?? true,
     plc_busy: (raw.plc_busy as boolean) ?? false,
 
+    // Z-Axis Multi-Level Control
+    plc_z_in_position: (raw.plc_z_in_position as boolean) ?? true,
+    target_z_level: (raw.target_z_level as number) ?? 0,
+    current_z_level: currentZLevel,
+
     // Derived convenience fields
-    hatch_open: zIsUp,
+    hatch_open: currentZLevel === 3,
     drone_landed_sensor: droneDetected,
   };
 }

@@ -1,7 +1,7 @@
 -- =========================================================================
 -- FAIRINO FR3 INDUSTRIAL WAREHOUSE ROBOT CONTROLLER  v2.0
 -- Firmware: V3.9.21 / FR3 V6.0 | Port: 8090 / 9100
--- Quản lý: Kho 3x3 (A1 -> C3), Trạm Drone (N1), Đầu Băng Tải (O1) & Vị trí HOME
+-- Quản lý: Kho 6 Ô Hoạt Động (A1 -> B3) + 3 Ô Dự Phòng (C1..C3), Trạm Drone (N1), Đầu Băng Tải (O1) & Vị trí HOME
 -- =========================================================================
 -- 
 -- 🔌 BẢNG ÁNH XẠ I/O PHẦN CỨNG GIỮA ROBOT & PLC SIEMENS S7-1200:
@@ -37,10 +37,10 @@
 --     PlaceToSlot(slot)   : Quỹ đạo vào THẢ hàng tại ô -> rút ra an toàn
 --
 --   Các điểm cần teach trên Controller (tuỳ biến mỗi ô):
---     HOME_A, HOME_B, HOME_C         (điểm an toàn tầng A/B/C)
---     A1_P1, A1_P2, ..., C3_P1, ...  (điểm tránh vật cản, tuỳ cơ khí)
+--     HOME_A, HOME_B                 (điểm an toàn tầng A/B)
+--     A1_P1, A1_P2, ..., B3_P1, ...  (điểm tránh vật cản, tuỳ cơ khí)
 --     HOME_N1, HOME_O1               (điểm an toàn trạm drone / băng tải)
---     A1..C3, N1, O1                 (toạ độ tâm ô gốc)
+--     A1..B3, N1, O1                 (toạ độ tâm ô gốc hoạt động; C1..C3 là ô tượng trưng/dự phòng)
 --
 --   Luồng OUTBOUND: PickFromSlot(slot) -> HOME -> PlaceToSlot("O1") -> HOME -> DO1
 --   Luồng INBOUND:  PickFromSlot("O1") -> HOME -> PlaceToSlot(slot) -> HOME -> DO2
@@ -62,7 +62,7 @@ local PENDING_OPERATION = nil
 
 print("==================================================")
 print("🚀 FAIRINO Robot Warehouse Controller v2.0")
-print("📍 Points: A1..C3, N1 (Dock), O1 (Conveyor), HOME")
+print("📍 Active Points: A1..B3, N1 (Dock), O1 (Conveyor), HOME (C1..C3 Reserved)")
 print("📍 Approach Points: HOME_A1..HOME_C3, HOME_N1, HOME_O1")
 print("⚡ Hardware I/O (NPN/Active-Low): DI0/DO0 (Home), DI1 (O1 Empty), DI2 (O1 Has Item)")
 print("⚡ Output Pulses: DO1 (Outbound Done), DO2 (Inbound Done)")
@@ -202,29 +202,12 @@ function PickFromSlot(slot)
         PTP(B3, 25, -1, 1, -50, 0, 0, 0, 0, 0)
         PTP(HOME_B, 25, -1, 0)
 
-    elseif slot == "C1" then
-        PTP(HOME_C, 25, -1, 0)
-        PTP(C1, 30, -1, 1, -50, 0, 0, 0, 0, 0)
-        PTP(C1, 20, -1, 0)
-        sleep_ms(300)
-        PTP(C1, 25, -1, 1, -50, 0, 0, 0, 0, 0)
-        PTP(HOME_C, 25, -1, 0)
-
-    elseif slot == "C2" then
-        PTP(HOME_C, 25, -1, 0)
-        PTP(C2, 30, -1, 1, -50, 0, 0, 0, 0, 0)
-        PTP(C2, 20, -1, 0)
-        sleep_ms(300)
-        PTP(C2, 25, -1, 1, -50, 0, 0, 0, 0, 0)
-        PTP(HOME_C, 25, -1, 0)
-
-    elseif slot == "C3" then
-        PTP(HOME_C, 25, -1, 0)
-        PTP(C3, 30, -1, 1, -50, 0, 0, 0, 0, 0)
-        PTP(C3, 20, -1, 0)
-        sleep_ms(300)
-        PTP(C3, 25, -1, 1, -50, 0, 0, 0, 0, 0)
-        PTP(HOME_C, 25, -1, 0)
+    elseif slot == "C1" or slot == "C2" or slot == "C3" then
+        print("⚠️ [PICK] O kho " .. tostring(slot) .. " la o tuong trung / du phong (Khong hoat dong tren robot)!")
+        ROBOT_STATE = "ERROR"
+        sleep_ms(100)
+        ROBOT_STATE = "IDLE"
+        return false
 
     elseif slot == "N1" then
         PTP(HOME_N1, 25, -1, 0)
@@ -328,29 +311,12 @@ function PlaceToSlot(slot)
         PTP(B3, 25, -1, 1, 50, 0, 0, 0, 0, 0)
         PTP(HOME_B, 25, -1, 0)
 
-    elseif slot == "C1" then
-        PTP(HOME_C, 25, -1, 0)
-        PTP(C1, 30, -1, 1, 50, 0, 0, 0, 0, 0)
-        PTP(C1, 20, -1, 0)
-        sleep_ms(300)
-        PTP(C1, 25, -1, 1, 50, 0, 0, 0, 0, 0)
-        PTP(HOME_C, 25, -1, 0)
-
-    elseif slot == "C2" then
-        PTP(HOME_C, 25, -1, 0)
-        PTP(C2, 30, -1, 1, 50, 0, 0, 0, 0, 0)
-        PTP(C2, 20, -1, 0)
-        sleep_ms(300)
-        PTP(C2, 25, -1, 1, 50, 0, 0, 0, 0, 0)
-        PTP(HOME_C, 25, -1, 0)
-
-    elseif slot == "C3" then
-        PTP(HOME_C, 25, -1, 0)
-        PTP(C3, 30, -1, 1, 50, 0, 0, 0, 0, 0)
-        PTP(C3, 20, -1, 0)
-        sleep_ms(300)
-        PTP(C3, 25, -1, 1, 50, 0, 0, 0, 0, 0)
-        PTP(HOME_C, 25, -1, 0)
+    elseif slot == "C1" or slot == "C2" or slot == "C3" then
+        print("⚠️ [PLACE] O kho " .. tostring(slot) .. " la o tuong trung / du phong (Khong hoat dong tren robot)!")
+        ROBOT_STATE = "ERROR"
+        sleep_ms(100)
+        ROBOT_STATE = "IDLE"
+        return false
 
     elseif slot == "N1" then
         PTP(HOME_N1, 25, -1, 0)

@@ -54,7 +54,37 @@ async def control_plc_hatch(req: PLCHatchRequest):
 
     await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
     return {
-        "message": f"Lệnh {'Nâng Trục Z (Z_UP)' if cmd == PLCCommand.Z_UP else 'Hạ Trục Z (Z_DOWN)'} thành công!",
+        "message": f"Lệnh {'Nâng Trục Z lên DRONE N1 (DB15.DBW8=3)' if cmd == PLCCommand.Z_UP else 'Hạ Trục Z về HOME (DB15.DBW8=0)'} thành công!",
+        "status": status.model_dump(),
+    }
+
+
+class PLCZLevelRequest(BaseModel):
+    level: int  # 0: HOME, 1: HÀNG A, 2: HÀNG B, 3: DRONE N1, 4: BĂNG TẢI O1
+
+
+@plc_router.post("/z-level")
+async def control_plc_z_level(req: PLCZLevelRequest):
+    if device_lock_manager.is_device_locked("PLC01"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"PLC đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('PLC01')}! Vui lòng không can thiệp thủ công."
+        )
+
+    mgr = PLCManager.get_instance()
+    from app.services.plc_manager import Z_LEVEL_LABELS
+    success = await mgr.move_z_to_level(req.level)
+    status = mgr.get_status()
+    await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
+    label = Z_LEVEL_LABELS.get(req.level, f"Level {req.level}")
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail=f"PLC di chuyển trục Z đến tầng {label} (DB15.DBW8={req.level}) thất bại hoặc quá thời gian!"
+        )
+
+    return {
+        "message": f"Trục Z đã đến tầng {label} (DB15.DBW8={req.level}, DB2.7=True)!",
         "status": status.model_dump(),
     }
 

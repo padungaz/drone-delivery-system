@@ -328,11 +328,11 @@ export function StaffPortal({ storageSlots: propStorageSlots, onRefreshStorage }
         <div className="staff-left-column">
           <div className="card-panel warehouse-matrix-card">
             <div className="card-header">
-              <h3>📦 Sơ đồ 9 Ô Chứa Hàng (A1 - C3)</h3>
+              <h3>📦 Sơ đồ Kho 3x3 (A1 - B3 Hoạt Động, Tầng C Dự Phòng)</h3>
               <span className="card-hint">
                 {activeSubTab === "outbound"
-                  ? "Click vào ô có hàng để chọn lấy ra băng tải"
-                  : "Hiển thị trạng thái ô trống / ô có hàng"}
+                  ? "Click vào ô có hàng (A1..B3) để chọn lấy ra băng tải"
+                  : "Hiển thị trạng thái ô trống / ô có hàng (Tầng C là ô dự phòng)"}
               </span>
             </div>
 
@@ -340,7 +340,8 @@ export function StaffPortal({ storageSlots: propStorageSlots, onRefreshStorage }
             <div className="staff-grid-3x3">
               {["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"].map((slotName) => {
                 const slotData = localSlots.find((s) => s.slot_name === slotName);
-                const isOccupied = slotData?.status === "OCCUPIED" || Boolean(slotData?.product_id);
+                const isSymbolic = slotName.startsWith("C") || slotData?.status === "RESERVED";
+                const isOccupied = !isSymbolic && (slotData?.status === "OCCUPIED" || Boolean(slotData?.product_id));
                 const isSelected = selectedSlotsToPick.includes(slotName);
                 const isCurrentOp =
                   (staffOp.active_type === "OUTBOUND" && staffOp.outbound.current_slot === slotName) ||
@@ -349,18 +350,27 @@ export function StaffPortal({ storageSlots: propStorageSlots, onRefreshStorage }
                 return (
                   <div
                     key={slotName}
-                    className={`staff-slot-box ${isOccupied ? "occupied" : "empty"} ${
+                    className={`staff-slot-box ${isSymbolic ? "symbolic-disabled" : isOccupied ? "occupied" : "empty"} ${
                       isSelected ? "selected-pick" : ""
                     } ${isCurrentOp ? "active-motion" : ""}`}
-                    onClick={() => handleSlotClick(slotName, isOccupied)}
+                    onClick={() => {
+                      if (isSymbolic) {
+                        setActionError(`Ô ${slotName} là ô kho dự phòng tượng trưng (chỉ thao tác trên A1..B3).`);
+                        return;
+                      }
+                      handleSlotClick(slotName, isOccupied);
+                    }}
+                    title={isSymbolic ? `Ô ${slotName} (Dự phòng / Không khả dụng)` : undefined}
                   >
                     <div className="slot-badge-top">
                       <span className="slot-name">{slotName}</span>
-                      <span className={`slot-dot ${isOccupied ? "dot-full" : "dot-empty"}`} />
+                      <span className={`slot-dot ${isSymbolic ? "dot-reserved" : isOccupied ? "dot-full" : "dot-empty"}`} />
                     </div>
 
                     <div className="slot-content">
-                      {isCurrentOp ? (
+                      {isSymbolic ? (
+                        <div className="slot-reserved-tag">DỰ PHÒNG</div>
+                      ) : isCurrentOp ? (
                         <div className="slot-motion-tag">🤖 ĐANG GẮP...</div>
                       ) : isOccupied ? (
                         <>

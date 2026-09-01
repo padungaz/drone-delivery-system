@@ -377,12 +377,10 @@ class PLCStatusResponse(BaseModel):
     drone_detected: bool = False       # DB15.DBX2.0
     plc_locked_state: bool = False     # DB15.DBX2.1
     drone_locked: bool = False         # Alias for plc_locked_state
-    plc_z_is_up: bool = False          # DB15.DBX2.2
-    plc_z_is_down: bool = False        # DB15.DBX2.3
     plc_on: bool = False               # DB15.DBX2.4
     plc_error: bool = False            # DB15.DBX2.5
     emergency_stop: bool = False       # DB15.DBX2.6
-    z_axis: str = "HOME"               # "HOME", "UP", "DOWN", "MOVING"
+    z_axis: str = "HOME"               # "HOME", "HÀNG A", "HÀNG B", "DRONE N1", "BĂNG TẢI O1", "MOVING"
     connected: bool = True
     simulator_mode: bool = True
     plc_busy: bool = False
@@ -399,6 +397,11 @@ class PLCStatusResponse(BaseModel):
     staff_mode_active: bool = False    # DB15.DBX3.7 (Xác nhận PLC ở Chế độ Nhân viên)
     staff_target_count: int = 0        # DB15.DBW4 (Số lượng hàng Backend yêu cầu PLC)
     staff_current_count: int = 0       # DB15.DBW6 (Số lượng hàng PLC đã đếm được)
+
+    # Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7)
+    plc_z_in_position: bool = False    # DB15.DBX2.7 (Z đã đến tầng mục tiêu, sẵn sàng)
+    target_z_level: int = 0            # DB15.DBW8 (Mã tầng Z Backend yêu cầu)
+    current_z_level: int = 0           # Mã tầng Z hiện tại PLC phản hồi
 
 
 

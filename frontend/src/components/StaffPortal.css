@@ -261,6 +261,35 @@
   box-shadow: 0 0 16px rgba(0, 240, 255, 0.4) !important;
 }
 
+.staff-slot-box.symbolic-disabled {
+  opacity: 0.45;
+  border: 1.5px dashed rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.4);
+  cursor: not-allowed;
+}
+
+.staff-slot-box.symbolic-disabled:hover {
+  transform: none;
+  border-color: rgba(148, 163, 184, 0.3);
+  box-shadow: none;
+}
+
+.staff-slot-box.symbolic-disabled .slot-name {
+  color: #64748b;
+}
+
+.slot-dot.dot-reserved {
+  background: #64748b;
+  box-shadow: 0 0 6px rgba(100, 116, 139, 0.4);
+}
+
+.slot-reserved-tag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.5px;
+}
+
 .staff-slot-box.active-motion {
   border-color: #f59e0b !important;
   animation: pulse-border 1s infinite alternate;

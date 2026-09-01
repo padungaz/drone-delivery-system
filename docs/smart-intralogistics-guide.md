@@ -57,28 +57,52 @@ Toàn bộ các thiết bị giao tiếp với Central FastAPI Backend Server th
 ---
 
 ## 3. Bảng Ánh xạ PLC DB15 Protocol (Siemens S7-1200 ↔ Backend)
+*Chi tiết đầy đủ xem tại [plc-db15-io-mapping.md](file:///c:/Users/MSI%20GAMING/Desktop/drone-delivery-system/docs/plc-db15-io-mapping.md)*
 
-### 3.1. PLC → Backend (Trạng thái Status Bits - `DB15.DBX2.x`)
-| Tagname | Type | Địa chỉ DB15 | Ý nghĩa |
-| :---: | :---: | :---: | :--- |
-| `drone_detected` | BOOL | `DB15.DBX2.0` | PLC phát hiện Drone đã hạ cánh đúng vị trí Dock Pad |
-| `plc_locked_state` | BOOL | `DB15.DBX2.1` | Trạng thái cơ cấu kẹp khóa Drone đã hoàn thành |
-| `plc_z_is_up` | BOOL | `DB15.DBX2.2` | Trạng thái Trục Z đã nâng đến vị trí trên (UP) |
-| `plc_z_is_down` | BOOL | `DB15.DBX2.3` | Trạng thái Trục Z đã hạ về vị trí ban đầu (DOWN) |
-| `plc_on` | BOOL | `DB15.DBX2.4` | PLC đang hoạt động và sẵn sàng nhận lệnh |
-| `plc_error` | BOOL | `DB15.DBX2.5` | PLC phát hiện lỗi trong quá trình vận hành |
-| `emergency_stop` | BOOL | `DB15.DBX2.6` | Trạng thái nút dừng khẩn cấp được kích hoạt |
+### 3.1. Backend → PLC (Lệnh Command Bits & Words)
+| Địa chỉ DB15 | Tên Tag (Code) | Kiểu | Ý nghĩa / Chức năng |
+|:---:|:---:|:---:|:---|
+| **`DB15.DBX0.0`** | `cmd_lock_drone` | BOOL | Yêu cầu PLC đóng cơ cấu kẹp khóa cố định Drone |
+| **`DB15.DBX0.1`** | `cmd_unlock_drone` | BOOL | Yêu cầu PLC mở cơ cấu kẹp giải phóng Drone |
+| **`DB15.DBX0.2`** | *Reserved* | BOOL | *Dự phòng (Đã loại bỏ — Thay thế toàn diện bằng DB15.DBW8)* |
+| **`DB15.DBX0.3`** | *Reserved* | BOOL | *Dự phòng (Đã loại bỏ — Thay thế toàn diện bằng DB15.DBW8)* |
+| **`DB15.DBX0.4`** | `cmd_stop_plc` | BOOL | Yêu cầu PLC dừng chu kỳ làm việc |
+| **`DB15.DBX0.5`** | `cmd_start_plc` | BOOL | Yêu cầu PLC bật hệ thống sẵn sàng hoạt động |
+| **`DB15.DBX0.6`** | `cmd_reset_plc` | BOOL | Yêu cầu PLC xóa trạng thái lỗi (Reset Error) |
+| **`DB15.DBX0.7`** | `watchdog_heartbeat` | BOOL | Xung nhịp tim Watchdog từ Backend (1s) |
+| **`DB15.DBX1.0`** | `cmd_staff_mode_enable` | BOOL | Bật/tắt Chế độ Nhân viên (1 = Staff Mode, 0 = Auto) |
+| **`DB15.DBX1.1`** | `cmd_staff_outbound_start`| BOOL | Bắt đầu chu trình Lấy hàng ra Băng tải |
+| **`DB15.DBX1.2`** | `cmd_staff_outbound_cancel`| BOOL | Hủy chu trình Lấy hàng ra Băng tải |
+| **`DB15.DBX1.3`** | `cmd_staff_inbound_start` | BOOL | Bắt đầu chu trình Thêm hàng từ O1 vào Kho |
+| **`DB15.DBX1.4`** | `cmd_staff_inbound_stop` | BOOL | Dừng chu trình Thêm hàng |
+| **`DB15.DBW4`** | `staff_target_count` | INT16 | Số lượng kiện hàng yêu cầu xuất/nhập |
+| **`DB15.DBW8`** | `target_z_level` | INT16 | Mã tầng Z mục tiêu (0=Home, 1=Hàng A, 2=Hàng B, 3=N1, 4=O1) |
 
-### 3.2. Backend → PLC (Lệnh Command Bits - `DB15.DBX0.x`)
-| Tagname | Type | Địa chỉ DB15 | Ý nghĩa |
-| :---: | :---: | :---: | :--- |
-| `cmd_lock_drone` | BOOL | `DB15.DBX0.0` | Lệnh yêu cầu PLC đóng cơ cấu kẹp khóa cố định Drone |
-| `cmd_unlock_drone` | BOOL | `DB15.DBX0.1` | Lệnh yêu cầu PLC mở cơ cấu kẹp giải phóng Drone |
-| `cmd_z_up` | BOOL | `DB15.DBX0.2` | Lệnh yêu cầu PLC nâng Trục Z lên vị trí chờ gắp hàng |
-| `cmd_z_down` | BOOL | `DB15.DBX0.3` | Lệnh yêu cầu PLC hạ Trục Z về vị trí cất cánh |
-| `cmd_stop_plc` | BOOL | `DB15.DBX0.4` | Lệnh yêu cầu PLC dừng chu kỳ làm việc |
-| `cmd_start_plc` | BOOL | `DB15.DBX0.5` | Lệnh yêu cầu PLC bật hệ thống sẵn sàng hoạt động |
-| `cmd_reset_plc` | BOOL | `DB15.DBX0.6` | Lệnh yêu cầu PLC xóa trạng thái lỗi (Reset Error) |
+### 3.2. PLC → Backend (Trạng thái Status Bits & Words)
+| Địa chỉ DB15 | Tên Tag (Code) | Kiểu | Ý nghĩa / Chức năng |
+|:---:|:---:|:---:|:---|
+| **`DB15.DBX2.0`** | `drone_detected` | BOOL | Cảm biến phát hiện Drone đã hạ cánh đúng vị trí Pad N1 |
+| **`DB15.DBX2.1`** | `plc_locked_state` | BOOL | Trạng thái cơ cấu kẹp khóa Drone đã hoàn thành |
+| **`DB15.DBX2.2`** | *Reserved* | BOOL | *Dự phòng (Đã loại bỏ — Thay thế bằng DB15.DBX2.7 & DBW8)* |
+| **`DB15.DBX2.3`** | *Reserved* | BOOL | *Dự phòng (Đã loại bỏ — Thay thế bằng DB15.DBX2.7 & DBW8)* |
+| **`DB15.DBX2.4`** | `plc_on` | BOOL | PLC đang hoạt động và sẵn sàng nhận lệnh |
+| **`DB15.DBX2.5`** | `plc_error` | BOOL | PLC phát hiện lỗi trong quá trình vận hành |
+| **`DB15.DBX2.6`** | `emergency_stop` | BOOL | Trạng thái nút dừng khẩn cấp E-Stop được kích hoạt |
+| **`DB15.DBX2.7`** | `plc_z_in_position` | BOOL | **Trục Z đã đến tầng mục tiêu và sẵn sàng cho Robot chạy** |
+| **`DB15.DBX3.0`** | `sensor_conveyor_head` | BOOL | Cảm biến 1: Đầu băng tải (Vị trí O1 làm việc của Robot) |
+| **`DB15.DBX3.1`** | `sensor_conveyor_end` | BOOL | Cảm biến 2: Cuối băng tải (Vị trí Nhân viên) |
+| **`DB15.DBX3.2`** | `conveyor_running` | BOOL | Trạng thái Động cơ Băng tải đang chạy |
+| **`DB15.DBX3.3`** | `staff_outbound_busy` | BOOL | PLC đang bận chu trình xuất hàng ra băng tải |
+| **`DB15.DBX3.4`** | `staff_outbound_done` | BOOL | PLC đã xuất xong toàn bộ số lượng hàng ra băng tải |
+| **`DB15.DBX3.5`** | `staff_inbound_busy` | BOOL | PLC đang bận chu trình nạp hàng từ O1 vào kho |
+| **`DB15.DBX3.6`** | `staff_inbound_done` | BOOL | PLC đã kết thúc chu trình nạp hàng |
+| **`DB15.DBX3.7`** | `staff_mode_active` | BOOL | PLC xác nhận đang ở Chế độ Nhân viên (Staff Mode) |
+| **`DB15.DBW6`** | `staff_current_count` | INT16 | Số lượng kiện hàng thực tế đã đếm qua cảm biến |
+
+### 3.3. Liên Động Phần Cứng Robot DO0 & Khóa Trục Z PLC
+* **Robot DO0 = 1**: Robot ở vị trí HOME an toàn $\rightarrow$ Cho phép PLC chạy trục Z theo `DBW8`.
+* **Robot DO0 = 0**: Robot rời HOME $\rightarrow$ PLC lập tức khóa trục Z chống va chạm cơ khí.
+* **PLC DBX2.7 = 1**: Trục Z đến tầng an toàn $\rightarrow$ Backend cho phép Robot bắt đầu vươn tay gắp/cất.
 
 ---
 
@@ -88,23 +112,25 @@ Lớp dịch vụ `StationService` thực thi các tác vụ phần cứng tự 
 
 ### 4.1. Tác vụ `LOAD_PRODUCT` (Xuất Kho Giao Hàng)
 1. **PLC Lock**: Gửi `cmd_lock_drone` (`DB15.DBX0.0`) & chờ `plc_locked_state = True` (`DB15.DBX2.1`).
-2. **PLC Z Up**: Gửi `cmd_z_up` (`DB15.DBX0.2`) & chờ `plc_z_is_up = True` (`DB15.DBX2.2`).
+2. **PLC Z to Slot**: Ghi `DB15.DBW8 = 1/2` (tầng ô kho target_slot) & chờ `plc_z_in_position = True` (`DB15.DBX2.7`).
 3. **Robot Pick Slot**: FAIRINO Robot gắp hàng từ Ô kho chỉ định (`target_slot`).
-4. **Robot Place Dock**: FAIRINO Robot đặt hàng lên gá chứa của Drone (`DOCK`).
-5. **Robot Home**: FAIRINO Robot quay về vị trí an toàn (`HOME`).
-6. **PLC Z Down**: Gửi `cmd_z_down` (`DB15.DBX0.3`) & chờ `plc_z_is_down = True` (`DB15.DBX2.3`).
-7. **PLC Unlock**: Gửi `cmd_unlock_drone` (`DB15.DBX0.1`) & chờ `plc_locked_state = False` (`DB15.DBX2.1`).
-8. **Update Inventory**: Cập nhật Ô kho về trạng thái `EMPTY`.
+4. **QR Verify**: Camera CAM01 kiểm tra đối soát mã QR sản phẩm trước khi nâng Z.
+5. **PLC Z to Dock**: Ghi `DB15.DBW8 = 3` (tầng Drone N1) & chờ `plc_z_in_position = True` (`DB15.DBX2.7`).
+6. **Robot Place Dock**: FAIRINO Robot đặt hàng lên gá chứa của Drone (`N1`).
+7. **PLC Z Home**: Ghi `DB15.DBW8 = 0` (vị trí Home an toàn) & chờ `plc_z_in_position = True` (`DB15.DBX2.7`).
+8. **PLC Unlock**: Gửi `cmd_unlock_drone` (`DB15.DBX0.1`) & chờ `plc_locked_state = False` (`DB15.DBX2.1`).
+9. **Update Inventory**: Cập nhật Ô kho về trạng thái `EMPTY`.
 
 ### 4.2. Tác vụ `UNLOAD_PRODUCT` (Nhập Kho Nhận Hàng)
 1. **PLC Lock**: Gửi `cmd_lock_drone` (`DB15.DBX0.0`) & chờ `plc_locked_state = True` (`DB15.DBX2.1`).
-2. **PLC Z Up**: Gửi `cmd_z_up` (`DB15.DBX0.2`) & chờ `plc_z_is_up = True` (`DB15.DBX2.2`).
-3. **Robot Pick Dock**: FAIRINO Robot gắp hàng từ gá chứa của Drone (`DOCK`).
-4. **Robot Store Slot**: FAIRINO Robot cất hàng vào Ô kho trống được cấp phát (`target_slot`).
-5. **Robot Home**: FAIRINO Robot quay về vị trí an toàn (`HOME`).
-6. **PLC Z Down**: Gửi `cmd_z_down` (`DB15.DBX0.3`) & chờ `plc_z_is_down = True` (`DB15.DBX2.3`).
-7. **PLC Unlock**: Gửi `cmd_unlock_drone` (`DB15.DBX0.1`) & chờ `plc_locked_state = False` (`DB15.DBX2.1`).
-8. **Update Inventory**: Cập nhật Ô kho về trạng thái `OCCUPIED` gắn mã `product_id`.
+2. **PLC Z to Dock**: Ghi `DB15.DBW8 = 3` (tầng Drone N1) & chờ `plc_z_in_position = True` (`DB15.DBX2.7`).
+3. **Robot Pick Dock**: FAIRINO Robot gắp hàng từ gá chứa của Drone (`N1`).
+4. **PLC Z Home & QR Scan**: Ghi `DB15.DBW8 = 0` đưa Z về vị trí Home & Camera CAM01 quét mã QR sản phẩm.
+5. **PLC Z to Slot**: Ghi `DB15.DBW8 = 1/2` (tầng ô kho target_slot) & chờ `plc_z_in_position = True` (`DB15.DBX2.7`).
+6. **Robot Store Slot**: FAIRINO Robot cất hàng vào Ô kho trống được cấp phát (`target_slot`).
+7. **PLC Z Home**: Ghi `DB15.DBW8 = 0` (vị trí Home an toàn) & chờ `plc_z_in_position = True` (`DB15.DBX2.7`).
+8. **PLC Unlock**: Gửi `cmd_unlock_drone` (`DB15.DBX0.1`) & chờ `plc_locked_state = False` (`DB15.DBX2.1`).
+9. **Update Inventory**: Cập nhật Ô kho về trạng thái `OCCUPIED` gắn mã `product_id`.
 
 ---
 

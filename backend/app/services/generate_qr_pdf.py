@@ -142,7 +142,7 @@ def generate_qr_pdf(
         [Paragraph("NGUOI GUI:", label_style), Paragraph(sender_name, value_style)],
         [Paragraph("DIA CHI GIAO:", label_style), Paragraph(address, value_style)],
         [Paragraph("NGAY TAO MA:", label_style), Paragraph(now_str, value_style)],
-        [Paragraph("TRANG THAI KHO:", label_style), Paragraph("SAN SANG NHAP KHO (A1..C3)", value_style)],
+        [Paragraph("TRANG THAI KHO:", label_style), Paragraph("SAN SANG NHAP KHO (A1..B3)", value_style)],
     ]
 
     info_table = Table(info_data, colWidths=[4 * cm, 7.5 * cm])

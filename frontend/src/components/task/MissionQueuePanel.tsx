@@ -289,7 +289,7 @@ export const MissionQueuePanel = React.memo(function MissionQueuePanel() {
                     value={newSlot}
                     onChange={(e) => setNewSlot(e.target.value)}
                   >
-                    {["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"].map((s) => (
+                    {["A1", "A2", "A3", "B1", "B2", "B3"].map((s) => (
                       <option key={s} value={s}>Slot {s}</option>
                     ))}
                   </select>

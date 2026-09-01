@@ -37,6 +37,9 @@ interface Props {
   stationOpDetails?: string | null;
   waitingQueue?: WaitingMissionItem[];
   progressPercent?: number;
+  autoState?: "STANDBY" | "RUNNING" | "PAUSED" | string;
+  systemMode?: "AUTO" | "MANUAL" | string;
+  onStartAuto?: () => void;
 }
 
 export function TaskMonitor({
@@ -45,6 +48,9 @@ export function TaskMonitor({
   stationOpDetails,
   waitingQueue = [],
   progressPercent,
+  autoState = "STANDBY",
+  systemMode = "AUTO",
+  onStartAuto,
 }: Props) {
   const isPickup =
     !activeMission ||
@@ -171,6 +177,8 @@ export function TaskMonitor({
           <span className={`mission-type-pill ${isPickup ? "pill-pickup" : "pill-delivery"}`}>
             {missionTypeLabel}
           </span>
+        ) : autoState === "RUNNING" ? (
+          <span className="mission-type-pill pill-pickup">⚡ ĐANG ĐIỀU PHỐI</span>
         ) : (
           <span className="mission-type-pill pill-standby">💤 CHẾ ĐỘ CHỜ</span>
         )}
@@ -253,10 +261,32 @@ export function TaskMonitor({
           </div>
         ) : (
           <div className="empty-task-standby-box">
-            <span className="standby-icon">💤</span>
+            <span className="standby-icon">{autoState === "RUNNING" ? "⚡" : "💤"}</span>
             <div className="standby-text">
-              <h4>HỆ THỐNG ĐANG Ở TRẠNG THÁI CHỜ (READY)</h4>
-              <p>Chưa có đơn hàng nào đang thực thi. Đơn hàng tiếp theo trong Hàng chờ FIFO sẽ tự động kích hoạt.</p>
+              <h4>
+                {autoState === "RUNNING"
+                  ? "HỆ THỐNG ĐANG TỰ ĐỘNG ĐIỀU PHỐI (RUNNING)"
+                  : autoState === "PAUSED"
+                  ? "HỆ THỐNG ĐANG TẠM DỪNG (PAUSED)"
+                  : "HỆ THỐNG ĐANG Ở CHẾ ĐỘ CHỜ (STANDBY)"}
+              </h4>
+              <p>
+                {autoState === "RUNNING"
+                  ? "Hệ thống đang chuẩn bị kích hoạt đơn hàng tiếp theo từ hàng chờ FIFO."
+                  : autoState === "PAUSED"
+                  ? "Hàng chờ tự động đang tạm dừng. Bấm nút Khởi động bên dưới để tiếp tục điều phối."
+                  : `Hàng chờ FIFO đang có ${waitingQueue.length} đơn hàng. Bấm nút Khởi động để bắt đầu chu trình tự động.`}
+              </p>
+              {autoState !== "RUNNING" && systemMode === "AUTO" && onStartAuto && (
+                <button
+                  type="button"
+                  className="btn-start-auto-mini"
+                  onClick={onStartAuto}
+                  title="Bắt đầu chạy tự động toàn bộ kho trạm và điều phối đơn hàng FIFO"
+                >
+                  ⚡ KHỞI ĐỘNG CHẠY TỰ ĐỘNG (START AUTO)
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -267,7 +297,21 @@ export function TaskMonitor({
             <span className="queue-title font-mono">
               ⏳ DANH SÁCH ĐƠN HÀNG TIẾP THEO (HÀNG CHỜ FIFO: {waitingQueue.length})
             </span>
-            <span className="queue-mode-tag">TỰ ĐỘNG DISPATCH</span>
+            <span
+              className={`queue-mode-tag ${
+                systemMode === "MANUAL"
+                  ? "tag-manual"
+                  : autoState === "RUNNING"
+                  ? "tag-running"
+                  : "tag-standby"
+              }`}
+            >
+              {systemMode === "MANUAL"
+                ? "🎮 ĐIỀU KHIỂN THỦ CÔNG"
+                : autoState === "RUNNING"
+                ? "⚡ TỰ ĐỘNG DISPATCH (RUNNING)"
+                : "💤 CHỜ KHỞI ĐỘNG (STANDBY)"}
+            </span>
           </div>
 
           {waitingQueue.length === 0 ? (

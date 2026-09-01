@@ -100,99 +100,142 @@ export const QuickControlPanel = memo(function QuickControlPanel({
             </div>
             <div className="spec-row flex-between">
               <span>Target Station</span>
-              <strong className="text-cyan font-mono">{currentSlot || "STANDBY"}</strong>
+              <strong className="text-cyan font-mono">{currentSlot || "HOME"}</strong>
+            </div>
+            <div className="spec-row flex-between">
+              <span>Interlock DO0</span>
+              <strong className={(!currentSlot || currentSlot === "HOME") ? "text-green font-mono" : "text-yellow font-mono"}>
+                {(!currentSlot || currentSlot === "HOME") ? "DO0 = 1 (AN TOÀN HOME)" : "DO0 = 0 (RỜI HOME)"}
+              </strong>
             </div>
           </div>
         </div>
 
-        {/* Permanent 4 Indicator Boxes (Visible in BOTH modes) */}
-        <div className="robot-indicators-row flex-between">
-          <div className={`indicator-box ${systemMode === "AUTO" ? "active" : ""}`}>
+        {/* Symmetrical 6-Box Robot Status Indicators Grid */}
+        <div className="robot-indicators-row">
+          {/* 1. Mode */}
+          <div className={`indicator-box ${systemMode === "AUTO" ? "active" : "active-warn"}`} title="Chế độ hoạt động hiện tại">
             <span className="icon">🤖</span>
-            <span className="label">Mode</span>
+            <span className="label">Chế Độ</span>
             <span className="value font-mono">{systemMode === "AUTO" ? "AUTO (FSM)" : "MANUAL"}</span>
           </div>
 
-          <div className={`indicator-box ${holdingProduct ? "active" : ""}`}>
+          {/* 2. Gripper */}
+          <div className={`indicator-box ${holdingProduct ? "active-ok" : ""}`} title="Trạng thái ngàm kẹp Robot">
             <span className="icon">🖐️</span>
-            <span className="label">Gripper</span>
-            <span className="value font-mono">{holdingProduct ? "HOLDING" : "OPEN/READY"}</span>
+            <span className="label">Tay Kẹp</span>
+            <span className="value font-mono">{holdingProduct ? "KẸP HÀNG" : "MỞ SẴN SÀNG"}</span>
           </div>
 
-          <div className={`indicator-box ${currentSlot ? "active" : ""}`}>
+          {/* 3. Target Position */}
+          <div className="indicator-box active-ok" title="Vị trí trạm / ô kho hiện tại">
             <span className="icon">📍</span>
-            <span className="label">Target Pos</span>
+            <span className="label">Vị Trí</span>
             <span className="value font-mono">{currentSlot || "HOME"}</span>
           </div>
 
-          <div className={`indicator-box ${servoOk ? "active-ok" : "active-error"}`}>
+          {/* 4. Servo Safety */}
+          <div className={`indicator-box ${servoOk && brakeOk ? "active" : "active-error"}`} title="Trạng thái động cơ Servo & Phanh">
             <span className="icon">🛡️</span>
-            <span className="label">Servo Safety</span>
-            <span className="value font-mono">{servoOk ? "READY (OK)" : "ERROR"}</span>
+            <span className="label">Servo & Phanh</span>
+            <span className="value font-mono">{servoOk && brakeOk ? "READY (OK)" : "ERROR"}</span>
+          </div>
+
+          {/* 5. DO0 Home Signal (Interlock with PLC) */}
+          <div
+            className={`indicator-box ${(!currentSlot || currentSlot === "HOME") ? "active" : "active-warn"}`}
+            title="Tín hiệu DO0 xuất sang PLC báo Robot đang ở vị trí HOME an toàn cho phép nâng hạ trục Z"
+          >
+            <span className="icon">{(!currentSlot || currentSlot === "HOME") ? "🏠" : "🔄"}</span>
+            <span className="label">DO0 Home Sig</span>
+            <span className="value font-mono">{(!currentSlot || currentSlot === "HOME") ? "ON (AN TOÀN Z)" : "OFF (CHẠY)"}</span>
+          </div>
+
+          {/* 6. Socket TCP Status */}
+          <div className={`indicator-box ${connected ? "active-ok" : "active-error"}`} title="Kết nối Socket TCP Port 8090">
+            <span className="icon">📡</span>
+            <span className="label">Socket 8090</span>
+            <span className="value font-mono">{connected ? "ONLINE ●" : "OFFLINE ●"}</span>
           </div>
         </div>
 
         {/* Compact Manual Controls Toolbar (ONLY VISIBLE IN MANUAL MODE) */}
         {systemMode === "MANUAL" && (
           <div className="robot-manual-controls-section">
-            <div className="manual-section-title flex-between">
-              <span className="font-mono text-cyan">🎮 ĐIỀU KHIỂN THỦ CÔNG ROBOT:</span>
+            <div className="manual-section-title">
+              <span className="font-mono text-cyan">🎮 ĐIỀU KHIỂN THỦ CÔNG ROBOT (MANUAL OVERRIDE):</span>
               <span className="mode-indicator-tag active-manual">MANUAL SẴN SÀNG</span>
             </div>
 
-            {/* Row 1: Fixed Positions */}
-            <div className="manual-btn-grid-3">
-              <button
-                type="button"
-                className="btn-manual-plc btn-home-macro"
-                onClick={() => send("MOVE_HOME")}
-                title="Di chuyển Robot về vị trí Home an toàn"
-              >
-                🏠 Vị trí HOME
-              </button>
-              <button
-                type="button"
-                className="btn-manual-plc"
-                onClick={() => send("STANDBY")}
-                title="Di chuyển Robot về vị trí Chờ (Standby)"
-              >
-                ⏸️ Vị trí STANDBY
-              </button>
-              <button
-                type="button"
-                className="btn-manual-plc"
-                onClick={() => send("SCAN_QR_POS")}
-                title="Đưa hàng đến trước Camera QR CAM01"
-              >
-                📷 Vị trí Soi QR
-              </button>
+            {/* Group 1: Macro / Fixed Positions */}
+            <div className="manual-control-group">
+              <div className="manual-group-label">
+                <span>📍 VỊ TRÍ ĐỊNH VỊ CỐ ĐỊNH (MACRO POSITIONS):</span>
+              </div>
+              <div className="manual-btn-grid-4">
+                <button
+                  type="button"
+                  className={`btn-manual-plc ${(!currentSlot || currentSlot === "HOME") ? "active-level" : ""}`}
+                  onClick={() => send("MOVE_HOME")}
+                  title="Di chuyển Robot về vị trí Home an toàn (Kích DO0=1 cho PLC nâng Z)"
+                >
+                  🏠 Về HOME (DO0=1)
+                </button>
+                <button
+                  type="button"
+                  className={`btn-manual-plc ${currentSlot === "STANDBY" ? "active-level" : ""}`}
+                  onClick={() => send("STANDBY")}
+                  title="Di chuyển Robot về vị trí Chờ (Standby)"
+                >
+                  ⏸️ Vị Trí STANDBY
+                </button>
+                <button
+                  type="button"
+                  className={`btn-manual-plc ${currentSlot === "SCAN_QR" ? "active-level" : ""}`}
+                  onClick={() => send("SCAN_QR_POS")}
+                  title="Đưa hàng đến trước Camera QR CAM01"
+                >
+                  📷 Vị Trí Soi QR
+                </button>
+                <button
+                  type="button"
+                  className={`btn-manual-plc ${currentSlot === "O1" ? "active-level" : ""}`}
+                  onClick={() => send("PICK", { slot: "O1" })}
+                  title="Di chuyển Robot đến vị trí đầu băng tải O1"
+                >
+                  🛞 Đầu Băng Tải O1
+                </button>
+              </div>
             </div>
 
-            {/* Row 2: Warehouse Slot and UAV Pad Controls */}
-            <div className="robot-manual-slot-row flex-between">
-              <div className="slot-picker-compact flex-between">
-                <span className="lbl-mini">Ô Kho:</span>
-                <select
-                  className="slot-selector-dropdown-inline"
-                  value={selectedSlot}
-                  onChange={(e) => setSelectedSlot(e.target.value)}
-                >
-                  {["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"].map((s) => (
-                    <option key={s} value={s}>
-                      Ô {s}
-                    </option>
-                  ))}
-                </select>
+            {/* Group 2: Storage Slots Selection & Pick/Store */}
+            <div className="manual-control-group">
+              <div className="manual-group-label">
+                <span>📦 CHỌN Ô KHO HOẠT ĐỘNG (SLOTS A1..B3):</span>
+              </div>
+              {/* Quick Slot Selector Chips */}
+              <div className="slot-chip-group">
+                {["A1", "A2", "A3", "B1", "B2", "B3"].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={`slot-chip ${selectedSlot === s ? "active-slot-chip" : ""}`}
+                    onClick={() => setSelectedSlot(s)}
+                    title={`Chọn ô kho ${s}`}
+                  >
+                    Ô {s}
+                  </button>
+                ))}
               </div>
 
-              <div className="slot-action-btn-group">
+              <div className="manual-btn-grid-2">
                 <button
                   type="button"
                   className="btn-manual-plc btn-plc-green"
                   onClick={() => send("PICK", { slot: selectedSlot })}
                   title={`Robot gắp sản phẩm tại ô kho ${selectedSlot}`}
                 >
-                  📤 Gắp Ô [{selectedSlot}]
+                  📤 Gắp Từ Ô [{selectedSlot}]
                 </button>
                 <button
                   type="button"
@@ -200,45 +243,67 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   onClick={() => send("STORE", { slot: selectedSlot })}
                   title={`Robot cất sản phẩm vào ô kho ${selectedSlot}`}
                 >
-                  📥 Thả Ô [{selectedSlot}]
+                  📥 Cất Vào Ô [{selectedSlot}]
                 </button>
               </div>
             </div>
 
-            {/* Row 3: UAV Pad N1 & Gripper Quick Actions */}
-            <div className="manual-btn-grid-4">
-              <button
-                type="button"
-                className="btn-manual-plc btn-uav-pick-btn"
-                onClick={() => send("PICK_UAV")}
-                title="Robot gắp kiện hàng từ lưng UAV tại bãi đáp N1"
-              >
-                🛬 Gắp Từ UAV
-              </button>
-              <button
-                type="button"
-                className="btn-manual-plc btn-uav-place-btn"
-                onClick={() => send("PLACE_UAV")}
-                title="Robot đặt kiện hàng lên lưng UAV tại bãi đáp N1"
-              >
-                🚀 Thả Lên UAV
-              </button>
-              <button
-                type="button"
-                className="btn-manual-plc"
-                onClick={() => send("OPEN_GRIPPER")}
-                title="Mở ngàm kẹp Robot"
-              >
-                🔓 Mở Kẹp
-              </button>
-              <button
-                type="button"
-                className="btn-manual-plc"
-                onClick={() => send("CLOSE_GRIPPER")}
-                title="Đóng ngàm kẹp Robot"
-              >
-                🔒 Đóng Kẹp
-              </button>
+            {/* Group 3: Drone Dock N1 & Outbound Conveyor Cycle */}
+            <div className="manual-control-group">
+              <div className="manual-group-label">
+                <span>🚁 TƯƠNG TÁC BÃI ĐÁP DRONE DOCK N1 & BĂNG TẢI:</span>
+              </div>
+              <div className="manual-btn-grid-3">
+                <button
+                  type="button"
+                  className="btn-manual-plc btn-plc-cyan"
+                  onClick={() => send("PICK_UAV")}
+                  title="Robot gắp kiện hàng từ lưng UAV tại bãi đáp N1"
+                >
+                  🚁 Gắp Khỏi Drone N1
+                </button>
+                <button
+                  type="button"
+                  className="btn-manual-plc btn-plc-cyan"
+                  onClick={() => send("PLACE_UAV")}
+                  title="Robot đặt kiện hàng lên lưng UAV tại bãi đáp N1"
+                >
+                  🚀 Đặt Lên Drone N1
+                </button>
+                <button
+                  type="button"
+                  className="btn-manual-plc btn-plc-yellow"
+                  onClick={() => send("OUTBOUND_CYCLE", { slot: selectedSlot })}
+                  title={`Chu trình xuất: Gắp ô ${selectedSlot} -> Đặt O1 -> Băng tải chạy`}
+                >
+                  📦 Xuất Ô [{selectedSlot}] Ra O1
+                </button>
+              </div>
+            </div>
+
+            {/* Group 4: Gripper Open/Close Controls */}
+            <div className="manual-control-group">
+              <div className="manual-group-label">
+                <span>🦾 ĐIỀU KHIỂN TAY GẮP ROBOT (GRIPPER):</span>
+              </div>
+              <div className="manual-btn-grid-2">
+                <button
+                  type="button"
+                  className={`btn-manual-plc ${!holdingProduct ? "active-status" : ""}`}
+                  onClick={() => send("OPEN_GRIPPER")}
+                  title="Mở ngàm kẹp Robot"
+                >
+                  🔓 Mở Tay Kẹp (OPEN)
+                </button>
+                <button
+                  type="button"
+                  className={`btn-manual-plc ${holdingProduct ? "active-status" : ""}`}
+                  onClick={() => send("CLOSE_GRIPPER")}
+                  title="Đóng ngàm kẹp Robot"
+                >
+                  🔒 Đóng Tay Kẹp (CLOSE)
+                </button>
+              </div>
             </div>
           </div>
         )}
