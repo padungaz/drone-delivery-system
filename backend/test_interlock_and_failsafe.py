@@ -22,6 +22,9 @@ logger = logging.getLogger("TestInterlockFailSafe")
 async def test_safety_interlock_blocks_manual_commands():
     """Phase 1 Test: Manual commands return HTTP 409 Conflict when Station is locked by AUTO mission."""
     await init_db()
+    PLCManager.get_instance().simulator_mode = True
+    RobotManager.get_instance().simulator_mode = True
+    device_lock_manager.unlock_station()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Lock station as if AUTO mission #999 is running
@@ -63,6 +66,7 @@ async def test_safety_interlock_blocks_manual_commands():
 async def test_manual_mode_prevents_auto_dispatch():
     """Phase 2 Test: In MANUAL mode, new missions remain in WAITING and are not dispatched."""
     await init_db()
+    device_lock_manager.unlock_station()
     async with async_session() as session:
         # Set to MANUAL mode
         await system_mode_manager.set_mode("MANUAL")
@@ -117,6 +121,45 @@ async def test_plc_unlock_keeps_drone_detected():
     await plc_mgr.execute_command(PLCCommand.UNLOCK_DRONE)
     assert plc_mgr.drone_locked is False
     assert plc_mgr.drone_detected is True
+
+
+@pytest.mark.asyncio
+async def test_plc_estop_and_error_interlock():
+    """Phase 7 Test: PLC E-Stop and Error state reject motion commands with HTTP 400."""
+    await init_db()
+    plc_mgr = PLCManager.get_instance()
+    plc_mgr.simulator_mode = True
+    device_lock_manager.unlock_station()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Trigger Emergency Stop via API
+        res_estop = await client.post("/api/plc/emergency-stop", json={"emergency_stop": True})
+        assert res_estop.status_code == 200
+        assert plc_mgr.emergency_stop is True
+
+        # 2. Attempt motion command -> must fail with HTTP 400
+        res_lock = await client.post("/api/plc/lock", json={"action": "LOCK"})
+        assert res_lock.status_code == 400
+        assert "Emergency Stop" in res_lock.json()["detail"]
+
+        res_hatch = await client.post("/api/plc/hatch", json={"action": "OPEN"})
+        assert res_hatch.status_code == 400
+        assert "Emergency Stop" in res_hatch.json()["detail"]
+
+        # 3. Emergency STOP_PLC is always allowed
+        res_stop = await client.post("/api/plc/stop")
+        assert res_stop.status_code == 200
+
+        # 4. RESET_PLC clears emergency stop and error
+        res_reset = await client.post("/api/plc/reset")
+        assert res_reset.status_code == 200
+        assert plc_mgr.emergency_stop is False
+        assert plc_mgr.plc_error is False
+
+        # 5. Motion commands are now operational
+        res_lock_ok = await client.post("/api/plc/lock", json={"action": "LOCK"})
+        assert res_lock_ok.status_code == 200
 
 
 @pytest.mark.asyncio

@@ -142,10 +142,9 @@ async def system_auto_start(session: AsyncSession = Depends(get_session)):
         "message": "⚡ Đang kiểm tra an toàn và kích hoạt PLC S7-1200 (Homing Trục Z & Khởi Động Trạm)...",
     })
 
-    # 2. PLC Homing & Enable (PLC tự động interlock đưa Robot về Home trước khi dịch chuyển Z)
+    # 2. PLC Enable & Homing: Chỉ cần gửi lệnh START_PLC đến PLC, chương trình PLC tự động thực hiện chu trình về Home khi bắt đầu
     try:
         await plc_mgr.execute_command(PLCCommand.START_PLC)
-        await plc_mgr.execute_command(PLCCommand.Z_DOWN)
         plc_ok = True
     except Exception as err:
         logger.warning("PLC Start routine warning: %s", err)

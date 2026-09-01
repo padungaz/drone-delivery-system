@@ -173,7 +173,6 @@ class StaffOperationManager:
             self._current_task.cancel()
 
         await self.plc_mgr.execute_command(PLCCommand.STAFF_OUTBOUND_CANCEL)
-        await self.plc_mgr.execute_command(PLCCommand.CONVEYOR_STOP)
         device_lock_manager.unlock_station()
         self.status = "CANCELLED"
         await self.log_event("🛑 Tiến trình lấy hàng đã bị hủy bởi nhân viên.")
@@ -288,7 +287,7 @@ class StaffOperationManager:
     async def _run_inbound_loop(self) -> None:
         try:
             while not self._stop_requested:
-                # Step 1: Backend quản lý CSDL: Tìm ô trống trong ma trận kho
+                # Bước 1: Backend quản lý CSDL: Phân bổ vị trí kho (tìm ô trống trong ma trận A1..C3)
                 async with async_session() as session:
                     inv_mgr = InventoryManager(session)
                     empty_slot = await inv_mgr.find_available_slot()
@@ -299,15 +298,35 @@ class StaffOperationManager:
                     target_slot = empty_slot.slot_name
 
                 self.inbound_current_slot = target_slot
-                await self.log_event(f"📦 Sẵn sàng nạp kiện thứ {self.inbound_current_count + 1} vào ô trống {target_slot}...")
+                await self.log_event(f"📦 Đã phân bổ ô trống {target_slot}. Chờ PLC kích DI2 báo Robot có hàng tại O1...")
 
-                # Tự động nhận diện mã QR kiện hàng qua Camera tại điểm nạp O1 (timeout 2.5s)
+                # Bước 2: PLC kiểm tra cảm biến đầu băng tải và kích DI2 sang Robot (logic phần cứng PLC <-> Robot).
+                # Robot nhận DI2 = 1 và gửi tín hiệu REQUEST_STORE_SLOT lên Backend.
+                # (Trong chế độ mô phỏng, tự động mô phỏng tín hiệu sau khi sẵn sàng)
+                if self.robot_mgr.simulator_mode:
+                    await asyncio.sleep(0.8)
+
+                if self._stop_requested:
+                    break
+
+                # Bước 3: Backend nhận tín hiệu có hàng -> Yêu cầu Robot xuống gắp hàng tại O1 (PICK O1)
+                await self.log_event("🤖 Robot nhận tín hiệu DI2 từ PLC có hàng tại O1! Backend điều phối Robot gắp hàng tại O1...")
+                try:
+                    await self.robot_mgr.execute_command(RobotCommand.PICK, slot="O1")
+                except Exception as e:
+                    logger.error("Lỗi Robot khi gắp hàng tại O1: %s", e)
+                    self.status = "ERROR"
+                    await self.log_event(f"❌ Lỗi Robot khi gắp hàng tại O1: {str(e)}")
+                    return
+
+                # Bước 4: Gắp hàng OK xong mới quét mã QR kiện hàng qua Camera CAM01 (tương tự UNLOAD_PRODUCT)
+                await self.log_event("📷 Robot đã gắp hàng thành công, đưa kiện hàng qua Camera CAM01 để quét mã QR...")
                 scanned_qr_text = None
                 try:
-                    scan_res = await self.cam_mgr.scan_qr_auto(timeout_sec=2.5)
+                    scan_res = await self.cam_mgr.scan_qr_auto(timeout_sec=4.0, is_verify=False)
                     if scan_res.get("status") == "success" and scan_res.get("product_id"):
                         scanned_qr_text = scan_res.get("product_id")
-                        await self.log_event(f"📷 Camera đã nhận diện mã QR kiện hàng: {scanned_qr_text}")
+                        await self.log_event(f"✅ Camera đã nhận diện mã QR: {scanned_qr_text}")
                 except Exception as cam_err:
                     logger.debug("Staff Inbound camera scan note: %s", cam_err)
 
@@ -315,17 +334,17 @@ class StaffOperationManager:
                 prod_id = scanned_qr_text or f"PROD_{target_slot}"
                 self.last_scanned_qr = qr_code
 
-                # Giao toàn quyền chu trình cơ khí cho Robot & PLC:
-                # Cảm biến O1 phát hiện có hàng -> PLC kích DI3 -> Robot gắp O1 cất vào target_slot -> Kích DO3 sang PLC
+                # Bước 5: Quét mã QR xong, Robot di chuyển cất hàng vào ô kho trống đã phân bổ (STORE target_slot)
+                await self.log_event(f"📦 Robot di chuyển cất kiện hàng {prod_id} vào ô kho {target_slot}...")
                 try:
-                    await self.robot_mgr.execute_command(RobotCommand.INBOUND_CYCLE, slot=target_slot)
+                    await self.robot_mgr.execute_command(RobotCommand.STORE, slot=target_slot)
                 except Exception as e:
-                    logger.error("Lỗi điều khiển Robot nạp vào ô %s: %s", target_slot, e)
+                    logger.error("Lỗi Robot khi cất hàng vào ô %s: %s", target_slot, e)
                     self.status = "ERROR"
-                    await self.log_event(f"❌ Lỗi Robot khi nạp vào ô {target_slot}: {str(e)}")
+                    await self.log_event(f"❌ Lỗi Robot khi cất vào ô {target_slot}: {str(e)}")
                     return
 
-                # Backend xử lý nghiệp vụ CSDL kho: Gán ô kho thành OCCUPIED
+                # Bước 6: Backend xử lý nghiệp vụ CSDL kho: Gán ô kho thành OCCUPIED
                 async with async_session() as session:
                     inv_mgr = InventoryManager(session)
                     await inv_mgr.update_slot(

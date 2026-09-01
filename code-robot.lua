@@ -398,9 +398,9 @@ function Execute_MoveHome()
     STOP_REQUESTED = false
     SafeSetDO(0, 0)   -- Xóa cờ HOME OK trong khi di chuyển
     print("🏠 [HOME] Di chuyen ve vi tri HOME...")
-    PTP(p1, 25, -1, 0)
-    PTP(p2, 25, -1, 0)
-    PTP(p3, 25, -1, 0)
+    PTP(P1, 25, -1, 0)
+    PTP(P2, 25, -1, 0)
+    PTP(P3, 25, -1, 0)
     PTP(HOME, 25, -1, 0)
     CURRENT_POS = "HOME"
     ROBOT_STATE = "IDLE"

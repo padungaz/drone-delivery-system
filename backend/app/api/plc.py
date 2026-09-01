@@ -27,7 +27,10 @@ async def execute_plc_command(req: PLCCommandRequest):
         )
 
     mgr = PLCManager.get_instance()
-    status = await mgr.execute_command(req.command)
+    try:
+        status = await mgr.execute_command(req.command)
+    except (RuntimeError, ConnectionError) as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
     # Broadcast PLC status to realtime WebSocket
     await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
@@ -44,7 +47,10 @@ async def control_plc_hatch(req: PLCHatchRequest):
 
     mgr = PLCManager.get_instance()
     cmd = PLCCommand.Z_UP if req.action.upper() in ("OPEN", "Z_UP") else PLCCommand.Z_DOWN
-    status = await mgr.execute_command(cmd)
+    try:
+        status = await mgr.execute_command(cmd)
+    except (RuntimeError, ConnectionError) as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
     await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
     return {
@@ -63,7 +69,10 @@ async def control_plc_lock(req: PLCLockRequest):
 
     mgr = PLCManager.get_instance()
     cmd = PLCCommand.LOCK_DRONE if req.action.upper() in ("LOCK", "LOCK_DRONE") else PLCCommand.UNLOCK_DRONE
-    status = await mgr.execute_command(cmd)
+    try:
+        status = await mgr.execute_command(cmd)
+    except (RuntimeError, ConnectionError) as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
     await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
     return {
@@ -80,7 +89,11 @@ async def start_plc():
             detail=f"PLC đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('PLC01')}!"
         )
     mgr = PLCManager.get_instance()
-    status = await mgr.execute_command(PLCCommand.START_PLC)
+    try:
+        status = await mgr.execute_command(PLCCommand.START_PLC)
+    except (RuntimeError, ConnectionError) as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
     await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
     return {"message": "Lệnh Khởi động PLC (START_PLC) thành công!", "status": status.model_dump()}
 
@@ -107,6 +120,14 @@ class PLCSensorRequest(BaseModel):
     detected: bool
 
 
+class PLCEstopRequest(BaseModel):
+    emergency_stop: bool
+
+
+class PLCErrorRequest(BaseModel):
+    plc_error: bool
+
+
 @plc_router.post("/sensor/drone-detected")
 async def set_simulated_drone_sensor(req: PLCSensorRequest):
     mgr = PLCManager.get_instance()
@@ -115,6 +136,30 @@ async def set_simulated_drone_sensor(req: PLCSensorRequest):
     await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
     return {
         "message": f"Cảm biến Drone Landing đã đặt thành: {'CÓ DRONE (DETECTED)' if req.detected else 'TRỐNG (NOT DETECTED)'}",
+        "status": status.model_dump(),
+    }
+
+
+@plc_router.post("/emergency-stop")
+async def set_emergency_stop_state(req: PLCEstopRequest):
+    mgr = PLCManager.get_instance()
+    mgr.set_emergency_stop(req.emergency_stop)
+    status = mgr.get_status()
+    await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
+    return {
+        "message": f"Trạng thái E-Stop của PLC đã đặt thành: {'KÍCH HOẠT (ACTIVE)' if req.emergency_stop else 'BÌNH THƯỜNG (NORMAL)'}",
+        "status": status.model_dump(),
+    }
+
+
+@plc_router.post("/error")
+async def set_plc_error_state(req: PLCErrorRequest):
+    mgr = PLCManager.get_instance()
+    mgr.set_plc_error(req.plc_error)
+    status = mgr.get_status()
+    await system_ws_manager.broadcast("PLC_STATUS", status.model_dump())
+    return {
+        "message": f"Trạng thái Lỗi của PLC đã đặt thành: {'LỖI (ERROR)' if req.plc_error else 'BÌNH THƯỜNG (NORMAL)'}",
         "status": status.model_dump(),
     }
 

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import threading
 from typing import Optional
 
 from app.models.schemas import PLCCommand, PLCStatusResponse
@@ -49,8 +50,8 @@ DEFAULT_DB_NUMBER = 15
 #   1.2: cmd_staff_outbound_cancel- Hủy chu trình Lấy hàng ra Băng tải
 #   1.3: cmd_staff_inbound_start  - Bắt đầu chu trình Thêm hàng từ O1 vào Kho
 #   1.4: cmd_staff_inbound_stop   - Dừng chu trình Thêm hàng
-#   1.5: cmd_conveyor_run         - Điều khiển Băng tải chạy thủ công
-#   1.6: cmd_conveyor_stop        - Điều khiển Băng tải dừng thủ công
+#   1.5: (reserved - PLC tự quản lý động cơ băng tải)
+#   1.6: (reserved - PLC tự quản lý động cơ băng tải)
 #   1.7: (reserved)
 #
 # Byte 2: PLC -> Backend (Station Status bits, read-only by Backend)
@@ -91,8 +92,7 @@ OFFSET_CMD_STAFF_OUT_START    = (1, 1)  # cmd_staff_outbound_start: Bool 1.1
 OFFSET_CMD_STAFF_OUT_CANCEL   = (1, 2)  # cmd_staff_outbound_cancel: Bool 1.2
 OFFSET_CMD_STAFF_IN_START     = (1, 3)  # cmd_staff_inbound_start: Bool 1.3
 OFFSET_CMD_STAFF_IN_STOP      = (1, 4)  # cmd_staff_inbound_stop: Bool 1.4
-OFFSET_CMD_CONVEYOR_RUN       = (1, 5)  # cmd_conveyor_run: Bool 1.5
-OFFSET_CMD_CONVEYOR_STOP      = (1, 6)  # cmd_conveyor_stop: Bool 1.6
+# (DB15.DBX1.5 & 1.6: Reserved - PLC tự điều khiển động cơ băng tải nội bộ)
 
 # Byte 2: PLC -> Backend (Station Status bits)
 OFFSET_DRONE_DETECTED         = (2, 0)  # drone_detected: Bool 2.0
@@ -155,6 +155,7 @@ class PLCManager:
         self.client = None
         self.is_connected = False
         self._lock: Optional[asyncio.Lock] = None
+        self._conn_lock = threading.Lock()
 
         # Cached states (updated from PLC DB15 Byte 2 & Byte 3 status bits or simulator)
         self.drone_detected: bool = False
@@ -239,52 +240,53 @@ class PLCManager:
             self.is_connected = False
             return False
 
-        import time
-        now = time.time()
-        if now < self._next_reconnect_time:
-            return False  # Exponential backoff cool-down in effect
+        with self._conn_lock:
+            import time
+            now = time.time()
+            if now < self._next_reconnect_time:
+                return False  # Exponential backoff cool-down in effect
 
-        try:
-            if self.client is None:
-                self.client = snap7.client.Client()
-                try:
-                    self.client.set_connection_params(self.plc_ip, self.rack, self.slot)
-                except Exception:
-                    pass
+            try:
+                if self.client is None:
+                    self.client = snap7.client.Client()
+                    try:
+                        self.client.set_connection_params(self.plc_ip, self.rack, self.slot)
+                    except Exception:
+                        pass
 
-            if not self.client.get_connected():
-                logger.info(
-                    "Connecting/Reconnecting to Siemens S7-1200 PLC at %s (Rack: %d, Slot: %d, DB: %d, Attempt: %d)...",
-                    self.plc_ip,
-                    self.rack,
-                    self.slot,
-                    self.db_number,
-                    self._reconnect_attempts + 1,
-                )
-                try:
-                    self.client.disconnect()
-                except Exception:
-                    pass
-                self.client.connect(self.plc_ip, self.rack, self.slot)
+                if not self.client.get_connected():
+                    logger.info(
+                        "Connecting/Reconnecting to Siemens S7-1200 PLC at %s (Rack: %d, Slot: %d, DB: %d, Attempt: %d)...",
+                        self.plc_ip,
+                        self.rack,
+                        self.slot,
+                        self.db_number,
+                        self._reconnect_attempts + 1,
+                    )
+                    try:
+                        self.client.disconnect()
+                    except Exception:
+                        pass
+                    self.client.connect(self.plc_ip, self.rack, self.slot)
 
-            self.is_connected = self.client.get_connected()
-            if self.is_connected:
-                logger.info("✅ PLC S7-1200 connected successfully (%s, DB%d)", self.plc_ip, self.db_number)
-                self._reconnect_attempts = 0
-                self._next_reconnect_time = 0.0
-            else:
+                self.is_connected = self.client.get_connected()
+                if self.is_connected:
+                    logger.info("✅ PLC S7-1200 connected successfully (%s, DB%d)", self.plc_ip, self.db_number)
+                    self._reconnect_attempts = 0
+                    self._next_reconnect_time = 0.0
+                else:
+                    self._reconnect_attempts += 1
+                    backoff_delay = min(2 ** self._reconnect_attempts, 16)
+                    self._next_reconnect_time = now + backoff_delay
+                    logger.error("❌ Failed to connect to PLC S7-1200 (%s). Retrying in %ds...", self.plc_ip, backoff_delay)
+            except Exception as e:
                 self._reconnect_attempts += 1
                 backoff_delay = min(2 ** self._reconnect_attempts, 16)
                 self._next_reconnect_time = now + backoff_delay
-                logger.error("❌ Failed to connect to PLC S7-1200 (%s). Retrying in %ds...", self.plc_ip, backoff_delay)
-        except Exception as e:
-            self._reconnect_attempts += 1
-            backoff_delay = min(2 ** self._reconnect_attempts, 16)
-            self._next_reconnect_time = now + backoff_delay
-            logger.error("❌ Exception during PLC Snap7 connection: %s. Retrying in %ds...", str(e), backoff_delay)
-            self.is_connected = False
+                logger.error("❌ Exception during PLC Snap7 connection: %s. Retrying in %ds...", str(e), backoff_delay)
+                self.is_connected = False
 
-        return self.is_connected
+            return self.is_connected
 
     # ----------------------------------------------------------------
     # DB15 Read/Write helpers (wrapped in asyncio.to_thread + lock for safety)
@@ -413,33 +415,15 @@ class PLCManager:
     # Handshake: Send command (Byte 0 & 1) + poll status (Byte 2 & 3)
     # ----------------------------------------------------------------
 
-    async def _send_command_and_wait(
-        self,
-        cmd: PLCCommand,
-        timeout: float = DEFAULT_HANDSHAKE_TIMEOUT,
-    ) -> bool:
-        """Core execution: write command bit to Byte 0 or Byte 1, then poll Byte 2 / Byte 3 for target state flag."""
-        if not self.is_connected or self.client is None:
-            return False
-
-        try:
-            # Step 1: Read Byte 0 & Byte 1
-            cmd_data = bytearray(await self._async_db_read(0, 2))
-
-            # Determine whether this is a Byte 0 (Station) or Byte 1 (Staff) command
-            is_staff_cmd = cmd in (
-                PLCCommand.STAFF_MODE_ENABLE,
-                PLCCommand.STAFF_MODE_DISABLE,
-                PLCCommand.STAFF_OUTBOUND_START,
-                PLCCommand.STAFF_OUTBOUND_CANCEL,
-                PLCCommand.STAFF_INBOUND_START,
-                PLCCommand.STAFF_INBOUND_STOP,
-                PLCCommand.CONVEYOR_RUN,
-                PLCCommand.CONVEYOR_STOP,
-            )
+    async def _write_command_bits(self, cmd: PLCCommand, is_staff_cmd: bool) -> None:
+        """Atomically read DB15 Bytes 0-1, set target command bit, and write back under async lock.
+        Preserves Watchdog bit 0.7 without race conditions.
+        """
+        async with self._get_lock():
+            cmd_data = bytearray(await asyncio.to_thread(self._sync_db_read, 0, 2))
 
             if not is_staff_cmd:
-                # Clear Station command bits (Byte 0)
+                # Clear Station command bits (Byte 0), keeping bit 0.7 (watchdog) untouched
                 set_bool(cmd_data, 0, OFFSET_CMD_LOCK[1], False)
                 set_bool(cmd_data, 0, OFFSET_CMD_UNLOCK[1], False)
                 set_bool(cmd_data, 0, OFFSET_CMD_Z_UP[1], False)
@@ -470,8 +454,6 @@ class PLCManager:
                 set_bool(cmd_data, 1, OFFSET_CMD_STAFF_OUT_CANCEL[1], False)
                 set_bool(cmd_data, 1, OFFSET_CMD_STAFF_IN_START[1], False)
                 set_bool(cmd_data, 1, OFFSET_CMD_STAFF_IN_STOP[1], False)
-                set_bool(cmd_data, 1, OFFSET_CMD_CONVEYOR_RUN[1], False)
-                set_bool(cmd_data, 1, OFFSET_CMD_CONVEYOR_STOP[1], False)
 
                 # Set requested Staff command bit
                 if cmd == PLCCommand.STAFF_MODE_ENABLE:
@@ -486,16 +468,54 @@ class PLCManager:
                     set_bool(cmd_data, 1, OFFSET_CMD_STAFF_IN_START[1], True)
                 elif cmd == PLCCommand.STAFF_INBOUND_STOP:
                     set_bool(cmd_data, 1, OFFSET_CMD_STAFF_IN_STOP[1], True)
-                elif cmd == PLCCommand.CONVEYOR_RUN:
-                    set_bool(cmd_data, 1, OFFSET_CMD_CONVEYOR_RUN[1], True)
-                elif cmd == PLCCommand.CONVEYOR_STOP:
-                    set_bool(cmd_data, 1, OFFSET_CMD_CONVEYOR_STOP[1], True)
 
-            # Step 2: Write command bytes to PLC DB15
-            await self._async_db_write(0, cmd_data)
+            await asyncio.to_thread(self._sync_db_write, 0, cmd_data)
+
+    async def _clear_pulse_bits(self, is_staff_cmd: bool) -> None:
+        """Atomically clear pulse command bits in Byte 0 or Byte 1 while preserving Watchdog bit."""
+        async with self._get_lock():
+            reset_data = bytearray(await asyncio.to_thread(self._sync_db_read, 0, 2))
+            if not is_staff_cmd:
+                set_bool(reset_data, 0, OFFSET_CMD_LOCK[1], False)
+                set_bool(reset_data, 0, OFFSET_CMD_UNLOCK[1], False)
+                set_bool(reset_data, 0, OFFSET_CMD_Z_UP[1], False)
+                set_bool(reset_data, 0, OFFSET_CMD_Z_DOWN[1], False)
+                set_bool(reset_data, 0, OFFSET_CMD_STOP[1], False)
+                set_bool(reset_data, 0, OFFSET_CMD_START[1], False)
+                set_bool(reset_data, 0, OFFSET_CMD_RESET[1], False)
+            else:
+                set_bool(reset_data, 1, OFFSET_CMD_STAFF_OUT_START[1], False)
+                set_bool(reset_data, 1, OFFSET_CMD_STAFF_OUT_CANCEL[1], False)
+                set_bool(reset_data, 1, OFFSET_CMD_STAFF_IN_START[1], False)
+                set_bool(reset_data, 1, OFFSET_CMD_STAFF_IN_STOP[1], False)
+
+            await asyncio.to_thread(self._sync_db_write, 0, reset_data)
+
+    async def _send_command_and_wait(
+        self,
+        cmd: PLCCommand,
+        timeout: float = DEFAULT_HANDSHAKE_TIMEOUT,
+    ) -> bool:
+        """Core execution: write command bit to Byte 0 or Byte 1, then poll Byte 2 / Byte 3 for target state flag."""
+        if not self.is_connected or self.client is None:
+            return False
+
+        try:
+            # Determine whether this is a Byte 0 (Station) or Byte 1 (Staff) command
+            is_staff_cmd = cmd in (
+                PLCCommand.STAFF_MODE_ENABLE,
+                PLCCommand.STAFF_MODE_DISABLE,
+                PLCCommand.STAFF_OUTBOUND_START,
+                PLCCommand.STAFF_OUTBOUND_CANCEL,
+                PLCCommand.STAFF_INBOUND_START,
+                PLCCommand.STAFF_INBOUND_STOP,
+            )
+
+            # Step 1: Write command bit atomically to DB15
+            await self._write_command_bits(cmd, is_staff_cmd)
             logger.info("PLC Command: Sent %s to DB15 (Byte %d)", cmd.value, 1 if is_staff_cmd else 0)
 
-            # Step 3: Poll DB15 Byte 2 & Byte 3 for target status flag
+            # Step 2: Poll DB15 Byte 2 & Byte 3 for target status flag
             elapsed = 0.0
             while elapsed < timeout:
                 await asyncio.sleep(DEFAULT_POLL_INTERVAL)
@@ -517,6 +537,12 @@ class PLCManager:
 
                 if is_estop:
                     logger.error("PLC Command: EMERGENCY STOP triggered during %s", cmd.value)
+                    self.emergency_stop = True
+                    break
+
+                if plc_err and cmd != PLCCommand.RESET_PLC:
+                    logger.error("PLC Command: PLC_ERROR detected during %s", cmd.value)
+                    self.plc_error = True
                     break
 
                 # Target state verification
@@ -530,8 +556,6 @@ class PLCManager:
                     (cmd == PLCCommand.RESET_PLC and not plc_err) or
                     (cmd == PLCCommand.STAFF_MODE_ENABLE and staff_active) or
                     (cmd == PLCCommand.STAFF_MODE_DISABLE and not staff_active) or
-                    (cmd == PLCCommand.CONVEYOR_RUN and conveyor_run) or
-                    (cmd == PLCCommand.CONVEYOR_STOP and not conveyor_run) or
                     (cmd == PLCCommand.STAFF_OUTBOUND_START and out_busy) or
                     (cmd == PLCCommand.STAFF_OUTBOUND_CANCEL and not out_busy) or
                     (cmd == PLCCommand.STAFF_INBOUND_START and in_busy) or
@@ -540,45 +564,13 @@ class PLCManager:
 
                 if is_target_reached:
                     logger.info("PLC Command %s COMPLETED (Status verified in %.1fs)", cmd.value, elapsed)
-
-                    # Step 4: Clear pulse command bits in Byte 0 / Byte 1
-                    reset_data = bytearray(await self._async_db_read(0, 2))
-                    if not is_staff_cmd:
-                        set_bool(reset_data, 0, OFFSET_CMD_LOCK[1], False)
-                        set_bool(reset_data, 0, OFFSET_CMD_UNLOCK[1], False)
-                        set_bool(reset_data, 0, OFFSET_CMD_Z_UP[1], False)
-                        set_bool(reset_data, 0, OFFSET_CMD_Z_DOWN[1], False)
-                        set_bool(reset_data, 0, OFFSET_CMD_STOP[1], False)
-                        set_bool(reset_data, 0, OFFSET_CMD_START[1], False)
-                        set_bool(reset_data, 0, OFFSET_CMD_RESET[1], False)
-                    else:
-                        set_bool(reset_data, 1, OFFSET_CMD_STAFF_OUT_START[1], False)
-                        set_bool(reset_data, 1, OFFSET_CMD_STAFF_OUT_CANCEL[1], False)
-                        set_bool(reset_data, 1, OFFSET_CMD_STAFF_IN_START[1], False)
-                        set_bool(reset_data, 1, OFFSET_CMD_STAFF_IN_STOP[1], False)
-                        set_bool(reset_data, 1, OFFSET_CMD_CONVEYOR_RUN[1], False)
-                        set_bool(reset_data, 1, OFFSET_CMD_CONVEYOR_STOP[1], False)
-
-                    await self._async_db_write(0, reset_data)
+                    # Step 3: Clear pulse command bits in Byte 0 / Byte 1 atomically
+                    await self._clear_pulse_bits(is_staff_cmd)
                     return True
 
-            # Timeout — clear pulse command bits anyway
-            logger.warning("PLC Command: Timeout (%.1fs) waiting for status flag on %s", timeout, cmd.value)
-            reset_data = bytearray(await self._async_db_read(0, 2))
-            set_bool(reset_data, 0, OFFSET_CMD_LOCK[1], False)
-            set_bool(reset_data, 0, OFFSET_CMD_UNLOCK[1], False)
-            set_bool(reset_data, 0, OFFSET_CMD_Z_UP[1], False)
-            set_bool(reset_data, 0, OFFSET_CMD_Z_DOWN[1], False)
-            set_bool(reset_data, 0, OFFSET_CMD_STOP[1], False)
-            set_bool(reset_data, 0, OFFSET_CMD_START[1], False)
-            set_bool(reset_data, 0, OFFSET_CMD_RESET[1], False)
-            set_bool(reset_data, 1, OFFSET_CMD_STAFF_OUT_START[1], False)
-            set_bool(reset_data, 1, OFFSET_CMD_STAFF_OUT_CANCEL[1], False)
-            set_bool(reset_data, 1, OFFSET_CMD_STAFF_IN_START[1], False)
-            set_bool(reset_data, 1, OFFSET_CMD_STAFF_IN_STOP[1], False)
-            set_bool(reset_data, 1, OFFSET_CMD_CONVEYOR_RUN[1], False)
-            set_bool(reset_data, 1, OFFSET_CMD_CONVEYOR_STOP[1], False)
-            await self._async_db_write(0, reset_data)
+            # Timeout or aborted — clear pulse command bits anyway
+            logger.warning("PLC Command: Timeout or aborted (%.1fs) waiting for status flag on %s", timeout, cmd.value)
+            await self._clear_pulse_bits(is_staff_cmd)
             return False
 
         except Exception as e:
@@ -659,6 +651,20 @@ class PLCManager:
         """Execute a PLC command using Handshake Signal Protocol."""
         logger.info("Executing PLC command: %s (DB%d, Simulator Mode: %s)", cmd.value, self.db_number, self.simulator_mode)
 
+        # Safety Interlock: Block motion/station commands if PLC is in E-Stop or Error state.
+        # STOP_PLC and RESET_PLC are always permitted as emergency/recovery actions.
+        if cmd not in (PLCCommand.STOP_PLC, PLCCommand.RESET_PLC):
+            if self.emergency_stop:
+                logger.warning("Rejecting PLC command %s: Emergency Stop (E-Stop) is currently active!", cmd.value)
+                raise RuntimeError(
+                    f"Không thể thực thi lệnh {cmd.value}: Nút dừng khẩn cấp (Emergency Stop) của PLC đang được kích hoạt!"
+                )
+            if self.plc_error:
+                logger.warning("Rejecting PLC command %s: PLC is in error state!", cmd.value)
+                raise RuntimeError(
+                    f"Không thể thực thi lệnh {cmd.value}: PLC đang báo lỗi (PLC_ERROR). Vui lòng Reset PLC trước khi tiếp tục!"
+                )
+
         if self.simulator_mode or not SNAP7_AVAILABLE:
             return await self._execute_simulator_command(cmd)
 
@@ -710,10 +716,6 @@ class PLCManager:
                 self.staff_mode_active = True
             elif cmd == PLCCommand.STAFF_MODE_DISABLE:
                 self.staff_mode_active = False
-            elif cmd == PLCCommand.CONVEYOR_RUN:
-                self.conveyor_running = True
-            elif cmd == PLCCommand.CONVEYOR_STOP:
-                self.conveyor_running = False
             elif cmd == PLCCommand.STAFF_OUTBOUND_START:
                 self.staff_outbound_busy = True
                 self.staff_outbound_done = False
@@ -747,7 +749,10 @@ class PLCManager:
         if cmd == PLCCommand.START_PLC:
             self.plc_on = True
             self.plc_error = False
-            logger.info("PLC [Sim]: System started / enabled (plc_on = True)")
+            self.z_axis = "DOWN"
+            self.plc_z_is_up = False
+            self.plc_z_is_down = True
+            logger.info("PLC [Sim]: System started / enabled (plc_on = True, Z-axis auto-homed to DOWN)")
 
         elif cmd == PLCCommand.STOP_PLC:
             self.plc_on = False
@@ -805,14 +810,6 @@ class PLCManager:
         elif cmd == PLCCommand.STAFF_MODE_DISABLE:
             self.staff_mode_active = False
             logger.info("PLC [Sim]: Staff Mode Disabled (staff_mode_active = False)")
-
-        elif cmd == PLCCommand.CONVEYOR_RUN:
-            self.conveyor_running = True
-            logger.info("PLC [Sim]: Conveyor motor RUNNING (conveyor_running = True)")
-
-        elif cmd == PLCCommand.CONVEYOR_STOP:
-            self.conveyor_running = False
-            logger.info("PLC [Sim]: Conveyor motor STOPPED (conveyor_running = False)")
 
         elif cmd == PLCCommand.STAFF_OUTBOUND_START:
             self.staff_outbound_busy = True
@@ -906,6 +903,18 @@ class PLCManager:
     def set_drone_detected(self, detected: bool) -> None:
         self.drone_detected = detected
         logger.info("PLC Sensor: Drone detection set to %s", detected)
+
+    def set_emergency_stop(self, estop: bool) -> None:
+        self.emergency_stop = estop
+        if estop:
+            self.plc_busy = False
+        logger.warning("PLC State: Emergency Stop set to %s", estop)
+
+    def set_plc_error(self, error: bool) -> None:
+        self.plc_error = error
+        if error:
+            self.plc_busy = False
+        logger.warning("PLC State: PLC Error state set to %s", error)
 
     # ----------------------------------------------------------------
     # Watchdog Heartbeat (DB15.DBX0.7)
