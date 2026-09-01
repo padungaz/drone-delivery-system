@@ -455,7 +455,7 @@ class PLCManager:
     # Z-Axis Multi-Level Control: Write DB15.DBW8 + DB15.DBX0.2 (cmd_target_z) -> Poll DB15.DBX2.7
     # ----------------------------------------------------------------
 
-    async def move_z_to_level(self, level: int, timeout_sec: float = 20.0) -> bool:
+    async def move_z_to_level(self, level: int, timeout_sec: float = 35.0) -> bool:
         """Request PLC to move Z-axis to target level and wait for confirmation.
 
         Protocol (Strobe / Handshake):
@@ -516,16 +516,25 @@ class PLCManager:
         # 3. Poll DB15.DBX2.7 until True
         import time
         start_time = time.time()
+        last_log_time = 0.0
         while (time.time() - start_time) < timeout_sec:
             await asyncio.sleep(DEFAULT_POLL_INTERVAL)
+            elapsed = time.time() - start_time
             try:
                 data = await self._async_db_read(2, 1)
                 z_in_pos = get_bool(data, 0, 7)  # Bit 2.7 relative to offset 2
+                raw_byte2 = data[0] if data else 0
+
+                # Diagnostic log mỗi 1 giây để quan sát giá trị thực tế của Byte 2
+                if elapsed - last_log_time >= 1.0:
+                    last_log_time = elapsed
+                    logger.info("PLC Z-Axis Polling [%.1fs]: Byte 2 = 0x%02X (Bit 2.7 = %s)", elapsed, raw_byte2, z_in_pos)
+
                 if z_in_pos:
                     self.plc_z_in_position = True
                     self.current_z_level = level
                     logger.info("PLC Z-Axis: Confirmed at %s (level %d). DB15.DBX2.7 = True (%.1fs)",
-                                level_label, level, time.time() - start_time)
+                                level_label, level, elapsed)
 
                     # 4. Khi plc_z_in_position trả về thì TẮT cmd_target_z (DB15.DBX0.2 = False)
                     try:

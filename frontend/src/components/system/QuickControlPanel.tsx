@@ -13,6 +13,8 @@ interface Props {
   brakeOk?: boolean;
   currentZLevel?: number;
   zInPosition?: boolean;
+  selectedSlot?: string;
+  onSelectSlot?: (slot: string) => void;
 }
 
 const SLOT_Z_LEVELS: Record<string, number> = {
@@ -43,8 +45,18 @@ export const QuickControlPanel = memo(function QuickControlPanel({
   brakeOk = true,
   currentZLevel = 0,
   zInPosition = true,
+  selectedSlot: propSelectedSlot,
+  onSelectSlot,
 }: Props) {
-  const [selectedSlot, setSelectedSlot] = useState<string>("A2");
+  const [internalSlot, setInternalSlot] = useState<string>("A2");
+  const selectedSlot = propSelectedSlot || internalSlot;
+
+  const handleSelectSlot = (slot: string) => {
+    setInternalSlot(slot);
+    if (onSelectSlot) {
+      onSelectSlot(slot);
+    }
+  };
 
   const requiredZ = SLOT_Z_LEVELS[selectedSlot] ?? 1;
   const isZAligned = currentZLevel === requiredZ && zInPosition;
@@ -235,14 +247,14 @@ export const QuickControlPanel = memo(function QuickControlPanel({
               <div className="manual-group-label">
                 <span>📦 CHỌN Ô KHO HOẠT ĐỘNG (SLOTS A1..B3):</span>
               </div>
-              {/* Quick Slot Selector Chips */}
-              <div className="slot-chip-group">
+              {/* Slot selector chips */}
+              <div className="slot-chips-grid">
                 {["A1", "A2", "A3", "B1", "B2", "B3"].map((s) => (
                   <button
                     key={s}
                     type="button"
                     className={`slot-chip ${selectedSlot === s ? "active-slot-chip" : ""}`}
-                    onClick={() => setSelectedSlot(s)}
+                    onClick={() => handleSelectSlot(s)}
                     title={`Chọn ô kho ${s}`}
                   >
                     Ô {s}

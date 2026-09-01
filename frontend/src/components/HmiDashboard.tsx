@@ -49,6 +49,7 @@ export function HmiDashboard() {
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [modalData, setModalData] = useState<any>(null);
+  const [selectedQuickSlot, setSelectedQuickSlot] = useState<string>("A2");
 
   // Real System WebSockets Data Hooks
   const {
@@ -339,6 +340,7 @@ export function HmiDashboard() {
     if (slotId.startsWith("C")) {
       return;
     }
+    setSelectedQuickSlot(slotId);
     const slot = mappedSlots.find((s) => s.slot_id === slotId);
     setModalData({
       slotId,
@@ -368,7 +370,10 @@ export function HmiDashboard() {
       const durationSec = (Date.now() - startTimestamp) / 1000;
       setLastRobotCycleDuration(durationSec);
 
-      if (res.ok) {
+      const resData = await res.json().catch(() => null);
+      const isFailed = !res.ok || resData?.result === "FAILED";
+
+      if (!isFailed) {
         const respTime = new Date().toLocaleTimeString("vi-VN", { hour12: false });
         setRobotSocketLogs((prev) => [
           ...prev,
@@ -399,11 +404,12 @@ export function HmiDashboard() {
           setRobotHoldingProduct("PRD-CLAMP");
         }
       } else {
+        const errorMsg = resData?.detail || resData?.message || `Robot thất bại lệnh ${fullCmdName}`;
         setRobotSocketLogs((prev) => [
           ...prev,
-          { id: String(Date.now() + 1), time: nowTime, type: "ERR", payload: `FAILED ${fullCmdName}` },
+          { id: String(Date.now() + 1), time: nowTime, type: "ERR", payload: `FAILED ${fullCmdName}: ${errorMsg}` },
         ]);
-        addLog("ERROR", `Robot thất bại lệnh ${fullCmdName}`);
+        addLog("ERROR", `❌ Lỗi Robot: ${errorMsg}`);
       }
     } catch (err) {
       addLog("ERROR", `Lỗi kết nối Socket Robot: ${err}`);
@@ -413,22 +419,11 @@ export function HmiDashboard() {
     }
   };
 
-  // Execute Real Robot / PLC Commands
+  // Execute Real Robot / PLC Commands directly
   const handleQuickCommand = async (cmd: string, payload?: Record<string, unknown>) => {
-    const slot = (payload?.slot as string) || "A2";
-    if (cmd === "PICK" || cmd === "STORE") {
-      setModalData({
-        title: "XÁC NHẬN THAO TÁC",
-        actionText: `${cmd === "PICK" ? "Gắp hàng từ" : "Thả hàng vào"} ô kho ${slot}?`,
-        productId: `PRD-100${slot}`,
-        cmd,
-        slot,
-      });
-      setActiveModal("confirm_action");
-    } else {
-      const normalizedCmd = cmd === "HOME" ? "MOVE_HOME" : cmd;
-      await runRobotCommandWithTelemetry(normalizedCmd);
-    }
+    const slot = (payload?.slot as string) || selectedQuickSlot || "A2";
+    const normalizedCmd = cmd === "HOME" ? "MOVE_HOME" : cmd;
+    await runRobotCommandWithTelemetry(normalizedCmd, slot);
   };
 
   // Confirm Modal action handler
@@ -539,6 +534,8 @@ export function HmiDashboard() {
                     brakeOk={isRobotOnline}
                     currentZLevel={plc?.current_z_level ?? 0}
                     zInPosition={plc?.plc_z_in_position ?? true}
+                    selectedSlot={selectedQuickSlot}
+                    onSelectSlot={setSelectedQuickSlot}
                   />
                 </div>
               </div>

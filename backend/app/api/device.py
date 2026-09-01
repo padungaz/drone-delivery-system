@@ -198,11 +198,17 @@ async def execute_robot_device_command(
         "message": msg,
     })
 
+    if res_str == "FAILED":
+        raise HTTPException(
+            status_code=500,
+            detail=msg,
+        )
+
     return DeviceCommandResponse(
         device="ROBOT",
         command=cmd_str,
         target=target_str,
-        status="DONE" if res_str == "SUCCESS" else "FAILED",
+        status="DONE",
         message=msg,
     )
 

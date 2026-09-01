@@ -81,8 +81,8 @@ function SafeSetDO(pin, logic_state)
     SetDO(pin, hw_val, 0, 0)
 end
 
--- Khởi tạo: Robot đang ở HOME -> DO0 logic=1 (PLC nhận HOME OK)
-SafeSetDO(0, 1)   -- DO0 = Logic 1 (HOME OK)
+-- Khởi tạo: Robot chưa về HOME -> DO0 logic=0 (Chờ lệnh Home từ PLC)
+SafeSetDO(0, 0)   -- DO0 = Logic 0 (Chưa Home OK)
 SafeSetDO(1, 0)   -- DO1 = Logic 0 (không xung)
 SafeSetDO(2, 0)   -- DO2 = Logic 0 (không xung)
 
@@ -474,11 +474,11 @@ while true do
     -- =========================================================
     if current_di0 == 1 and prev_di0 == 0 then
         if ROBOT_STATE == "IDLE" or ROBOT_STATE == "ESTOP" or ROBOT_STATE == "WAITING_SLOT" then
-            print("⚡ Suon len DI0 = 1: PLC yeu cau Robot ve HOME an toan")
+            print("⚡ DI0 = 1 (Sườn lên): PLC yeu cau Robot ve HOME an toan -> Execute_MoveHome()")
             PENDING_OPERATION = nil  -- Hủy yêu cầu đang chờ nếu có
             Execute_MoveHome()
         else
-            print("⚠️ DI0 kich hoat nhung Robot dang ban: " .. ROBOT_STATE)
+            print("⚠️ DI0 = 1 nhung Robot dang ban: " .. ROBOT_STATE)
         end
     end
 
