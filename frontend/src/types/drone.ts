@@ -138,7 +138,8 @@ export interface PLCState {
   simulator_mode: boolean;
   plc_busy: boolean;
 
-  // Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7)
+  // Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7 + DB15.DBX0.2)
+  cmd_target_z?: boolean;        // DB15.DBX0.2 (Lệnh kích hoạt chạy trục Z)
   plc_z_in_position?: boolean;   // DB15.DBX2.7 (Z đã đến tầng mục tiêu)
   target_z_level?: number;       // DB15.DBW8 (Mã tầng mục tiêu 0..4)
   current_z_level?: number;      // DB15.DBW8 (Mã tầng hiện tại)

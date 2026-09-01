@@ -25,6 +25,7 @@ interface Props {
   currentZLevel?: number;
   targetZLevel?: number;
   zInPosition?: boolean;
+  cmdTargetZ?: boolean;
 }
 
 const Z_LEVEL_NAMES: Record<number, string> = {
@@ -50,6 +51,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
   currentZLevel = 0,
   targetZLevel = 0,
   zInPosition = true,
+  cmdTargetZ = false,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -165,11 +167,13 @@ export const PLCMonitor = React.memo(function PLCMonitor({
             <span className="value font-mono">{Z_LEVEL_NAMES[currentZLevel] || `LEVEL ${currentZLevel}`}</span>
           </div>
 
-          {/* 4. Z In Position (DB2.7) */}
-          <div className={`indicator-box ${zInPosition ? "active" : "active-warn"}`} title="Cờ xác nhận trục Z đã đến tầng và sẵn sàng (DB15.DBX2.7)">
+          {/* 4. Z In Position (DB2.7) & Trigger (DB0.2) */}
+          <div className={`indicator-box ${zInPosition ? "active" : "active-warn"}`} title="Cờ xác nhận trục Z đã đến tầng (DB15.DBX2.7). Lệnh kích hoạt DB15.DBX0.2 (cmd_target_z)">
             <span className="icon">{zInPosition ? "🎯" : "🔄"}</span>
             <span className="label">Vị Trí Z (DB2.7)</span>
-            <span className="value font-mono">{zInPosition ? "● SẴN SÀNG" : "🔄 ĐANG CHẠY"}</span>
+            <span className="value font-mono">
+              {zInPosition ? "● SẴN SÀNG" : cmdTargetZ ? "🚀 LỆNH DB0.2" : "🔄 ĐANG CHẠY"}
+            </span>
           </div>
 
           {/* 5. E-Stop Status (DB2.6) */}

@@ -552,6 +552,7 @@ export function HmiDashboard() {
                   currentZLevel={plc?.current_z_level ?? 0}
                   targetZLevel={plc?.target_z_level ?? 0}
                   zInPosition={plc?.plc_z_in_position ?? true}
+                  cmdTargetZ={plc?.cmd_target_z ?? false}
                 />
                 <CameraVision
                   cameraActive={cameraActive}
@@ -631,6 +632,7 @@ export function HmiDashboard() {
                     currentZLevel={plc?.current_z_level ?? 0}
                     targetZLevel={plc?.target_z_level ?? 0}
                     zInPosition={plc?.plc_z_in_position ?? true}
+                    cmdTargetZ={plc?.cmd_target_z ?? false}
                   />
                 </div>
               </div>

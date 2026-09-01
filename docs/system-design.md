@@ -605,8 +605,8 @@ sequenceDiagram
 Byte 0: Backend -> PLC (Command bits điều khiển Drone & Trạm, ghi xung)
   DB15.DBX0.0 : cmd_lock_drone          - Yêu cầu đóng kẹp khóa cố định Drone
   DB15.DBX0.1 : cmd_unlock_drone        - Yêu cầu mở kẹp giải phóng Drone
-  DB15.DBX0.2 : (Reserved)              - Đã loại bỏ (Thay thế toàn diện bằng DB15.DBW8)
-  DB15.DBX0.3 : (Reserved)              - Đã loại bỏ (Thay thế toàn diện bằng DB15.DBW8)
+  DB15.DBX0.2 : cmd_target_z            - Lệnh kích hoạt chạy trục Z (Tự tắt khi DBX2.7=1)
+  DB15.DBX0.3 : (Reserved)              - Dự phòng
   DB15.DBX0.4 : cmd_stop_plc            - Yêu cầu dừng chu kỳ hoạt động
   DB15.DBX0.5 : cmd_start_plc           - Yêu cầu khởi động / cho phép hệ thống
   DB15.DBX0.6 : cmd_reset_plc           - Yêu cầu reset lỗi & khôi phục trạng thái

@@ -79,7 +79,8 @@ DEFAULT_DB_NUMBER = 15
 # Byte 0: Backend -> PLC (Station Commands)
 OFFSET_CMD_LOCK               = (0, 0)  # cmd_lock_drone: Bool 0.0
 OFFSET_CMD_UNLOCK             = (0, 1)  # cmd_unlock_drone: Bool 0.1
-# Bits 0.2 & 0.3: Reserved (Thay thế bằng DB15.DBW8 target_z_level)
+OFFSET_CMD_TARGET_Z           = (0, 2)  # cmd_target_z: Bool 0.2 (Kích hoạt chạy trục Z đến tầng DBW8)
+# Bit 0.3: Reserved
 OFFSET_CMD_STOP               = (0, 4)  # cmd_stop_plc: Bool 0.4
 OFFSET_CMD_START              = (0, 5)  # cmd_start_plc: Bool 0.5
 OFFSET_CMD_RESET              = (0, 6)  # cmd_reset_plc: Bool 0.6
@@ -214,7 +215,8 @@ class PLCManager:
         self.staff_target_count: int = 0         # DB15.DBW4
         self.staff_current_count: int = 0        # DB15.DBW6
 
-        # Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7)
+        # Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7 + DB15.DBX0.2)
+        self.cmd_target_z: bool = False          # DB15.DBX0.2 - Lệnh kích hoạt chạy trục Z
         self.plc_z_in_position: bool = True      # DB15.DBX2.7 - Z đã sẵn sàng tại tầng mục tiêu
         self.target_z_level: int = 0              # Mã tầng Z Backend yêu cầu (ghi vào DB15.DBW8)
         self.current_z_level: int = 0             # Mã tầng Z hiện tại PLC phản hồi
@@ -364,6 +366,9 @@ class PLCManager:
             # Read 10 bytes from DB15: Bytes 0-3 (flags), Words 4-5 (target count), Words 6-7 (current count), Words 8-9 (Z level)
             data = await self._async_db_read(0, 10)
 
+            # Byte 0: Command flags
+            self.cmd_target_z = get_bool(data, OFFSET_CMD_TARGET_Z[0], OFFSET_CMD_TARGET_Z[1])
+
             # Byte 2: Station status
             self.drone_detected = get_bool(data, OFFSET_DRONE_DETECTED[0], OFFSET_DRONE_DETECTED[1])
             self.plc_locked_state = get_bool(data, OFFSET_PLC_LOCKED_STATE[0], OFFSET_PLC_LOCKED_STATE[1])
@@ -447,55 +452,68 @@ class PLCManager:
         return self.staff_current_count
 
     # ----------------------------------------------------------------
-    # Z-Axis Multi-Level Control: Write DB15.DBW8 + Poll DB15.DBX2.7
+    # Z-Axis Multi-Level Control: Write DB15.DBW8 + DB15.DBX0.2 (cmd_target_z) -> Poll DB15.DBX2.7
     # ----------------------------------------------------------------
 
     async def move_z_to_level(self, level: int, timeout_sec: float = 20.0) -> bool:
         """Request PLC to move Z-axis to target level and wait for confirmation.
 
-        Protocol:
+        Protocol (Strobe / Handshake):
           1. Backend writes target level (Int16) to DB15.DBW8.
-          2. PLC reads DB15.DBW8, compares with current position, drives Z-axis motor.
-          3. PLC sets DB15.DBX2.7 (plc_z_in_position) = True when arrived.
-          4. Backend polls DB15.DBX2.7 until True or timeout.
+          2. Backend turns ON DB15.DBX0.2 (cmd_target_z = True) to notify PLC to start moving Z.
+          3. PLC reads DB15.DBW8, drives Z-axis motor, keeping DB15.DBX2.7 (plc_z_in_position) = False.
+          4. When Z arrives at target level, PLC sets DB15.DBX2.7 (plc_z_in_position) = True.
+          5. Backend detects DB15.DBX2.7 == True, then turns OFF DB15.DBX0.2 (cmd_target_z = False).
 
         Safety: PLC hardware interlocks with Robot HOME signal (DO0).
                 Backend does NOT need to verify Robot position.
         """
         level_label = Z_LEVEL_LABELS.get(level, f"UNKNOWN({level})")
 
-        # Skip if already at the requested level
+        # Skip if already at the requested level and confirmed in position
         if self.current_z_level == level and self.plc_z_in_position:
             logger.info("PLC Z-Axis: Already at %s (level %d). Skipping move.", level_label, level)
             return True
 
         self.target_z_level = level
         self.plc_z_in_position = False
-        logger.info("PLC Z-Axis: Requesting move to %s (level %d -> DB15.DBW8)...", level_label, level)
+        self.cmd_target_z = True
+        logger.info("PLC Z-Axis: Requesting move to %s (level %d -> DB15.DBW8, cmd_target_z DB0.2 = TRUE)...", level_label, level)
 
         if self.simulator_mode or not SNAP7_AVAILABLE:
             await asyncio.sleep(0.3)
             self.current_z_level = level
             self.plc_z_in_position = True
-            logger.info("PLC Z-Axis [Sim]: Arrived at %s (level %d). DB15.DBX2.7 = True", level_label, level)
+            self.cmd_target_z = False  # Khi plc_z_in_position trả về thì tắt cmd_target_z
+            logger.info("PLC Z-Axis [Sim]: Arrived at %s (level %d). DB15.DBX2.7 = True -> cmd_target_z (DB0.2) = False", level_label, level)
             return True
 
-        # Real PLC: Write target level to DB15.DBW8
+        # Real PLC: Connect if needed
         if not self.is_connected or self.client is None:
             if not self._connect_plc():
                 logger.error("PLC Z-Axis: Cannot connect to PLC to write Z level.")
+                self.cmd_target_z = False
                 return False
 
         try:
+            # 1. Ghi mã tầng DBW8
             import struct
             packed = struct.pack(">h", level)
             await self._async_db_write(OFFSET_CMD_TARGET_Z_LEVEL, bytearray(packed))
             logger.info("PLC Z-Axis: Written level %d to DB15.DBW8", level)
+
+            # 2. Bật cờ cmd_target_z (DB15.DBX0.2 = True) để PLC biết kích hoạt động cơ trục Z
+            async with self._get_lock():
+                cmd_data = bytearray(await asyncio.to_thread(self._sync_db_read, 0, 1))
+                set_bool(cmd_data, 0, OFFSET_CMD_TARGET_Z[1], True)
+                await asyncio.to_thread(self._sync_db_write, 0, cmd_data)
+            logger.info("PLC Z-Axis: Turned ON cmd_target_z (DB15.DBX0.2 = True)")
         except Exception as err:
-            logger.error("PLC Z-Axis: Failed to write DB15.DBW8: %s", err)
+            logger.error("PLC Z-Axis: Failed to initiate Z movement: %s", err)
+            self.cmd_target_z = False
             return False
 
-        # Poll DB15.DBX2.7 until True
+        # 3. Poll DB15.DBX2.7 until True
         import time
         start_time = time.time()
         while (time.time() - start_time) < timeout_sec:
@@ -508,11 +526,32 @@ class PLCManager:
                     self.current_z_level = level
                     logger.info("PLC Z-Axis: Confirmed at %s (level %d). DB15.DBX2.7 = True (%.1fs)",
                                 level_label, level, time.time() - start_time)
+
+                    # 4. Khi plc_z_in_position trả về thì TẮT cmd_target_z (DB15.DBX0.2 = False)
+                    try:
+                        async with self._get_lock():
+                            reset_data = bytearray(await asyncio.to_thread(self._sync_db_read, 0, 1))
+                            set_bool(reset_data, 0, OFFSET_CMD_TARGET_Z[1], False)
+                            await asyncio.to_thread(self._sync_db_write, 0, reset_data)
+                        self.cmd_target_z = False
+                        logger.info("PLC Z-Axis: Turned OFF cmd_target_z (DB15.DBX0.2 = False)")
+                    except Exception as clear_err:
+                        logger.warning("PLC Z-Axis: Failed to clear cmd_target_z: %s", clear_err)
+
                     return True
             except Exception as poll_err:
                 logger.warning("PLC Z-Axis: Poll error: %s", poll_err)
 
+        # Timeout: tắt cờ cmd_target_z để an toàn
         logger.error("PLC Z-Axis: TIMEOUT waiting for level %d (%s) after %.1fs!", level, level_label, timeout_sec)
+        try:
+            async with self._get_lock():
+                reset_data = bytearray(await asyncio.to_thread(self._sync_db_read, 0, 1))
+                set_bool(reset_data, 0, OFFSET_CMD_TARGET_Z[1], False)
+                await asyncio.to_thread(self._sync_db_write, 0, reset_data)
+        except Exception:
+            pass
+        self.cmd_target_z = False
         return False
 
     # ----------------------------------------------------------------
@@ -739,6 +778,7 @@ class PLCManager:
             staff_target_count=self.staff_target_count,
             staff_current_count=self.staff_current_count,
             plc_z_in_position=self.plc_z_in_position,
+            cmd_target_z=self.cmd_target_z,
             target_z_level=self.target_z_level,
             current_z_level=self.current_z_level,
         )

@@ -37,6 +37,7 @@ function mapPlcResponse(raw: Record<string, unknown>): PLCState {
     plc_busy: (raw.plc_busy as boolean) ?? false,
 
     // Z-Axis Multi-Level Control
+    cmd_target_z: (raw.cmd_target_z as boolean) ?? false,
     plc_z_in_position: (raw.plc_z_in_position as boolean) ?? true,
     target_z_level: (raw.target_z_level as number) ?? 0,
     current_z_level: currentZLevel,

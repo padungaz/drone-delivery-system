@@ -37,8 +37,8 @@
 |:---:|:---:|:---:|:---|:---|
 | **`DB15.DBX0.0`** | `cmd_lock_drone` | `BOOL` | Yêu cầu PLC đóng cơ cấu ngàm kẹp khóa cố định Drone | Kích hoạt khi Drone đã đáp lên Pad N1 |
 | **`DB15.DBX0.1`** | `cmd_unlock_drone` | `BOOL` | Yêu cầu PLC mở ngàm kẹp giải phóng Drone | Kích hoạt trước khi Drone cất cánh |
-| **`DB15.DBX0.2`** | *Reserved* | `BOOL` | *Dự phòng (Đã loại bỏ — Thay thế toàn diện bằng DB15.DBW8)* | Không dùng |
-| **`DB15.DBX0.3`** | *Reserved* | `BOOL` | *Dự phòng (Đã loại bỏ — Thay thế toàn diện bằng DB15.DBW8)* | Không dùng |
+| **`DB15.DBX0.2`** | `cmd_target_z` | `BOOL` | **Lệnh kích hoạt chạy trục Z đến tầng mục tiêu DBW8** | **Backend set 1 để PLC kích chạy Z; khi DB15.DBX2.7 (in_pos)=1 thì Backend tắt về 0** |
+| **`DB15.DBX0.3`** | *Reserved* | `BOOL` | *Dự phòng* | Không dùng |
 | **`DB15.DBX0.4`** | `cmd_stop_plc` | `BOOL` | Dừng chu trình làm việc của trạm | Tạm dừng hoạt động trạm |
 | **`DB15.DBX0.5`** | `cmd_start_plc` | `BOOL` | Khởi động / Cho phép hệ thống PLC hoạt động | Lệnh bật hệ thống chính |
 | **`DB15.DBX0.6`** | `cmd_reset_plc` | `BOOL` | Xóa lỗi (Reset Error) và khôi phục trạng thái sẵn sàng | Xóa cờ lỗi sau khi xử lý sự cố |
@@ -161,6 +161,20 @@
 2. **Điều kiện cho Robot vươn tay vào ô kho / bãi đáp**:
    - Backend chỉ gửi lệnh `PICK` hoặc `STORE` xuống Robot khi bit **`DB15.DBX2.7 (plc_z_in_position) == True`**.
    - Khi Robot đang di chuyển ngoài vị trí Home, `DO0` tự động ngắt về `0`.
+
+### 4.2. Giao thức Kích Hoạt & Bắt Tay Lệnh Trục Z (Strobe Handshake DBX0.2 & DBX2.7)
+Để PLC phân biệt rõ ràng khi nào Backend yêu cầu chạy Z:
+1. **Backend ghi mã tầng**: Ghi giá trị tầng mục tiêu (0, 1, 2, 3, 4) vào **`DB15.DBW8`** (`target_z_level`).
+2. **Backend kích hoạt lệnh**: Bật bit **`DB15.DBX0.2 = 1`** (`cmd_target_z = True`).
+3. **PLC thực thi**:
+   - PLC phát hiện `DB15.DBX0.2 == 1` và `DO0 == 1` (Robot Home).
+   - PLC kích hoạt biến tần / servo điều khiển động cơ trục Z di chuyển đến độ cao tương ứng với `DB15.DBW8`.
+   - Trong quá trình trục Z đang di chuyển, PLC duy trì **`DB15.DBX2.7 = 0`** (`plc_z_in_position = False`).
+4. **PLC báo hoàn thành**:
+   - Khi trục Z đã đến đúng tầng mục tiêu và dừng êm ổn định, PLC bật **`DB15.DBX2.7 = 1`** (`plc_z_in_position = True`).
+5. **Backend tắt lệnh kích hoạt**:
+   - Backend nhận được `DB15.DBX2.7 == 1`, lập tức tắt bit **`DB15.DBX0.2 = 0`** (`cmd_target_z = False`).
+   - Chu trình bắt tay kết thúc an toàn, Robot bắt đầu gắp/thả kiện hàng!
 
 ---
 

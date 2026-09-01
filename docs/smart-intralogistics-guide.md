@@ -64,8 +64,8 @@ Toàn bộ các thiết bị giao tiếp với Central FastAPI Backend Server th
 |:---:|:---:|:---:|:---|
 | **`DB15.DBX0.0`** | `cmd_lock_drone` | BOOL | Yêu cầu PLC đóng cơ cấu kẹp khóa cố định Drone |
 | **`DB15.DBX0.1`** | `cmd_unlock_drone` | BOOL | Yêu cầu PLC mở cơ cấu kẹp giải phóng Drone |
-| **`DB15.DBX0.2`** | *Reserved* | BOOL | *Dự phòng (Đã loại bỏ — Thay thế toàn diện bằng DB15.DBW8)* |
-| **`DB15.DBX0.3`** | *Reserved* | BOOL | *Dự phòng (Đã loại bỏ — Thay thế toàn diện bằng DB15.DBW8)* |
+| **`DB15.DBX0.2`** | `cmd_target_z` | BOOL | Lệnh kích hoạt chạy trục Z đến tầng DBW8 (Tự tắt khi DBX2.7=1) |
+| **`DB15.DBX0.3`** | *Reserved* | BOOL | *Dự phòng* |
 | **`DB15.DBX0.4`** | `cmd_stop_plc` | BOOL | Yêu cầu PLC dừng chu kỳ làm việc |
 | **`DB15.DBX0.5`** | `cmd_start_plc` | BOOL | Yêu cầu PLC bật hệ thống sẵn sàng hoạt động |
 | **`DB15.DBX0.6`** | `cmd_reset_plc` | BOOL | Yêu cầu PLC xóa trạng thái lỗi (Reset Error) |

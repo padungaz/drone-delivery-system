@@ -398,7 +398,8 @@ class PLCStatusResponse(BaseModel):
     staff_target_count: int = 0        # DB15.DBW4 (Số lượng hàng Backend yêu cầu PLC)
     staff_current_count: int = 0       # DB15.DBW6 (Số lượng hàng PLC đã đếm được)
 
-    # Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7)
+    # Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7 + DB15.DBX0.2)
+    cmd_target_z: bool = False         # DB15.DBX0.2 (Lệnh kích hoạt chạy trục Z đến tầng DBW8)
     plc_z_in_position: bool = False    # DB15.DBX2.7 (Z đã đến tầng mục tiêu, sẵn sàng)
     target_z_level: int = 0            # DB15.DBW8 (Mã tầng Z Backend yêu cầu)
     current_z_level: int = 0           # Mã tầng Z hiện tại PLC phản hồi
