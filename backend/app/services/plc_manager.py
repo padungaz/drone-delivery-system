@@ -455,7 +455,7 @@ class PLCManager:
     # Z-Axis Multi-Level Control: Write DB15.DBW8 + DB15.DBX0.2 (cmd_target_z) -> Poll DB15.DBX2.7
     # ----------------------------------------------------------------
 
-    async def move_z_to_level(self, level: int, timeout_sec: float = 35.0) -> bool:
+    async def move_z_to_level(self, level: int, timeout_sec: Optional[float] = None) -> bool:
         """Request PLC to move Z-axis to target level and wait for confirmation.
 
         Protocol (Strobe / Handshake):
@@ -465,8 +465,10 @@ class PLCManager:
           4. When Z arrives at target level, PLC sets DB15.DBX2.7 (plc_z_in_position) = True.
           5. Backend detects DB15.DBX2.7 == True, then turns OFF DB15.DBX0.2 (cmd_target_z = False).
 
-        Safety: PLC hardware interlocks with Robot HOME signal (DO0).
-                Backend does NOT need to verify Robot position.
+        Safety & Error Handling:
+          - No timeout_sec limit by default: Z-axis can take as long as mechanical movement needs.
+          - If PLC encounters an error (DB15.DBX2.5 plc_error) or Emergency Stop (DB15.DBX2.6 emergency_stop),
+            Backend aborts immediately, turns off cmd_target_z, and returns False.
         """
         level_label = Z_LEVEL_LABELS.get(level, f"UNKNOWN({level})")
 
@@ -513,23 +515,39 @@ class PLCManager:
             self.cmd_target_z = False
             return False
 
-        # 3. Poll DB15.DBX2.7 until True
+        # 3. Poll DB15.DBX2.7 until True (No timeout limit - waits until confirmed or PLC reports error/E-stop)
         import time
         start_time = time.time()
         last_log_time = 0.0
-        while (time.time() - start_time) < timeout_sec:
+        while timeout_sec is None or (time.time() - start_time) < timeout_sec:
             await asyncio.sleep(DEFAULT_POLL_INTERVAL)
             elapsed = time.time() - start_time
             try:
                 data = await self._async_db_read(2, 1)
-                z_in_pos = get_bool(data, 0, 7)  # Bit 2.7 relative to offset 2
+                z_in_pos = get_bool(data, 0, 7)  # Bit 2.7: plc_z_in_position
+                plc_err = get_bool(data, 0, 5)   # Bit 2.5: plc_error
+                is_estop = get_bool(data, 0, 6)  # Bit 2.6: emergency_stop
                 raw_byte2 = data[0] if data else 0
 
-                # Diagnostic log mỗi 1 giây để quan sát giá trị thực tế của Byte 2
-                if elapsed - last_log_time >= 1.0:
+                # Diagnostic log mỗi 2 giây để quan sát trạng thái di chuyển
+                if elapsed - last_log_time >= 2.0:
                     last_log_time = elapsed
-                    logger.info("PLC Z-Axis Polling [%.1fs]: Byte 2 = 0x%02X (Bit 2.7 = %s)", elapsed, raw_byte2, z_in_pos)
+                    logger.info("PLC Z-Axis Polling [%.1fs]: Byte 2 = 0x%02X (Bit 2.7 = %s, Error = %s, E-Stop = %s)",
+                                elapsed, raw_byte2, z_in_pos, plc_err, is_estop)
 
+                # Nếu PLC báo E-Stop khẩn cấp -> ngắt ngay lập tức
+                if is_estop:
+                    logger.error("PLC Z-Axis: EMERGENCY STOP detected while moving to level %d! Aborting...", level)
+                    self.emergency_stop = True
+                    break
+
+                # Nếu PLC báo lỗi hệ thống/động cơ trục Z -> ngắt ngay lập tức
+                if plc_err:
+                    logger.error("PLC Z-Axis: PLC ERROR detected (DB15.DBX2.5 = 1) while moving to level %d! Aborting...", level)
+                    self.plc_error = True
+                    break
+
+                # Trục Z đã đến vị trí mục tiêu an toàn
                 if z_in_pos:
                     self.plc_z_in_position = True
                     self.current_z_level = level
@@ -551,8 +569,8 @@ class PLCManager:
             except Exception as poll_err:
                 logger.warning("PLC Z-Axis: Poll error: %s", poll_err)
 
-        # Timeout: tắt cờ cmd_target_z để an toàn
-        logger.error("PLC Z-Axis: TIMEOUT waiting for level %d (%s) after %.1fs!", level, level_label, timeout_sec)
+        # Di chuyển thất bại do PLC Error hoặc E-Stop: Tắt cờ cmd_target_z để an toàn
+        logger.error("PLC Z-Axis: Movement aborted for level %d (%s) due to PLC Error / E-Stop!", level, level_label)
         try:
             async with self._get_lock():
                 reset_data = bytearray(await asyncio.to_thread(self._sync_db_read, 0, 1))

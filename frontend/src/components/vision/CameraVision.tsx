@@ -1,23 +1,31 @@
 import React, { useState } from "react";
-import { startCameraDevice, stopCameraDevice, triggerCameraQrScan, API_BASE } from "../../services/api";
+import {
+  startCameraDevice,
+  stopCameraDevice,
+  triggerCameraQrScan,
+  captureAndScanRealCamera,
+  API_BASE,
+} from "../../services/api";
 
 interface Props {
   productId?: string;
   timestamp?: string;
-  status?: "DETECTED" | "SCANNING" | "OFFLINE";
+  status?: "DETECTED" | "SCANNING" | "NOT_FOUND" | "OFFLINE";
   cameraActive?: boolean;
   systemMode?: "AUTO" | "MANUAL";
+  liveMessage?: string;
 }
 
 export const CameraVision = React.memo(function CameraVision({
-  productId = "PRD-TEST-1001",
-  timestamp = "21:17:43",
+  productId = "Chờ quét...",
+  timestamp = "--:--:--",
   status = "DETECTED",
   cameraActive = true,
   systemMode = "AUTO",
+  liveMessage,
 }: Props) {
   const [loading, setLoading] = useState(false);
-  const [customQr, setCustomQr] = useState("PRD-MANUAL-888");
+  const [customQr, setCustomQr] = useState("SP001");
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const handleToggleCamera = async () => {
@@ -35,6 +43,28 @@ export const CameraVision = React.memo(function CameraVision({
     }
   };
 
+  // 1. Chụp ảnh thực tế từ Camera USB CAM01 và quét mã QR bằng OpenCV
+  const handleCaptureRealCamera = async () => {
+    setLoading(true);
+    setFeedback("📸 Đang chụp khung hình từ Camera và giải mã OpenCV...");
+    try {
+      const res = await captureAndScanRealCamera();
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setFeedback(`✅ Quét thành công từ Camera thật: ${data.product_id}`);
+      } else if (data.status === "not_found") {
+        setFeedback(`⚠️ ${data.message || "Camera chưa nhìn thấy mã QR! Vui lòng đưa tem vào giữa ống kính."}`);
+      } else {
+        setFeedback(`❌ ${data.message || "Lỗi khi quét từ camera"}`);
+      }
+    } catch {
+      setFeedback("❌ Lỗi kết nối đến Camera API");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 2. Giả lập nhập mã thủ công bằng text (Dành cho kiểm thử)
   const handleManualScan = async () => {
     if (!customQr.trim()) return;
     setLoading(true);
@@ -43,9 +73,9 @@ export const CameraVision = React.memo(function CameraVision({
       const res = await triggerCameraQrScan(customQr);
       if (res.ok) {
         const data = await res.json();
-        setFeedback(`✅ Quét thành công QR: ${data.data?.product_id || customQr}`);
+        setFeedback(`🧪 [Giả lập] Nhập mã thành công: ${data.data?.product_id || customQr}`);
       } else {
-        setFeedback("❌ Lỗi quét mã QR");
+        setFeedback("❌ Lỗi quét mã QR giả lập");
       }
     } catch {
       setFeedback("❌ Lỗi kết nối Camera API");
@@ -121,10 +151,40 @@ export const CameraVision = React.memo(function CameraVision({
         </div>
 
 
+        {/* Live Notification Banner during Auto or Manual Scan */}
+        {(liveMessage || feedback) && (
+          <div
+            className="manual-feedback-pill font-mono"
+            style={{
+              margin: "10px 0 4px 0",
+              padding: "7px 12px",
+              borderRadius: "6px",
+              fontSize: "0.85rem",
+              background:
+                status === "DETECTED"
+                  ? "rgba(16, 185, 129, 0.15)"
+                  : status === "NOT_FOUND"
+                  ? "rgba(239, 68, 68, 0.15)"
+                  : "rgba(14, 165, 233, 0.15)",
+              border: `1px solid ${
+                status === "DETECTED" ? "#10b981" : status === "NOT_FOUND" ? "#ef4444" : "#0ea5e9"
+              }`,
+              color: status === "DETECTED" ? "#34d399" : status === "NOT_FOUND" ? "#f87171" : "#38bdf8",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            {feedback || liveMessage}
+          </div>
+        )}
+
         <div className="camera-info-footer flex-between">
           <div className="info-group">
             <span className="label">Product ID</span>
-            <strong className="value text-cyan font-mono">{productId}</strong>
+            <strong className="value text-cyan font-mono" style={{ fontSize: "1rem" }}>
+              {productId}
+            </strong>
           </div>
 
           <div className="info-group">
@@ -136,7 +196,13 @@ export const CameraVision = React.memo(function CameraVision({
             <span className="label">Vision Status</span>
             <strong
               className={`value ${
-                status === "DETECTED" ? "text-green" : "text-yellow"
+                status === "DETECTED"
+                  ? "text-green"
+                  : status === "SCANNING"
+                  ? "text-yellow"
+                  : status === "NOT_FOUND"
+                  ? "text-red"
+                  : "text-gray"
               }`}
             >
               {status}
@@ -144,44 +210,101 @@ export const CameraVision = React.memo(function CameraVision({
           </div>
         </div>
 
-        {/* Camera Manual Control Toolbar - ONLY VISIBLE IN MANUAL MODE */}
+        {/* Camera Manual Control Toolbar - VISIBLE IN MANUAL MODE */}
         {systemMode === "MANUAL" && (
-          <div className="camera-manual-controls-section">
-            <div className="manual-section-title flex-between">
-              <span className="font-mono text-cyan">🎮 ĐIỀU KHIỂN THỦ CÔNG CAMERA:</span>
+          <div className="camera-manual-controls-section" style={{ marginTop: "12px", borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "10px" }}>
+            <div className="manual-section-title flex-between" style={{ marginBottom: "8px" }}>
+              <span className="font-mono text-cyan" style={{ fontSize: "0.85rem" }}>
+                🎮 ĐIỀU KHIỂN THỦ CÔNG CAMERA:
+              </span>
               <span className="mode-indicator-tag active-manual">MANUAL SẴN SÀNG</span>
             </div>
 
-            {feedback && <div className="manual-feedback-pill font-mono">{feedback}</div>}
-
-            <div className="camera-manual-actions-row flex-between">
+            {/* Main Action Buttons Row */}
+            <div className="camera-manual-actions-row flex-between" style={{ gap: "8px", flexWrap: "wrap" }}>
               <button
                 type="button"
                 className={`btn-manual-cam ${cameraActive ? "btn-cam-stop" : "btn-cam-start"}`}
                 onClick={handleToggleCamera}
                 disabled={loading}
+                style={{ padding: "8px 12px", borderRadius: "6px" }}
               >
                 {cameraActive ? "⏹ Tắt Stream" : "📷 Bật Stream"}
               </button>
 
-              <div className="qr-test-input-group flex-between">
-                <input
-                  type="text"
-                  className="input-qr-test"
-                  value={customQr}
-                  onChange={(e) => setCustomQr(e.target.value)}
-                  placeholder="Mã QR test..."
-                />
-                <button
-                  type="button"
-                  className="btn-manual-scan"
-                  onClick={handleManualScan}
-                  disabled={loading}
-                  title="Bắn tín hiệu quét mã QR này"
-                >
-                  🔍 Quét QR
-                </button>
-              </div>
+              {/* Nút chụp từ Camera thật theo yêu cầu của bạn */}
+              <button
+                type="button"
+                className="btn-cyan btn-capture-real"
+                onClick={handleCaptureRealCamera}
+                disabled={loading || !cameraActive}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 14px",
+                  background: "linear-gradient(135deg, #00b4d8, #0077b6)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                  fontSize: "0.85rem",
+                  boxShadow: "0 0 8px rgba(0, 180, 216, 0.35)",
+                }}
+                title="Chụp 1 khung hình từ Camera thật ngay lúc này và quét mã QR"
+              >
+                📸 Chụp ảnh từ Camera thật để quét
+              </button>
+            </div>
+
+            {/* Sub Row: Giả lập nhập text dành riêng cho test */}
+            <div
+              style={{
+                marginTop: "10px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "0.75rem",
+                color: "#94a3b8",
+              }}
+            >
+              <span>🧪 Giả lập:</span>
+              <input
+                type="text"
+                className="input-qr-test"
+                value={customQr}
+                onChange={(e) => setCustomQr(e.target.value)}
+                placeholder="Mã QR test..."
+                style={{
+                  flex: 1,
+                  maxWidth: "140px",
+                  padding: "4px 8px",
+                  fontSize: "0.75rem",
+                  background: "rgba(15, 23, 42, 0.6)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: "4px",
+                  color: "#e2e8f0",
+                }}
+              />
+              <button
+                type="button"
+                className="btn-manual-scan"
+                onClick={handleManualScan}
+                disabled={loading}
+                style={{
+                  padding: "4px 8px",
+                  fontSize: "0.75rem",
+                  background: "rgba(51, 65, 85, 0.8)",
+                  border: "none",
+                  borderRadius: "4px",
+                  color: "#cbd5e1",
+                  cursor: "pointer",
+                }}
+                title="Kiểm thử nhập mã giả lập bằng tay vào kho"
+              >
+                Gửi mã test
+              </button>
             </div>
           </div>
         )}

@@ -339,6 +339,12 @@ class StaffOperationManager:
 
                 # Bước 4: Gắp hàng OK xong mới quét mã QR kiện hàng qua Camera CAM01 (tương tự UNLOAD_PRODUCT)
                 await self.log_event("📷 Robot đã gắp hàng thành công, đưa kiện hàng qua Camera CAM01 để quét mã QR...")
+                await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                    "status": "SCANNING",
+                    "product_id": "Đang quét...",
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "message": f"📷 Nhân viên kho: Đang quét mã QR kiện hàng cho ô {target_slot}...",
+                })
                 scanned_qr_text = None
                 try:
                     scan_res = await self.cam_mgr.scan_qr_auto(timeout_sec=4.0, is_verify=False)
@@ -351,6 +357,13 @@ class StaffOperationManager:
                 qr_code = scanned_qr_text or f"SP_STAFF_{(self.inbound_current_count + 1):03d}"
                 prod_id = scanned_qr_text or f"PROD_{target_slot}"
                 self.last_scanned_qr = qr_code
+                await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                    "status": "DETECTED",
+                    "product_id": prod_id,
+                    "qr_code": qr_code,
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "message": f"✅ Nhân viên kho: Đã nhận diện mã QR kiện hàng: {prod_id}",
+                })
 
                 # Bước 5a: PLC nâng/hạ trục Z đến tầng ô kho trước khi Robot cất
                 z_slot = slot_to_z_level(target_slot)

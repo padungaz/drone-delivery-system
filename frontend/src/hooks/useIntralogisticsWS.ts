@@ -17,6 +17,13 @@ import {
   getStationStatus,
 } from "../services/api";
 
+export interface CameraVisionData {
+  productId: string;
+  timestamp: string;
+  status: "DETECTED" | "SCANNING" | "NOT_FOUND" | "OFFLINE";
+  message?: string;
+}
+
 /** Convert raw backend PLCStatusResponse to frontend PLCState with derived fields */
 function mapPlcResponse(raw: Record<string, unknown>): PLCState {
   const droneDetected = (raw.drone_detected as boolean) ?? false;
@@ -72,6 +79,11 @@ export function useIntralogisticsWS() {
   const [activeMission, setActiveMission] = useState<IntralogisticsMission | null>(null);
   const [stationOp, setStationOp] = useState<StationOperation | null>(null);
   const [cameraActive, setCameraActive] = useState<boolean>(false);
+  const [cameraVision, setCameraVision] = useState<CameraVisionData>({
+    productId: "Chờ quét...",
+    timestamp: "--:--:--",
+    status: "OFFLINE",
+  });
   const [lastError, setLastError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -143,6 +155,16 @@ export function useIntralogisticsWS() {
                 break;
               case "CAMERA_STATUS":
                 setCameraActive(Boolean(msg.data.is_active));
+                break;
+              case "CAMERA_VISION_UPDATE":
+                if (msg.data) {
+                  setCameraVision({
+                    productId: msg.data.product_id || "Chờ quét...",
+                    timestamp: msg.data.timestamp || new Date().toLocaleTimeString(),
+                    status: msg.data.status || "DETECTED",
+                    message: msg.data.message,
+                  });
+                }
                 break;
               case "DEVICE_STATUS":
               case "DEVICE_HEARTBEAT":
@@ -295,6 +317,7 @@ export function useIntralogisticsWS() {
     activeMission,
     stationOp,
     cameraActive,
+    cameraVision,
     refetch: fetchState,
   };
 }

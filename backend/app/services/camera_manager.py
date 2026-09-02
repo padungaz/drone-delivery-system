@@ -68,6 +68,10 @@ class CameraManager:
         res = await self.qr_service.process_qr_code(raw_qr, source="MANUAL_TEST")
         return res
 
+    async def scan_real_camera_snapshot(self) -> Dict[str, Any]:
+        """Capture live frame from real physical USB camera and decode QR code."""
+        return await self.qr_service.scan_real_camera_snapshot()
+
     def get_latest_frame_bytes(self) -> Optional[bytes]:
         return self.qr_service.get_latest_frame_bytes()
 

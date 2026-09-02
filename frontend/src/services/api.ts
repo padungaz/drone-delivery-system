@@ -546,6 +546,13 @@ export async function triggerCameraQrScan(qrCode: string = "PROD-TEST-1001"): Pr
   });
 }
 
+/** Capture live frame from real physical USB camera and decode QR code using OpenCV. */
+export async function captureAndScanRealCamera(): Promise<Response> {
+  return fetch(`${API_BASE}/api/device/camera/capture-scan`, {
+    method: "POST",
+  });
+}
+
 /** System Auto Start: Pre-flight diagnostics, homing & dispatch FIFO Queue. */
 export async function startSystemAuto(): Promise<Response> {
   return fetch(`${API_BASE}/api/system/start-auto`, {

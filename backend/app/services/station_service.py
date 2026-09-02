@@ -181,10 +181,30 @@ class StationService:
 
             # 5. QR Verify (Đối soát mã QR ngay tại vị trí dưới trước khi nâng Z)
             await self._broadcast_status("5. QR_VERIFY", f"Camera verifying QR code for product {product_id}...")
+            await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                "status": "SCANNING",
+                "product_id": f"Đang đối soát {product_id}...",
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "message": f"📷 Trạm Drone: Đang đối soát mã QR kiện hàng {product_id}...",
+            })
             scan_res = await cam_mgr.scan_qr_auto(expected_product_id=product_id, timeout_sec=8.0, is_verify=True)
             if scan_res.get("status") != "success":
                 err_msg = scan_res.get("message", f"Không thể xác thực mã QR cho sản phẩm {product_id}")
+                await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                    "status": "NOT_FOUND",
+                    "product_id": product_id,
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "message": f"❌ Trạm Drone: Lỗi đối soát QR: {err_msg}",
+                })
                 raise RuntimeError(f"ERROR_QR_VERIFY_FAILED: {err_msg}")
+            
+            scanned_code = scan_res.get("product_id") or product_id
+            await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                "status": "DETECTED",
+                "product_id": scanned_code,
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "message": f"✅ Trạm Drone: Đã đối soát khớp mã QR: {scanned_code}",
+            })
             logger.info("✅ QR Code verified for product %s (%s)", product_id, scan_res.get("message"))
 
             # 6. PLC Z-Axis: Nâng trục Z đến tầng Drone N1
@@ -287,13 +307,31 @@ class StationService:
 
             # 6. QR Scan
             await self._broadcast_status("6. QR_SCAN", f"Camera scanning QR code for product {product_id}...")
+            await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                "status": "SCANNING",
+                "product_id": "Đang quét...",
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "message": f"📷 Trạm Drone: Đang quét mã QR kiện hàng...",
+            })
             scan_res = await cam_mgr.scan_qr_auto(expected_product_id=product_id, timeout_sec=8.0, is_verify=False)
             if scan_res.get("status") != "success":
                 err_msg = scan_res.get("message", f"Không thể quét mã QR cho sản phẩm {product_id}")
+                await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                    "status": "NOT_FOUND",
+                    "product_id": "Không tìm thấy mã",
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "message": f"❌ Trạm Drone: Lỗi quét QR: {err_msg}",
+                })
                 raise RuntimeError(f"ERROR_QR_SCAN_FAILED: {err_msg}")
             if scan_res.get("product_id"):
                 product_id = scan_res["product_id"]
                 self.product_id = product_id
+                await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                    "status": "DETECTED",
+                    "product_id": product_id,
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "message": f"✅ Trạm Drone: Đã nhận diện mã QR: {product_id}",
+                })
                 logger.info("✅ QR Code scanned: assigned product ID %s", product_id)
 
             # 7. PLC Z-Axis: Nâng trục Z đến tầng ô kho (A hoặc B)

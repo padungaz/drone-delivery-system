@@ -299,6 +299,30 @@ async def test_camera_qr_scan(
     }
 
 
+@device_router.post("/camera/capture-scan")
+async def capture_and_scan_real_camera(
+    session: AsyncSession = Depends(get_session),
+):
+    """Capture live frame from real physical USB camera and decode QR code using OpenCV."""
+    cam_mgr = CameraManager.get_instance()
+    dev_mgr = DeviceManager(session)
+
+    scan_res = await cam_mgr.scan_real_camera_snapshot()
+
+    res_str = "SUCCESS" if scan_res.get("status") == "success" else "FAILED"
+    msg = scan_res.get("message", "Live camera scan")
+
+    await dev_mgr.log_command(
+        device="CAM01",
+        command="CAPTURE_SCAN",
+        target=scan_res.get("product_id") or "LIVE_FRAME",
+        result=res_str,
+        message=msg,
+    )
+
+    return scan_res
+
+
 # ---------------------------------------------------------------------------
 # Device Hardware Configuration & Interactive Socket Testing Endpoints
 # ---------------------------------------------------------------------------

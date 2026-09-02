@@ -10,10 +10,12 @@ from typing import Dict, Any, Optional
 # Attempt to import OpenCV safely
 try:
     import cv2
+    import numpy as np
     OPENCV_AVAILABLE = True
 except (ImportError, Exception) as cv2_err:
     OPENCV_AVAILABLE = False
     cv2 = None
+    np = None
     logger = logging.getLogger(__name__)
     logger.warning("OpenCV python package (cv2) not available. Camera scanning mode will fallback to simulated API mode.")
 
@@ -93,11 +95,20 @@ class QRScannerService:
                 except Exception as err:
                     logger.debug("Failed to dispatch coroutine: %s", err)
 
+    # Sharpening convolution kernel (3x3 Laplacian-based)
+    _SHARPEN_KERNEL = np.array([
+        [ 0, -1,  0],
+        [-1,  5, -1],
+        [ 0, -1,  0]
+    ], dtype=np.float32) if np is not None else None
+
     def _decode_qr_enhanced(self, frame):
         """Multi-stage QR Code detection pipeline for industrial & real-world lighting conditions:
         Stage 1: Standard BGR detectAndDecode
         Stage 2: Grayscale + CLAHE (Contrast Limited Adaptive Histogram Equalization) for glare/shadows
         Stage 3: Otsu Binarization thresholding for low-contrast/dim lighting
+        Stage 4: Sharpening Kernel (Laplacian 3x3) — làm nét cạnh ô đen/trắng QR
+        Stage 5: Unsharp Mask (Gaussian blur diff) — tăng tương phản biên khi mã bị mờ hoặc mất nét
         """
         if self.detector is None or frame is None or cv2 is None:
             return "", None
@@ -125,6 +136,33 @@ class QRScannerService:
         try:
             _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
             data, points, _ = self.detector.detectAndDecode(thresh)
+            if data and data.strip():
+                return data.strip(), points
+        except Exception:
+            pass
+
+        # Stage 4: Sharpening Kernel (Laplacian 3x3)
+        # Tăng cường cạnh biên giữa các ô đen/trắng của mã QR
+        try:
+            if self._SHARPEN_KERNEL is not None:
+                sharpened = cv2.filter2D(frame, -1, self._SHARPEN_KERNEL)
+                data, points, _ = self.detector.detectAndDecode(sharpened)
+                if data and data.strip():
+                    return data.strip(), points
+                # Thử thêm trên ảnh xám đã làm nét
+                sharp_gray = cv2.cvtColor(sharpened, cv2.COLOR_BGR2GRAY)
+                data, points, _ = self.detector.detectAndDecode(sharp_gray)
+                if data and data.strip():
+                    return data.strip(), points
+        except Exception:
+            pass
+
+        # Stage 5: Unsharp Mask — tách nét bằng Gaussian Blur diff
+        # Hiệu quả khi camera bị lệch tiêu cự hoặc mã QR ở xa
+        try:
+            blurred = cv2.GaussianBlur(gray, (0, 0), sigmaX=3)
+            unsharp = cv2.addWeighted(gray, 1.8, blurred, -0.8, 0)
+            data, points, _ = self.detector.detectAndDecode(unsharp)
             if data and data.strip():
                 return data.strip(), points
         except Exception:
@@ -355,8 +393,11 @@ class QRScannerService:
             return
 
         try:
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            actual_w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_h = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            logger.info("📷 Camera resolution set to %dx%d (requested 1280x720)", actual_w, actual_h)
         except Exception as set_err:
             logger.warning("Could not set camera frame resolution: %s", set_err)
         self.is_active = True
@@ -398,6 +439,13 @@ class QRScannerService:
                             self._mark_scanned(qr_str)
                             logger.info("📷 USB Camera detected QR code: %s", qr_str)
                             self._dispatch_async(self.process_qr_code(qr_str, source="USB_CAMERA"))
+                            self._dispatch_async(system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                                "status": "DETECTED",
+                                "product_id": qr_str,
+                                "qr_code": qr_str,
+                                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                                "message": f"✅ Camera CAM01 phát hiện mã QR: {qr_str}",
+                            }))
                 except Exception as exc:
                     logger.error("Error in camera frame QR detection: %s", exc)
 
@@ -614,6 +662,92 @@ class QRScannerService:
             "qr_code": expected_product_id,
             "source": "USB_CAMERA",
             "message": f"Quá thời gian quét mã QR ({timeout_sec}s). Sử dụng mã mặc định {expected_product_id}.",
+        }
+
+    async def scan_real_camera_snapshot(self) -> Dict[str, Any]:
+        """Capture live frame from physical camera right now and decode QR code with OpenCV."""
+        now_str = datetime.now().strftime("%H:%M:%S")
+
+        # 1. Ensure camera is active
+        if not self.is_active or self.cap is None or not self.cap.isOpened():
+            started = self.start_camera_scanner()
+            if not started or self.cap is None:
+                return {
+                    "status": "error",
+                    "product_id": None,
+                    "timestamp": now_str,
+                    "message": "❌ Không thể khởi động Camera USB CAM01. Vui lòng kiểm tra lại cáp cắm!",
+                }
+            await asyncio.sleep(0.6)
+
+        # 2. Grab fresh frame
+        frame = None
+        for _ in range(4):
+            with self._frame_lock:
+                if self._latest_frame is not None:
+                    frame = self._latest_frame.copy()
+            if frame is not None:
+                break
+            await asyncio.sleep(0.1)
+
+        if frame is None and self.cap is not None and self.cap.isOpened():
+            ret, f = self.cap.read()
+            if ret and f is not None:
+                frame = f
+
+        if frame is None:
+            return {
+                "status": "error",
+                "product_id": None,
+                "timestamp": now_str,
+                "message": "❌ Không nhận được khung hình từ Camera.",
+            }
+
+        # 3. Enhanced decode
+        data, points = self._decode_qr_enhanced(frame)
+        if not data or not data.strip():
+            # Broadcast not found status
+            await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                "status": "NOT_FOUND",
+                "product_id": "Chưa quét trúng",
+                "timestamp": now_str,
+                "message": "⚠️ Camera chưa nhìn thấy mã QR! Vui lòng đưa tem vào giữa ống kính.",
+            })
+            return {
+                "status": "not_found",
+                "product_id": None,
+                "timestamp": now_str,
+                "message": "⚠️ Không tìm thấy mã QR trước ống kính camera! Vui lòng căn chỉnh lại góc nhìn.",
+            }
+
+        qr_text = data.strip()
+        prod_id = qr_text
+        if qr_text.startswith("{") and qr_text.endswith("}"):
+            try:
+                parsed = json.loads(qr_text)
+                prod_id = str(parsed.get("productId") or parsed.get("product_id") or qr_text)
+            except Exception:
+                pass
+
+        self.last_scanned_qr = prod_id
+        self.last_scan_time = now_str
+        self._last_station_qr_event = {"product_id": prod_id, "qr_code": qr_text}
+
+        # Broadcast realtime update to UI!
+        await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+            "status": "DETECTED",
+            "product_id": prod_id,
+            "qr_code": qr_text,
+            "timestamp": now_str,
+            "message": f"✅ Đã chụp từ camera thật & nhận diện mã: {prod_id}",
+        })
+
+        return {
+            "status": "success",
+            "product_id": prod_id,
+            "qr_code": qr_text,
+            "timestamp": now_str,
+            "message": f"✅ Quét thành công từ Camera thật: {prod_id}",
         }
 
     def get_status(self) -> Dict[str, Any]:

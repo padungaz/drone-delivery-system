@@ -61,6 +61,7 @@ export function HmiDashboard() {
     activeMission,
     stationOp,
     cameraActive,
+    cameraVision,
     refetch: refreshSystemState,
   } = useIntralogisticsWS();
 
@@ -555,9 +556,11 @@ export function HmiDashboard() {
                 />
                 <CameraVision
                   cameraActive={cameraActive}
-                  productId={stationOp?.product_id || activeMission?.product_id || "PRD-TEST-1001"}
-                  status={cameraActive ? "DETECTED" : "DETECTED"}
+                  productId={cameraVision?.productId !== "Chờ quét..." ? cameraVision.productId : (stationOp?.product_id || activeMission?.product_id || "Chờ quét...")}
+                  timestamp={cameraVision?.timestamp !== "--:--:--" ? cameraVision.timestamp : undefined}
+                  status={cameraVision?.status || (cameraActive ? "DETECTED" : "OFFLINE")}
                   systemMode={systemMode}
+                  liveMessage={cameraVision?.message}
                 />
                 <SystemLog initialLogs={logs} />
               </div>
@@ -616,9 +619,11 @@ export function HmiDashboard() {
                 <div className="split-column">
                   <CameraVision
                     cameraActive={cameraActive}
-                    productId={stationOp?.product_id || activeMission?.product_id || "PRD-TEST-1001"}
-                    status={cameraActive ? "DETECTED" : "DETECTED"}
+                    productId={cameraVision?.productId !== "Chờ quét..." ? cameraVision.productId : (stationOp?.product_id || activeMission?.product_id || "Chờ quét...")}
+                    timestamp={cameraVision?.timestamp !== "--:--:--" ? cameraVision.timestamp : undefined}
+                    status={cameraVision?.status || (cameraActive ? "DETECTED" : "OFFLINE")}
                     systemMode={systemMode}
+                    liveMessage={cameraVision?.message}
                   />
                 </div>
                 <div className="split-column">
