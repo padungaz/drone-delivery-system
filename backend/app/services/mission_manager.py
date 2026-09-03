@@ -241,14 +241,14 @@ class MissionManager:
             await fleet_manager.signal_station_loaded(mission.drone_id)
 
             # Bỏ qua phần UAV: Không chờ bay hay điều hướng Drone
-            # Giải phóng ô kho thành EMPTY đã hoàn tất ở Station -> Chuyển thẳng COMPLETED và tự động chạy đơn tiếp theo
+            # Đã giải phóng ô kho thành EMPTY và xác nhận DRONE_DETECT = 0 (Drone đã rời Pad N1) -> Hoàn tất đơn hàng và tự động chạy đơn tiếp theo
             mission.current_phase = "COMPLETED"
             mission.status = "COMPLETED"
             mission.state = "COMPLETED"
             mission.completed_at = datetime.utcnow()
-            mission.step_details = f"✅ Đã xuất hàng từ ô {target_slot} ra Pad N1 và giải phóng ô kho thành EMPTY! Tự động chuyển đơn tiếp theo."
+            mission.step_details = f"✅ Ô {target_slot} đã EMPTY & Drone đã rời bãi N1 (DRONE_DETECT=0)! Đơn #{mission.id} hoàn thành -> Tự động chuyển đơn tiếp theo."
             await self.session.commit()
-            await self.log_event("SERVER", f"Mission #{mission.id} (DRONE_DELIVERY) COMPLETED -> Tự động chuyển đơn hàng tiếp theo")
+            await self.log_event("SERVER", f"Mission #{mission.id} (DRONE_DELIVERY) COMPLETED (DRONE_DETECT=0) -> Tự động chuyển đơn hàng tiếp theo")
             await system_ws_manager.broadcast("MISSION_COMPLETED", self._serialize_mission(mission))
             await self._complete_and_auto_dispatch(mission)
 
