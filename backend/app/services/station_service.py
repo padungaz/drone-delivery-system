@@ -386,9 +386,22 @@ class StationService:
                 "ERROR_PLC_UNLOCK_FAILED: PLC mở ngàm kẹp Drone thất bại",
             )
 
-            # 10. Assign product to Storage Slot in Inventory & Finish
+            # 10. Assign product to Storage Slot in Inventory
             await inv_mgr.update_slot(target_slot, StorageSlotStatus.OCCUPIED, product_id=product_id)
-            await self._broadcast_status("10. TAKEOFF_COMPLETE", f"Đã cất sản phẩm {product_id} vào ô {target_slot} thành công. Drone sẵn sàng cất cánh!", status="COMPLETED")
+            await self._broadcast_status("10. ASSIGN_SLOT", f"Đã cất sản phẩm {product_id} vào ô {target_slot} thành công.", status="RUNNING")
+
+            # 11. Check DRONE_DETECT == 0: Chờ Drone rời khỏi bãi đáp N1 (DB15.DBX2.0 == 0) thì mới hoàn thành
+            await self._broadcast_status("11. WAIT_DRONE_DEPART", "Chờ Drone rời khỏi bãi đáp N1 (DRONE_DETECT = 0)...", status="RUNNING")
+            if self.plc_mgr.simulator_mode and self.plc_mgr.drone_detected:
+                await asyncio.sleep(1.0)
+                self.plc_mgr.set_drone_detected(False)
+
+            try:
+                await self.plc_mgr.wait_for_status("drone_detected", False, timeout_sec=None)
+            except Exception as e:
+                raise RuntimeError(f"ERROR_DRONE_DEPART_WAIT: Lỗi chờ Drone rời bãi N1 ({e})")
+
+            await self._broadcast_status("12. TAKEOFF_COMPLETE", f"Drone đã rời bãi N1 (DRONE_DETECT=0). Hoàn thành chu trình nhập ô {target_slot}!", status="COMPLETED")
             return True
 
         except Exception as err:

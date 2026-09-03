@@ -263,32 +263,23 @@ class MissionManager:
             return
 
         try:
-            # Phase 1: DRONE_EN_ROUTE
+            # Bỏ qua phần UAV: Không chờ bay hay điều hướng Drone
+            # Vào thẳng STATION_PROCESSING để trạm kho thực thi
             mission.status = "RUNNING"
             mission.state = "RUNNING"
-            mission.current_phase = "DRONE_EN_ROUTE"
-            mission.step_details = f"🚁 Drone {mission.drone_id} bay đến vị trí lấy hàng và về trạm N1..."
-            await self.session.commit()
-            await self._notify_mission_progress(mission)
-            await self.log_event("UAV_FLIGHT", f"Drone {mission.drone_id} dispatched for customer pickup")
+            mission.current_phase = "STATION_PROCESSING"
 
-            await asyncio.sleep(1.0)
-
-            # Signal PLC sensor & Fleet Arrival
-            await fleet_manager.signal_drone_arrived(mission.drone_id)
-
-            # Phase 2: STATION_PROCESSING
-            device_lock_manager.lock_station(mission_id, reason=f"Executing DRONE_PICKUP Mission #{mission.id}")
+            # Tìm ô kho trống
             free_slot_rec = await self.inventory_mgr.find_available_slot()
             if not free_slot_rec:
                 raise Exception("Kho hàng đã đầy! Không còn Ô kho trống (ERROR_NO_FREE_SLOT).")
 
             target_slot = free_slot_rec.slot_name
             mission.target_slot = target_slot
-            mission.current_phase = "STATION_PROCESSING"
-            mission.step_details = f"⚙️ Station Controller đang thực thi nhập hàng vào ô kho {target_slot}..."
+            mission.step_details = f"⚙️ Station Controller đang thực thi dỡ hàng từ Drone N1 cất vào ô kho {target_slot}..."
             await self.session.commit()
             await self._notify_mission_progress(mission)
+            device_lock_manager.lock_station(mission_id, reason=f"Executing DRONE_PICKUP Mission #{mission.id}")
             await fleet_manager.signal_drone_loading(mission.drone_id)
 
             success = await self.station_svc.execute_unload_product(target_slot, mission.product_id, self.session)
@@ -299,14 +290,14 @@ class MissionManager:
             device_lock_manager.unlock_station()
             await fleet_manager.signal_station_unloaded(mission.drone_id)
 
-            # Phase 3: COMPLETED
+            # Đã cất hàng vào ô kho (OCCUPIED) & xác nhận DRONE_DETECT = 0 (Drone đã rời bãi N1) -> Hoàn thành
             mission.current_phase = "COMPLETED"
             mission.status = "COMPLETED"
             mission.state = "COMPLETED"
             mission.completed_at = datetime.utcnow()
-            mission.step_details = f"✅ Nhiệm vụ Nhập Kho #{mission.id} cất sản phẩm {mission.product_id} vào ô {target_slot} HOÀN THÀNH!"
+            mission.step_details = f"✅ Ô {target_slot} đã OCCUPIED & Drone đã rời bãi N1 (DRONE_DETECT=0)! Đơn #{mission.id} hoàn thành -> Tự động chuyển đơn tiếp theo."
             await self.session.commit()
-            await self.log_event("SERVER", f"Mission #{mission.id} (DRONE_PICKUP) COMPLETED")
+            await self.log_event("SERVER", f"Mission #{mission.id} (DRONE_PICKUP) COMPLETED (DRONE_DETECT=0) -> Tự động chuyển đơn hàng tiếp theo")
             await system_ws_manager.broadcast("MISSION_COMPLETED", self._serialize_mission(mission))
             await self._complete_and_auto_dispatch(mission)
 
