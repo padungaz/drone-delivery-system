@@ -656,7 +656,7 @@ class PLCManager:
     async def _send_command_and_wait(
         self,
         cmd: PLCCommand,
-        timeout_sec: float = DEFAULT_HANDSHAKE_TIMEOUT,
+        timeout_sec: Optional[float] = None,
     ) -> bool:
         """Send command bit via pulse handshake and wait for PLC status bit to confirm.
 
@@ -664,6 +664,7 @@ class PLCManager:
           - If emergency_stop becomes True during wait: abort immediately.
           - If plc_error becomes True (and command is not RESET_PLC): abort immediately.
           - Command bits are pulsed: set True, wait confirmation (or min pulse time), then cleared.
+          - If timeout_sec is None, waits without timeout until confirmed or E-Stop/PLC Error.
         """
         is_staff_cmd = cmd in (
             PLCCommand.STAFF_MODE_ENABLE,
@@ -683,7 +684,7 @@ class PLCManager:
             import time
             start_time = time.time()
 
-            while (time.time() - start_time) < timeout_sec:
+            while timeout_sec is None or (time.time() - start_time) < timeout_sec:
                 await asyncio.sleep(DEFAULT_POLL_INTERVAL)
                 elapsed = time.time() - start_time
 
@@ -730,7 +731,7 @@ class PLCManager:
                     return True
 
             # Timeout or aborted — clear pulse command bits anyway
-            logger.warning("PLC Command: Timeout or aborted (%.1fs) waiting for status flag on %s", timeout, cmd.value)
+            logger.warning("PLC Command: Timeout or aborted waiting for status flag on %s", cmd.value)
             await self._clear_pulse_bits(is_staff_cmd)
             return False
 
@@ -979,7 +980,7 @@ class PLCManager:
         self,
         status_key: str,
         target_value: bool,
-        timeout_sec: float = 5.0,
+        timeout_sec: Optional[float] = None,
         poll_interval: float = 0.15,
     ) -> None:
         """Wait for a PLC status attribute to reach the target value.
@@ -990,7 +991,7 @@ class PLCManager:
         In simulator mode, the execute_command method already sets the
         target status synchronously, so this will return almost immediately.
         In real hardware mode, it polls the cached PLC state (updated by
-        read_plc_status) until the target value is reached or timeout occurs.
+        read_plc_status) until the target value is reached.
 
         Args:
             status_key: Name of the cached boolean attribute
@@ -998,10 +999,12 @@ class PLCManager:
                          'plc_z_in_position', 'plc_on', 'plc_error').
             target_value: The boolean value to wait for.
             timeout_sec: Maximum wait time in seconds before raising TimeoutError.
+                         If None (default), waits indefinitely until satisfied or E-Stop.
             poll_interval: Seconds between polling attempts.
 
         Raises:
-            TimeoutError: If target value is not reached within timeout_sec.
+            TimeoutError: If timeout_sec is specified and target value is not reached within timeout_sec.
+            RuntimeError: If emergency_stop or plc_error occurs during wait.
             AttributeError: If status_key is not a valid PLC attribute.
         """
         if not hasattr(self, status_key):
@@ -1012,7 +1015,12 @@ class PLCManager:
             )
 
         elapsed = 0.0
-        while elapsed < timeout_sec:
+        while timeout_sec is None or elapsed < timeout_sec:
+            if self.emergency_stop:
+                raise RuntimeError("EMERGENCY_STOP triggered while waiting for PLC status.")
+            if self.plc_error and status_key != "plc_error":
+                raise RuntimeError("PLC_ERROR detected while waiting for PLC status.")
+
             current_value = getattr(self, status_key)
             if current_value == target_value:
                 logger.debug(
@@ -1029,7 +1037,7 @@ class PLCManager:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
-        # Timeout reached — raise error for StationService to handle
+        # Timeout reached (only if timeout_sec is not None)
         current_value = getattr(self, status_key)
         raise TimeoutError(
             f"PLC wait_for_status('{status_key}'={target_value}) timed out after {timeout_sec}s. "

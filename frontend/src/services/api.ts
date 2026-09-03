@@ -574,6 +574,13 @@ export async function resumeSystemQueue(): Promise<Response> {
   });
 }
 
+/** Reset all active in-progress tasks (cancel missions, stop staff operations, unlock station to IDLE). */
+export async function resetSystemTasks(): Promise<Response> {
+  return fetch(`${API_BASE}/api/system/reset-tasks`, {
+    method: "POST",
+  });
+}
+
 /** Reset all order history and generate 10 new sample orders in FIFO queue. */
 export async function resetSampleOrders(): Promise<Response> {
   return fetch(`${API_BASE}/api/orders/reset-sample-10`, {

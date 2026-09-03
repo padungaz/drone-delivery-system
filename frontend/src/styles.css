@@ -2482,6 +2482,69 @@ input {
   color: #64748b;
 }
 
+.btn-system-reset {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.25) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  color: #fbbf24;
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+  transition: all 0.2s ease;
+}
+
+.btn-system-reset:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3) 0%, rgba(217, 119, 6, 0.45) 100%);
+  border-color: #fbbf24;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-system-reset:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-system-reset .reset-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.btn-system-reset.loading .reset-icon {
+  display: inline-block;
+  animation: spin-reset 1s linear infinite;
+}
+
+@keyframes spin-reset {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.btn-system-reset .reset-text-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+}
+
+.btn-system-reset .reset-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(251, 191, 36, 0.75);
+  font-family: var(--font-mono, monospace);
+}
+
+.btn-system-reset .reset-value {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: #fef3c7;
+}
+
 .estop-button {
   display: flex;
   align-items: center;

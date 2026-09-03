@@ -29,6 +29,7 @@ import {
   setSystemMode,
   startSystemAuto,
   pauseSystemAuto,
+  resetSystemTasks,
   getMissionQueue,
   getStaffStatus,
   setStaffOperationMode,
@@ -103,6 +104,7 @@ export function HmiDashboard() {
   const [operationMode, setOperationMode] = useState<"STATION_AUTO" | "STAFF_OPERATION">("STATION_AUTO");
   const [isStaffRunning, setIsStaffRunning] = useState<boolean>(false);
   const [isLoadingAuto, setIsLoadingAuto] = useState<boolean>(false);
+  const [isResettingTasks, setIsResettingTasks] = useState<boolean>(false);
 
   // Mission Queue State for next waiting orders
   const [waitingQueue, setWaitingQueue] = useState<any[]>([]);
@@ -206,6 +208,16 @@ export function HmiDashboard() {
     } catch (err: any) {
       addLog("ERROR", `Không thể chuyển phân hệ vận hành: ${err.message}`);
     }
+  };
+
+  const handleResetTasks = () => {
+    setModalData({
+      action: "RESET_TASKS",
+      title: "RESET TÁC VỤ HỆ THỐNG",
+      actionText: "HỦY BỎ toàn bộ đơn đang chạy dở & đưa trạm về trạng thái Chờ (IDLE)?",
+      productId: "ALL_ACTIVE_TASKS",
+    });
+    setActiveModal("confirm_action");
   };
 
   useEffect(() => {
@@ -429,6 +441,28 @@ export function HmiDashboard() {
 
   // Confirm Modal action handler
   const handleConfirmModalAction = async (p: any) => {
+    if (p?.action === "RESET_TASKS") {
+      setIsResettingTasks(true);
+      addLog("WARN", "🔄 Đang gửi lệnh Reset toàn bộ tác vụ dở dang...");
+      try {
+        const res = await resetSystemTasks();
+        if (res.ok) {
+          const data = await res.json();
+          addLog("INFO", data.message || "✅ Đã Reset toàn bộ tác vụ thành công!");
+          setAutoState("STANDBY");
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          addLog("ERROR", `Reset tác vụ thất bại: ${errData.detail || res.statusText}`);
+        }
+      } catch (err: any) {
+        addLog("ERROR", `Lỗi kết nối khi Reset tác vụ: ${err.message}`);
+      } finally {
+        setIsResettingTasks(false);
+        fetchMissionQueue();
+        refreshSystemState();
+      }
+      return;
+    }
     const cmd = p?.cmd || "PICK";
     const slot = p?.slot || "A2";
     await runRobotCommandWithTelemetry(cmd, slot);
@@ -447,10 +481,12 @@ export function HmiDashboard() {
         operationMode={operationMode}
         isStaffRunning={isStaffRunning}
         isLoadingAuto={isLoadingAuto}
+        isResettingTasks={isResettingTasks}
         onModeToggle={handleSystemModeToggle}
         onStartAuto={handleStartAutoSystem}
         onPauseAuto={handlePauseAutoSystem}
         onOperationModeToggle={handleOperationModeToggle}
+        onResetTasks={handleResetTasks}
         onEStopClick={handleEStopClick}
       />
 
@@ -570,7 +606,13 @@ export function HmiDashboard() {
           {/* Staff Warehouse Portal Tab */}
           {activeTab === "staff" && (
             <div className="hmi-grid-container">
-              <StaffPortal storageSlots={storage} onRefreshStorage={refreshSystemState} />
+              <StaffPortal
+                storageSlots={storage}
+                onRefreshStorage={refreshSystemState}
+                cameraActive={cameraActive}
+                cameraVision={cameraVision}
+                systemMode={systemMode}
+              />
             </div>
           )}
 

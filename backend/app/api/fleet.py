@@ -201,3 +201,123 @@ async def system_resume_queue(session: AsyncSession = Depends(get_session)):
         "message": f"▶️ Đã tiếp tục xử lý hàng đợi FIFO! {'Đang chạy Mission #' + str(dispatched.id) if dispatched else 'Hàng chờ rỗng.'}",
     }
 
+
+@fleet_router.post("/api/system/reset-tasks")
+async def system_reset_tasks(session: AsyncSession = Depends(get_session)):
+    """Reset all active/in-progress tasks:
+    1. Reset Staff Operation (cancel outbound or stop inbound, status -> IDLE).
+    2. Cancel all RUNNING/PAUSED missions in DB and linked delivery requests.
+    3. Unlock station interlock (device_lock_manager.unlock_station()).
+    4. Reset Station Service status to IDLE.
+    5. Stop Camera if active.
+    6. Set Auto state to STANDBY.
+    7. Broadcast WebSocket updates for realtime UI sync.
+    """
+    from datetime import datetime
+    from sqlalchemy import select
+    from app.models.database import IntralogisticsMissionRecord, DeliveryRequestRecord
+    from app.services.device_lock_manager import device_lock_manager
+    from app.services.camera_manager import CameraManager
+    from app.services.station_service import StationService
+    from app.services.mission_queue_manager import MissionQueueManager
+    from app.services.staff_operation_manager import staff_operation_manager
+
+    now = datetime.utcnow()
+    logger.info("🔄 [RESET_TASKS] Master Task Reset requested by Operator.")
+
+    # 1. Reset Staff Operation
+    staff_was_running = False
+    try:
+        if staff_operation_manager.status == "RUNNING" or staff_operation_manager._current_task:
+            staff_was_running = True
+            if staff_operation_manager._current_task and not staff_operation_manager._current_task.done():
+                staff_operation_manager._current_task.cancel()
+            if staff_operation_manager.active_type == "OUTBOUND":
+                try:
+                    await staff_operation_manager.cancel_outbound()
+                except Exception:
+                    pass
+            elif staff_operation_manager.active_type == "INBOUND":
+                try:
+                    await staff_operation_manager.stop_inbound()
+                except Exception:
+                    pass
+    except Exception as staff_err:
+        logger.warning("Error resetting staff operation: %s", staff_err)
+    finally:
+        staff_operation_manager.status = "IDLE"
+        staff_operation_manager.active_type = None
+        staff_operation_manager.inbound_current_count = 0
+        staff_operation_manager.inbound_target_count = 0
+        staff_operation_manager.inbound_current_slot = None
+        staff_operation_manager.outbound_queue.clear()
+        staff_operation_manager.outbound_current_slot = None
+        staff_operation_manager._stop_requested = False
+        await staff_operation_manager.broadcast_status()
+
+    # 2. Cancel all active RUNNING / PAUSED missions in Database
+    stmt = select(IntralogisticsMissionRecord).where(
+        IntralogisticsMissionRecord.status.in_(["RUNNING", "PAUSED"])
+    )
+    res = await session.execute(stmt)
+    active_missions = list(res.scalars().all())
+    cancelled_count = 0
+
+    for mission in active_missions:
+        mission.status = "CANCELLED"
+        mission.state = "CANCELLED"
+        mission.current_phase = "CANCELLED"
+        mission.completed_at = now
+        mission.step_details = f"🛑 Đã hủy bỏ nhiệm vụ do Người vận hành Reset lúc {now.strftime('%H:%M:%S')}."
+        if mission.order_id:
+            req = await session.get(DeliveryRequestRecord, mission.order_id)
+            if req:
+                req.status = "CANCELLED"
+        cancelled_count += 1
+        await system_ws_manager.broadcast("MISSION_FAILED", {
+            "id": mission.id,
+            "status": "CANCELLED",
+            "reason": "OPERATOR_RESET",
+        })
+
+    if cancelled_count > 0:
+        await session.commit()
+
+    # 3. Reset Station Service & Device Lock
+    station_svc = StationService.get_instance()
+    station_svc.status = "IDLE"
+    station_svc.current_operation = None
+    station_svc.current_action = "READY"
+    station_svc.message = "Đã Reset trạng thái trạm về Chờ (IDLE)"
+
+    device_lock_manager.unlock_station()
+
+    # 4. Stop Camera if running
+    cam_mgr = CameraManager.get_instance()
+    try:
+        cam_mgr.stop_camera()
+    except Exception:
+        pass
+
+    # 5. Set System Auto state to STANDBY
+    await system_mode_manager.set_auto_standby()
+
+    # 6. Broadcast all updates to WebSocket clients
+    await system_ws_manager.broadcast("STATION_STATUS", station_svc.get_status().model_dump())
+    await system_ws_manager.broadcast("SYSTEM_ALERT", {
+        "level": "INFO",
+        "message": f"🔄 Đã Reset hoàn tất: {cancelled_count} nhiệm vụ đã hủy, chế độ nhân viên và trạm đã về trạng thái Chờ (IDLE).",
+    })
+
+    q_mgr = MissionQueueManager(session)
+    await q_mgr.broadcast_queue_state()
+
+    return {
+        "status": "SUCCESS",
+        "cancelled_missions": cancelled_count,
+        "staff_reset": staff_was_running,
+        "auto_state": "STANDBY",
+        "station_status": "IDLE",
+        "message": f"🔄 Đã Reset thành công! {cancelled_count} nhiệm vụ bị hủy, đưa trạm và nhân viên về trạng thái Chờ (IDLE).",
+    }
+

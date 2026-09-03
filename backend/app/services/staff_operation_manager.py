@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.database.repository import async_session
@@ -351,19 +352,30 @@ class StaffOperationManager:
                     if scan_res.get("status") == "success" and scan_res.get("product_id"):
                         scanned_qr_text = scan_res.get("product_id")
                         await self.log_event(f"✅ Camera đã nhận diện mã QR: {scanned_qr_text}")
+                    else:
+                        err_msg = scan_res.get("message", "Quá thời gian quét mã QR")
+                        await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                            "status": "NOT_FOUND",
+                            "product_id": f"PROD_{target_slot}",
+                            "timestamp": datetime.now().strftime("%H:%M:%S"),
+                            "message": f"⚠️ Nhân viên kho: Cảnh báo không quét được mã QR ({err_msg}). Sử dụng mã mặc định và tiếp tục nạp vào kho.",
+                        })
+                        await self.log_event(f"⚠️ Không nhận dạng được mã QR ({err_msg}), sử dụng mã mặc định và tiếp tục chu trình.")
                 except Exception as cam_err:
                     logger.debug("Staff Inbound camera scan note: %s", cam_err)
+                    await self.log_event(f"⚠️ Lỗi đọc camera: {cam_err}. Tiếp tục cất hàng vào kho.")
 
                 qr_code = scanned_qr_text or f"SP_STAFF_{(self.inbound_current_count + 1):03d}"
                 prod_id = scanned_qr_text or f"PROD_{target_slot}"
                 self.last_scanned_qr = qr_code
-                await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
-                    "status": "DETECTED",
-                    "product_id": prod_id,
-                    "qr_code": qr_code,
-                    "timestamp": datetime.now().strftime("%H:%M:%S"),
-                    "message": f"✅ Nhân viên kho: Đã nhận diện mã QR kiện hàng: {prod_id}",
-                })
+                if scanned_qr_text:
+                    await system_ws_manager.broadcast("CAMERA_VISION_UPDATE", {
+                        "status": "DETECTED",
+                        "product_id": prod_id,
+                        "qr_code": qr_code,
+                        "timestamp": datetime.now().strftime("%H:%M:%S"),
+                        "message": f"✅ Nhân viên kho: Đã nhận diện mã QR kiện hàng: {prod_id}",
+                    })
 
                 # Bước 5a: PLC nâng/hạ trục Z đến tầng ô kho trước khi Robot cất
                 z_slot = slot_to_z_level(target_slot)
@@ -415,6 +427,10 @@ class StaffOperationManager:
             self.status = "ERROR"
             await self.log_event(f"❌ Lỗi trong quá trình nạp hàng: {err}")
         finally:
+            try:
+                self.cam_mgr.stop_camera()
+            except Exception as cam_err:
+                logger.warning("Error stopping camera after staff inbound: %s", cam_err)
             device_lock_manager.unlock_station()
             self.inbound_current_slot = None
             await self.broadcast_status()

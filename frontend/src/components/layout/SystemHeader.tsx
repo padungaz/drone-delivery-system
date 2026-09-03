@@ -15,6 +15,8 @@ interface Props {
   onStartAuto?: () => void;
   onPauseAuto?: () => void;
   onOperationModeToggle?: () => void;
+  onResetTasks?: () => void;
+  isResettingTasks?: boolean;
   onEStopClick: () => void;
 }
 
@@ -29,10 +31,12 @@ export function SystemHeader({
   operationMode = "STATION_AUTO",
   isStaffRunning = false,
   isLoadingAuto = false,
+  isResettingTasks = false,
   onModeToggle,
   onStartAuto,
   onPauseAuto,
   onOperationModeToggle,
+  onResetTasks,
   onEStopClick,
 }: Props) {
   const [timeStr, setTimeStr] = useState("");
@@ -205,6 +209,21 @@ export function SystemHeader({
             </button>
           )}
         </div>
+
+        {/* Master Task Reset Button */}
+        <button
+          type="button"
+          className={`btn-system-reset ${isResettingTasks ? "loading" : ""}`}
+          onClick={onResetTasks}
+          disabled={isResettingTasks}
+          title="Hủy bỏ các đơn đang chạy dở và đưa trạm về trạng thái Chờ (IDLE)"
+        >
+          <span className="reset-icon">{isResettingTasks ? "⏳" : "🔄"}</span>
+          <div className="reset-text-group">
+            <span className="reset-label">HỆ THỐNG</span>
+            <strong className="reset-value">{isResettingTasks ? "ĐANG RESET..." : "RESET TÁC VỤ"}</strong>
+          </div>
+        </button>
 
         <div className="hmi-clock-box">
           <span className="hmi-time">{timeStr || "21:17:46"}</span>

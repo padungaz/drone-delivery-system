@@ -75,31 +75,31 @@ export function TaskMonitor({
     if (isPickup) {
       // Inbound steps:
       // 0: UAV Land
-      // 1: PLC Lock & Z-Down
+      // 1: PLC Lock & Z-to-Dock
       // 2: Robot Pick from UAV
-      // 3: QR Scan
-      // 4: Store in Slot
-      // 5: Robot Home / Done
-      if (details.includes("HOME") || details.includes("HOÀN TẤT") || phase.includes("DONE")) return 5;
-      if (details.includes("STORE") || details.includes("CẤT") || step.includes("STORE")) return 4;
-      if (details.includes("QR") || details.includes("SCAN") || details.includes("SOI")) return 3;
+      // 3: QR Scan (and stop camera)
+      // 4: PLC Z to Slot & Robot Store in Slot
+      // 5: PLC Home, Unlock & Done
+      if (details.includes("TAKEOFF") || details.includes("HOÀN TẤT") || phase.includes("DONE") || (step.includes("HOME") && !step.includes("PICK"))) return 5;
+      if (details.includes("STORE") || details.includes("CẤT") || step.includes("STORE") || step.includes("Z_TO_SLOT")) return 4;
+      if (details.includes("QR") || details.includes("SCAN") || details.includes("SOI") || step.includes("QR")) return 3;
       if (details.includes("PICK") || details.includes("GẮP") || step.includes("PICK")) return 2;
-      if (details.includes("PLC") || details.includes("LOCK") || details.includes("KHÓA") || details.includes("Z-DOWN")) return 1;
+      if (details.includes("LOCK") || details.includes("KHÓA") || step.includes("LOCK") || step.includes("Z_TO_DOCK") || details.includes("DOCK")) return 1;
       return 0; // UAV Landed / Landing
     } else {
       // Outbound steps:
-      // 0: Robot Pick from Slot
-      // 1: QR Verification
-      // 2: Place on UAV Pad N1
-      // 3: PLC Z-Up & Release
+      // 0: PLC Z to Slot & Robot Pick from Slot
+      // 1: QR Verification (and stop camera)
+      // 2: PLC Z to Dock & Robot Place on UAV Pad N1
+      // 3: PLC Z-Home & Unlock Drone
       // 4: UAV Takeoff & Deliver
       // 5: Robot Home / Ready
-      if (details.includes("HOME") || details.includes("READY") || phase.includes("DONE")) return 5;
-      if (details.includes("TAKEOFF") || details.includes("BAY") || details.includes("DELIVER")) return 4;
-      if (details.includes("PLC") || details.includes("Z-UP") || details.includes("MỞ NGÀM")) return 3;
-      if (details.includes("PLACE") || details.includes("ĐẶT") || step.includes("PLACE")) return 2;
-      if (details.includes("QR") || details.includes("SCAN") || details.includes("SOI")) return 1;
-      return 0; // Robot Pick from Slot
+      if (details.includes("READY") || phase.includes("DONE")) return 5;
+      if (details.includes("TAKEOFF") || details.includes("BAY") || details.includes("DELIVER") || phase.includes("EN_ROUTE")) return 4;
+      if (details.includes("UNLOCK") || details.includes("MỞ NGÀM") || step.includes("UNLOCK") || step.includes("PLC_Z_TO_HOME")) return 3;
+      if (details.includes("PLACE") || details.includes("ĐẶT") || step.includes("PLACE") || step.includes("PLC_Z_TO_DOCK")) return 2;
+      if (details.includes("QR") || details.includes("SCAN") || details.includes("SOI") || step.includes("QR")) return 1;
+      return 0; // Robot Pick from Slot (PLC_Z_TO_SLOT or ROBOT_PICK_SLOT)
     }
   }, [activeMission, isPickup, stationOpStep, stationOpDetails]);
 
@@ -108,11 +108,11 @@ export function TaskMonitor({
     if (isPickup) {
       const labels = [
         { id: 1, label: "1. UAV tiếp cận & đáp bãi Pad N1", desc: `${droneId} hạ cánh chính xác` },
-        { id: 2, label: "2. PLC khóa ngàm Drone & hạ trục Z", desc: "Cố định UAV an toàn" },
+        { id: 2, label: "2. PLC khóa ngàm Drone & nâng Z lên Dock N1", desc: "Cố định UAV và nâng sàn N1" },
         { id: 3, label: "3. Robot gắp kiện hàng từ lưng UAV", desc: "Robot FR3 gắp kiện hàng" },
-        { id: 4, label: "4. Robot đưa hàng soi mã QR CAM01", desc: "Xác thực mã vạch sản phẩm" },
-        { id: 5, label: `5. Robot cất hàng vào Ô Kho [${targetSlot}]`, desc: `Lưu trữ vào ô ${targetSlot}` },
-        { id: 6, label: "6. Robot về Home / Hoàn tất nhận hàng", desc: "Quy trình kết thúc thành công" },
+        { id: 4, label: "4. Robot giữ hàng soi mã QR CAM01", desc: "Quét mã & tắt camera ngay" },
+        { id: 5, label: `5. PLC chuyển Z & Robot cất vào Ô Kho [${targetSlot}]`, desc: `Lưu trữ vào ô ${targetSlot}` },
+        { id: 6, label: "6. PLC về Home, mở ngàm & Hoàn tất nhận hàng", desc: "Quy trình kết thúc thành công" },
       ];
 
       return labels.map((l, idx) => {
@@ -130,10 +130,10 @@ export function TaskMonitor({
       });
     } else {
       const labels = [
-        { id: 1, label: `1. Robot gắp hàng từ Ô Kho [${targetSlot}]`, desc: `Lấy kiện hàng tại ô ${targetSlot}` },
-        { id: 2, label: "2. Robot quét mã QR kiểm tra hàng", desc: "Kiểm tra đúng mã đơn hàng" },
-        { id: 3, label: "3. Robot đặt kiện hàng lên lưng UAV N1", desc: `Gắn hàng lên lưng ${droneId}` },
-        { id: 4, label: "4. PLC nâng trục Z & mở ngàm sẵn sàng", desc: "Mở khóa cất cánh" },
+        { id: 1, label: `1. PLC nâng Z & Robot gắp hàng từ Ô [${targetSlot}]`, desc: `Lấy kiện hàng tại ô ${targetSlot}` },
+        { id: 2, label: "2. Robot giữ hàng quét mã QR kiểm tra", desc: "Đối soát mã & tắt camera ngay" },
+        { id: 3, label: "3. PLC chuyển Z & Robot đặt hàng lên Drone N1", desc: `Gắn hàng lên lưng ${droneId}` },
+        { id: 4, label: "4. PLC hạ trục Z về Home & mở ngàm sẵn sàng", desc: "Mở khóa cất cánh" },
         { id: 5, label: "5. UAV cất cánh rời trạm đi giao hàng", desc: `${droneId} bay giao điểm hẹn` },
         { id: 6, label: "6. Robot & Trạm về trạng thái Chờ (Ready)", desc: "Sẵn sàng nhận đơn kế tiếp" },
       ];

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { StorageSlot } from "../types/drone";
+import type { CameraVisionData } from "../hooks/useIntralogisticsWS";
+import { CameraVision } from "./vision/CameraVision";
 import {
   getStaffStatus,
   setStaffOperationMode,
@@ -14,6 +16,9 @@ import "./StaffPortal.css";
 interface StaffPortalProps {
   storageSlots?: StorageSlot[];
   onRefreshStorage?: () => void;
+  cameraActive?: boolean;
+  cameraVision?: CameraVisionData;
+  systemMode?: "AUTO" | "MANUAL";
 }
 
 interface StaffOperationState {
@@ -49,7 +54,13 @@ interface SystemModeState {
   is_auto_running: boolean;
 }
 
-export function StaffPortal({ storageSlots: propStorageSlots, onRefreshStorage }: StaffPortalProps) {
+export function StaffPortal({
+  storageSlots: propStorageSlots,
+  onRefreshStorage,
+  cameraActive = true,
+  cameraVision,
+  systemMode = "AUTO",
+}: StaffPortalProps) {
   // Mode & Tabs
   const [activeSubTab, setActiveSubTab] = useState<"outbound" | "inbound">("outbound");
   const [sysMode, setSysMode] = useState<SystemModeState>({
@@ -691,6 +702,29 @@ export function StaffPortal({ storageSlots: propStorageSlots, onRefreshStorage }
               </div>
             </div>
           </div>
+
+          {/* Camera QR CAM01 Vision Scanner */}
+          <CameraVision
+            cameraActive={cameraActive}
+            productId={
+              staffOp.inbound.last_scanned_qr ||
+              (cameraVision?.productId !== "Chờ quét..." ? cameraVision?.productId : undefined) ||
+              "Chờ quét..."
+            }
+            timestamp={cameraVision?.timestamp !== "--:--:--" ? cameraVision?.timestamp : undefined}
+            status={
+              staffOp.inbound.last_scanned_qr
+                ? "DETECTED"
+                : cameraVision?.status || (cameraActive ? "DETECTED" : "OFFLINE")
+            }
+            systemMode={systemMode || (sysMode.mode as any)}
+            liveMessage={
+              cameraVision?.message ||
+              (staffOp.active_type === "INBOUND"
+                ? "Robot đang đưa kiện hàng qua CAM01 đối soát mã QR..."
+                : undefined)
+            }
+          />
         </div>
       </div>
     </div>

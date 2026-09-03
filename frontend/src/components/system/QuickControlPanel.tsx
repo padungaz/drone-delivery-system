@@ -307,12 +307,31 @@ export const QuickControlPanel = memo(function QuickControlPanel({
               </div>
             </div>
 
-            {/* Group 3: Drone Dock N1 & Outbound Conveyor Cycle */}
+            {/* Group 3: Drone Dock N1 */}
             <div className="manual-control-group">
               <div className="manual-group-label">
-                <span>🚁 TƯƠNG TÁC BÃI ĐÁP DRONE DOCK N1 & BĂNG TẢI:</span>
+                <span>🚁 TƯƠNG TÁC BÃI ĐÁP DRONE DOCK N1:</span>
               </div>
-              <div className="manual-btn-grid-3">
+
+              {/* Z-axis warning for Drone N1 (level 3) */}
+              {(() => {
+                const droneZ = SLOT_Z_LEVELS["N1"]; // = 3
+                const isDroneZAligned = zInPosition && currentZLevel === droneZ;
+                return (
+                  <div className={`z-axis-hint ${isDroneZAligned ? "z-ok" : "z-warn"}`}>
+                    <span>{isDroneZAligned ? "✅" : "⚠️"}</span>
+                    <span>
+                      {isDroneZAligned ? (
+                        <>Trục Z đã sẵn sàng ở <strong>{Z_LEVEL_TITLES[droneZ]}</strong>. Đủ điều kiện gắp/đặt Drone.</>
+                      ) : (
+                        <>Cần nhấn <strong>🚁 Drone N1 ({droneZ})</strong> trên cụm PLC trước khi gắp/đặt tại Drone! (Hiện tại: {zInPosition ? Z_LEVEL_TITLES[currentZLevel] || `TẦNG ${currentZLevel}` : "ĐANG CHẠY..."})</>
+                      )}
+                    </span>
+                  </div>
+                );
+              })()}
+
+              <div className="manual-btn-grid-2">
                 <button
                   type="button"
                   className="btn-manual-plc btn-plc-cyan"
@@ -329,13 +348,49 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                 >
                   🚀 Đặt Lên Drone N1
                 </button>
+              </div>
+            </div>
+
+            {/* Group 3b: Băng Tải O1 */}
+            <div className="manual-control-group">
+              <div className="manual-group-label">
+                <span>🛞 TƯƠNG TÁC BĂNG TẢI O1:</span>
+              </div>
+
+              {/* Z-axis warning for Băng Tải O1 (level 4) */}
+              {(() => {
+                const conveyorZ = SLOT_Z_LEVELS["O1"]; // = 4
+                const isConveyorZAligned = zInPosition && currentZLevel === conveyorZ;
+                return (
+                  <div className={`z-axis-hint ${isConveyorZAligned ? "z-ok" : "z-warn"}`}>
+                    <span>{isConveyorZAligned ? "✅" : "⚠️"}</span>
+                    <span>
+                      {isConveyorZAligned ? (
+                        <>Trục Z đã sẵn sàng ở <strong>{Z_LEVEL_TITLES[conveyorZ]}</strong>. Đủ điều kiện gắp/đặt băng tải.</>
+                      ) : (
+                        <>Cần nhấn <strong>🛞 Băng Tải O1 ({conveyorZ})</strong> trên cụm PLC trước khi gắp/cất tại băng tải! (Hiện tại: {zInPosition ? Z_LEVEL_TITLES[currentZLevel] || `TẦNG ${currentZLevel}` : "ĐANG CHẠY..."})</>
+                      )}
+                    </span>
+                  </div>
+                );
+              })()}
+
+              <div className="manual-btn-grid-2">
                 <button
                   type="button"
                   className="btn-manual-plc btn-plc-yellow"
-                  onClick={() => send("OUTBOUND_CYCLE", { slot: selectedSlot })}
-                  title={`Chu trình xuất: Gắp ô ${selectedSlot} -> Đặt O1 -> Băng tải chạy`}
+                  onClick={() => send("PLACE_CONVEYOR", { slot: "O1" })}
+                  title="Robot đặt kiện hàng xuống băng tải O1"
                 >
-                  📦 Xuất Ô [{selectedSlot}] Ra O1
+                  📥 Đặt Lên Băng Tải O1
+                </button>
+                <button
+                  type="button"
+                  className="btn-manual-plc btn-plc-green"
+                  onClick={() => send("PICK_CONVEYOR", { slot: "O1" })}
+                  title="Robot gắp kiện hàng từ băng tải O1"
+                >
+                  📤 Gắp Từ Băng Tải O1
                 </button>
               </div>
             </div>

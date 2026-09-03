@@ -128,6 +128,20 @@ class SystemModeManager:
             "message": "⏸️ Hệ thống kho trạm đã TẠM DỪNG TỰ ĐỘNG (PAUSED).",
         })
 
+    async def set_auto_standby(self) -> None:
+        """Reset AUTO state to STANDBY."""
+        self.auto_state = "STANDBY"
+        self.is_scheduler_active = False
+        logger.info("[SystemModeManager] 🔄 AUTO STATE -> STANDBY (Scheduler Active: False)")
+
+        await system_ws_manager.broadcast("SYSTEM_MODE_UPDATE", {
+            "mode": self.mode,
+            "auto_state": self.auto_state,
+            "operation_mode": self.operation_mode,
+            "is_scheduler_active": self.is_scheduler_active,
+            "message": "🔄 Hệ thống kho trạm đã đưa về trạng thái Chờ (STANDBY).",
+        })
+
     def get_status(self) -> dict:
         return {
             "mode": self.mode,
