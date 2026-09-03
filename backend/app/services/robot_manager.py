@@ -145,25 +145,29 @@ class RobotManager:
                 logger.info("FAIRINO Robot [RX]: '%s'", line)
                 line_upper = line.upper()
 
-                # 1. Handle Autonomous DI1 Trigger: Robot asking for slot to pick
-                if line_upper.startswith("REQUEST_PICK_SLOT"):
+                # 1. Handle Autonomous DI1 Trigger: Robot reports ready via DI1
+                if line_upper.startswith("ROBOT_READY") or line_upper.startswith("REQUEST_PICK_SLOT"):
                     await self._handle_robot_pick_request()
 
-                # 2. Handle Autonomous DI2 Trigger: Robot asking for empty slot to store
-                elif line_upper.startswith("REQUEST_STORE_SLOT"):
+                # 2. Handle Autonomous DI2 Trigger: Robot reports item detected at O1 via DI2
+                elif line_upper.startswith("ROBOT_INBOUND_READY") or line_upper.startswith("REQUEST_STORE_SLOT"):
                     await self._handle_robot_store_request()
 
                 # 3. Handle Robot Pick Complete notification
-                elif line_upper.startswith("DONE_PICK"):
+                elif line_upper.startswith("DONE_PICK") or line_upper.startswith("SUCCESS PICK"):
                     parts = line.split()
-                    slot = parts[1] if len(parts) > 1 else ""
+                    slot = parts[1] if len(parts) > 1 and parts[1] != "PICK" else (parts[2] if len(parts) > 2 else "")
                     await self._handle_robot_pick_done(slot)
+                    if self._pending_response_future and not self._pending_response_future.done():
+                        self._pending_response_future.set_result(line)
 
                 # 4. Handle Robot Store Complete notification
-                elif line_upper.startswith("DONE_STORE"):
+                elif line_upper.startswith("DONE_STORE") or line_upper.startswith("SUCCESS STORE"):
                     parts = line.split()
-                    slot = parts[1] if len(parts) > 1 else ""
+                    slot = parts[1] if len(parts) > 1 and parts[1] != "STORE" else (parts[2] if len(parts) > 2 else "")
                     await self._handle_robot_store_done(slot)
+                    if self._pending_response_future and not self._pending_response_future.done():
+                        self._pending_response_future.set_result(line)
 
                 # 5. Handle Responses for command callers
                 elif self._pending_response_future and not self._pending_response_future.done():
@@ -180,6 +184,13 @@ class RobotManager:
     async def _handle_robot_pick_request(self) -> None:
         """Robot triggered via DI1 -> needs next slot with product to pick to conveyor."""
         try:
+            # Check if StaffOperationManager is actively running an OUTBOUND queue!
+            from app.services.staff_operation_manager import staff_operation_manager
+            if staff_operation_manager.status == "RUNNING" and staff_operation_manager.active_type == "OUTBOUND":
+                logger.info("FAIRINO Robot [DI1 Event]: ROBOT_READY signal received for Staff Outbound queue.")
+                staff_operation_manager.notify_robot_ready()
+                return
+
             async with async_session() as session:
                 inv_mgr = InventoryManager(session)
                 occupied = await inv_mgr.get_occupied_slots()
@@ -197,6 +208,13 @@ class RobotManager:
     async def _handle_robot_store_request(self) -> None:
         """Robot triggered via DI2 -> needs next empty slot to store from conveyor."""
         try:
+            # Check if StaffOperationManager is actively running an INBOUND cycle!
+            from app.services.staff_operation_manager import staff_operation_manager
+            if staff_operation_manager.status == "RUNNING" and staff_operation_manager.active_type == "INBOUND":
+                logger.info("FAIRINO Robot [DI2 Event]: ROBOT_INBOUND_READY signal received for Staff Inbound.")
+                staff_operation_manager.notify_inbound_ready()
+                return
+
             async with async_session() as session:
                 inv_mgr = InventoryManager(session)
                 free_slot = await inv_mgr.find_available_slot()
@@ -208,7 +226,7 @@ class RobotManager:
                     logger.warning("FAIRINO Robot requested STORE slot, but warehouse is FULL.")
                     await self._send_raw_socket_reply("FULL\n")
         except Exception as err:
-            logger.error("Failed to handle REQUEST_STORE_SLOT: %s", err)
+            logger.error("Failed to handle REQUEST_STORE_SLOT / ROBOT_INBOUND_READY: %s", err)
             await self._send_raw_socket_reply("FULL\n")
 
     async def _handle_robot_pick_done(self, slot: str) -> None:

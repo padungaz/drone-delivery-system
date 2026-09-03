@@ -223,7 +223,8 @@ function PickFromSlot(slot)
         PTP(O1, 20, -1, 0)
         sleep_ms(300)
         PTP(O1, 25, -1, 1, -50, 0, 0, 0, 0, 0)
-        PTP(HOME_O1, 25, -1, 0)
+        -- Đã gắp xong tại O1, nhấc lên thoát khỏi mặt băng tải, KHÔNG lùi sâu về HOME_O1
+
 
     else
         print("❌ [PICK] Slot khong hop le: " .. tostring(slot))
@@ -485,33 +486,32 @@ while true do
     -- =========================================================
     -- B. XỬ LÝ DI1: PLC báo O1 TRỐNG -> NON-BLOCKING REQUEST
     -- =========================================================
-    -- Không dùng SocketReceive(3000ms) block nữa.
-    -- Chỉ gửi REQUEST và set cờ PENDING_OPERATION = "OUTBOUND".
-    -- Section D sẽ nhận phản hồi PICK <slot> từ Backend và thực thi.
+    -- Bước 2 & 3: PLC kích DI1 = 1 -> Robot gửi ROBOT_READY về Backend
     if current_di1 == 1 and prev_di1 == 0 then
-        if ROBOT_STATE == "IDLE" and CURRENT_POS == "HOME" then
-            print("⚡ Suon len DI1 = 1 (PLC bao O1 TRONG): Gui REQUEST_PICK_SLOT toi Backend...")
+        if ROBOT_STATE == "IDLE" or ROBOT_STATE == "WAITING_SLOT" then
+            print("⚡ Sườn lên DI1 = 1 (PLC sẵn sàng lấy hàng): Gửi ROBOT_READY về Backend...")
             PENDING_OPERATION = "OUTBOUND"
             ROBOT_STATE = "WAITING_SLOT"
-            SocketSend(socket_id, "REQUEST_PICK_SLOT\n", 0)
-            print("📤 Da gui REQUEST_PICK_SLOT -> cho Backend phan hoi PICK <slot>...")
+            SocketSend(socket_id, "ROBOT_READY\n", 0)
+            print("📤 Đã gửi ROBOT_READY -> Chờ Backend điều phối ô cần lấy...")
         else
-            print(string.format("⚠️ DI1 kich hoat nhung Robot khong san sang (State: %s, Pos: %s)", ROBOT_STATE, CURRENT_POS))
+            print(string.format("⚠️ DI1 kích hoạt nhưng Robot đang bận: %s (Pos: %s)", ROBOT_STATE, CURRENT_POS))
         end
     end
 
     -- =========================================================
     -- C. XỬ LÝ DI2: PLC báo O1 CÓ HÀNG -> NON-BLOCKING REQUEST
     -- =========================================================
+    -- Bước 2 & 3: Cảm biến O1 có hàng -> PLC kích DI2 = 1 -> Robot gửi ROBOT_INBOUND_READY về Backend
     if current_di2 == 1 and prev_di2 == 0 then
-        if ROBOT_STATE == "IDLE" and CURRENT_POS == "HOME" then
-            print("⚡ Suon len DI2 = 1 (PLC bao O1 CO HANG): Gui REQUEST_STORE_SLOT toi Backend...")
+        if ROBOT_STATE == "IDLE" or ROBOT_STATE == "WAITING_SLOT" then
+            print("⚡ Sườn lên DI2 = 1 (PLC báo O1 CÓ HÀNG): Gửi ROBOT_INBOUND_READY về Backend...")
             PENDING_OPERATION = "INBOUND"
             ROBOT_STATE = "WAITING_SLOT"
-            SocketSend(socket_id, "REQUEST_STORE_SLOT\n", 0)
-            print("📤 Da gui REQUEST_STORE_SLOT -> cho Backend phan hoi STORE <slot>...")
+            SocketSend(socket_id, "ROBOT_INBOUND_READY\n", 0)
+            print("📤 Đã gửi ROBOT_INBOUND_READY -> Chờ Backend phân bổ ô và điều phối...")
         else
-            print(string.format("⚠️ DI2 kich hoat nhung Robot khong san sang (State: %s, Pos: %s)", ROBOT_STATE, CURRENT_POS))
+            print(string.format("⚠️ DI2 kích hoạt nhưng Robot đang bận (State: %s, Pos: %s)", ROBOT_STATE, CURRENT_POS))
         end
     end
 
@@ -531,16 +531,17 @@ while true do
         local cmd, param, raw = ParseCommand(recv_data)
 
         -- D.1: Phản hồi PICK <slot> khi PENDING_OPERATION == "OUTBOUND"
+        -- Bước 5 & 6: Robot chỉ gắp kiện hàng từ ô kho và rút lui an toàn, sau đó báo thành công
         if PENDING_OPERATION == "OUTBOUND"
            and (cmd == "PICK" or cmd == "SLOT")
            and param ~= "" and param ~= "NONE" then
-            print("🎯 [NON-BLOCK] Backend chi dinh lay o: " .. param)
+            print("🎯 [NON-BLOCK] Backend chỉ định gắp ô: " .. param)
             PENDING_OPERATION = nil
             ROBOT_STATE = "IDLE"
-            if Execute_OutboundCycle(param) then
-                SocketSend(socket_id, "DONE_PICK " .. param .. "\n", 0)
+            if PickFromSlot(param) then
+                SocketSend(socket_id, "SUCCESS PICK " .. param .. "\n", 0)
             else
-                SocketSend(socket_id, "FAILED_PICK " .. param .. "\n", 0)
+                SocketSend(socket_id, "FAILED PICK " .. param .. "\n", 0)
             end
 
         -- D.2: Phản hồi STORE <slot> khi PENDING_OPERATION == "INBOUND"
@@ -630,6 +631,9 @@ while true do
                 if PlaceToSlot(param) then
                     if param == "O1" then
                         PulseOutboundO1CompleteToPLC()
+                    elseif param ~= "N1" then
+                        -- Bước 9: Cất xong vào ô kho (A1..B3) -> Kích xung DO2 báo PLC cho băng tải chạy tiếp
+                        PulseInboundStoreCompleteToPLC(param)
                     end
                     SocketSend(socket_id, "SUCCESS STORE " .. param .. "\n", 0)
                 else
