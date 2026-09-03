@@ -637,6 +637,64 @@ export async function stopStaffInbound(): Promise<Response> {
   });
 }
 
+// =========================================================================
+// UAV SIMULATED MISSION FLIGHT API (Pure Software Simulator)
+// =========================================================================
+
+export interface UavSimFlightParams {
+  mission_id?: number;
+  mission_type?: string;
+  home_lat?: number;
+  home_lon?: number;
+  target_lat?: number;
+  target_lon?: number;
+  speed_multiplier?: number;
+}
+
+export async function startUavSimFlight(params: UavSimFlightParams): Promise<Response> {
+  return fetch(`${API_BASE}/api/drone/sim/start-flight`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+}
+
+export async function pauseUavSimFlight(): Promise<Response> {
+  return fetch(`${API_BASE}/api/drone/sim/pause-flight`, {
+    method: "POST",
+  });
+}
+
+export async function resumeUavSimFlight(): Promise<Response> {
+  return fetch(`${API_BASE}/api/drone/sim/resume-flight`, {
+    method: "POST",
+  });
+}
+
+export async function rtlUavSimFlight(): Promise<Response> {
+  return fetch(`${API_BASE}/api/drone/sim/rtl-flight`, {
+    method: "POST",
+  });
+}
+
+export async function stopUavSimFlight(): Promise<Response> {
+  return fetch(`${API_BASE}/api/drone/sim/stop-flight`, {
+    method: "POST",
+  });
+}
+
+export async function setUavSimFlightSpeed(speed_multiplier: number): Promise<Response> {
+  return fetch(`${API_BASE}/api/drone/sim/set-speed`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ speed_multiplier }),
+  });
+}
+
+export async function getUavSimFlightStatus(): Promise<Response> {
+  return fetch(`${API_BASE}/api/drone/sim/status`);
+}
+
 
 
 

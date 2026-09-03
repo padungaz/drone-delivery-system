@@ -187,24 +187,43 @@ class StaffOperationManager:
                 self.outbound_current_slot = target_slot
                 await self.log_event(f"📦 Điều phối Robot xuất ô {target_slot} ra băng tải ({len(self.outbound_completed) + 1}/{total_items})...")
 
-                # Bước Z: PLC nâng/hạ trục Z đến tầng ô kho trước khi Robot gắp
-                z_level = slot_to_z_level(target_slot)
-                z_label = Z_LEVEL_LABELS.get(z_level, str(z_level))
-                await self.log_event(f"⬆️ PLC nâng trục Z đến tầng {z_label} (DB15.DBW8={z_level})...")
-                if not await self.plc_mgr.move_z_to_level(z_level):
+                # Bước 1: PLC nâng/hạ trục Z đến tầng ô kho đích trước khi Robot gắp
+                z_slot = slot_to_z_level(target_slot)
+                z_slot_label = Z_LEVEL_LABELS.get(z_slot, str(z_slot))
+                await self.log_event(f"⬆️ PLC di chuyển trục Z đến tầng ô kho {z_slot_label} (DB15.DBW8={z_slot})...")
+                if not await self.plc_mgr.move_z_to_level(z_slot):
                     self.status = "ERROR"
-                    await self.log_event(f"❌ PLC trục Z không thể đến tầng {z_label}! Dừng chu trình xuất.")
+                    await self.log_event(f"❌ PLC trục Z không thể đến tầng {z_slot_label}! Dừng chu trình xuất.")
                     return
 
-                # Giao toàn quyền chu trình cơ khí cho Robot & PLC:
-                # Robot tự nhận tín hiệu DI2 (O1 trống) -> Gắp từ ô kho -> Đặt xuống O1 -> Kích xung DO2 sang PLC
-                # PLC tự nhận DO2 -> Tự kích động cơ băng tải chạy đưa hàng ra cho nhân viên
+                # Bước 2: Backend điều phối Robot gắp hàng tại ô đích (PICK target_slot)
+                await self.log_event(f"🤖 Robot tiến hành gắp kiện hàng từ ô {target_slot}...")
                 try:
-                    await self.robot_mgr.execute_command(RobotCommand.OUTBOUND_CYCLE, slot=target_slot)
+                    await self.robot_mgr.execute_command(RobotCommand.PICK, slot=target_slot)
                 except Exception as e:
-                    logger.error("Lỗi điều khiển Robot chu trình xuất ô %s: %s", target_slot, e)
+                    logger.error("Lỗi điều khiển Robot khi gắp ô %s: %s", target_slot, e)
                     self.status = "ERROR"
-                    await self.log_event(f"❌ Lỗi Robot khi xuất ô {target_slot}: {str(e)}")
+                    await self.log_event(f"❌ Lỗi Robot khi gắp ô {target_slot}: {str(e)}")
+                    return
+
+                # Bước 3: Robot gắp xong -> Backend điều phối PLC hạ trục Z xuống tầng Băng tải O1
+                z_o1 = slot_to_z_level("O1")
+                z_o1_label = Z_LEVEL_LABELS.get(z_o1, str(z_o1))
+                await self.log_event(f"⬇️ Robot đã gắp xong. PLC hạ trục Z xuống tầng Băng tải O1 ({z_o1_label}, DB15.DBW8={z_o1})...")
+                if not await self.plc_mgr.move_z_to_level(z_o1):
+                    self.status = "ERROR"
+                    await self.log_event(f"❌ PLC trục Z không thể hạ xuống tầng Băng tải {z_o1_label}! Dừng chu trình xuất.")
+                    return
+
+                # Bước 4: Trục Z đã hạ xong tại O1 -> Backend điều phối Robot đặt kiện hàng xuống vị trí O1 (STORE O1)
+                # Robot đặt hàng xuống O1 -> Tự kích xung DO1 sang PLC để PLC chạy băng tải ra cho nhân viên
+                await self.log_event("📦 Trục Z đã ở tầng O1. Điều phối Robot đặt kiện hàng xuống vị trí Băng tải O1...")
+                try:
+                    await self.robot_mgr.execute_command(RobotCommand.STORE, slot="O1")
+                except Exception as e:
+                    logger.error("Lỗi điều khiển Robot khi đặt hàng xuống O1: %s", e)
+                    self.status = "ERROR"
+                    await self.log_event(f"❌ Lỗi Robot khi đặt hàng xuống O1: {str(e)}")
                     return
 
                 # Backend xử lý nghiệp vụ CSDL kho: Giải phóng ô kho thành EMPTY

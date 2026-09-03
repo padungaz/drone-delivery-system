@@ -628,6 +628,9 @@ while true do
                 SocketSend(socket_id, "BUSY STATE:" .. ROBOT_STATE .. " POSITION:" .. CURRENT_POS .. "\n", 0)
             else
                 if PlaceToSlot(param) then
+                    if param == "O1" then
+                        PulseOutboundO1CompleteToPLC()
+                    end
                     SocketSend(socket_id, "SUCCESS STORE " .. param .. "\n", 0)
                 else
                     SocketSend(socket_id, "FAILED INVALID_SLOT " .. param .. "\n", 0)

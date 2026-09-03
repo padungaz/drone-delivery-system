@@ -94,7 +94,7 @@ export const MapPanel = React.memo(function MapPanel({
     // Default center (Da Nang or configured home location)
     const initialLat = locations.home_lat || telemetry?.latitude || 16.0544;
     const initialLon = locations.home_lon || telemetry?.longitude || 108.2022;
-    // Dark-themed tile layer (OpenStreetMap / CartoDB Voyager / Esri Satellite)
+    // Dark-themed tile layer (OpenStreetMap Standard with Dark Filter)
     const map = L.map(mapContainerRef.current, {
       center: [initialLat, initialLon],
       zoom: 17,
@@ -102,11 +102,8 @@ export const MapPanel = React.memo(function MapPanel({
       zoomControl: true,
     });
 
-    const streetLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
-      maxNativeZoom: 19,
-      maxZoom: 22,
-    });
+    const CARTO_API_KEY =
+      "eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfdG41NnQxMDciLCJqdGkiOiJiOTFhOWIzOSIsImV4cCI6MTc4OTAxODU3M30.NNwDSempQzgXJqQQi_qCMceGnCHFM2ZkcNQ1LiMTHA0";
 
     const satelliteLayer = L.tileLayer(
       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -117,7 +114,37 @@ export const MapPanel = React.memo(function MapPanel({
       }
     );
 
-    streetLayer.addTo(map);
+    const satelliteLabels = L.tileLayer(
+      "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+      {
+        attribution: "",
+        maxNativeZoom: 18,
+        maxZoom: 22,
+        opacity: 0.9,
+      }
+    );
+
+    const darkLayer = L.tileLayer(
+      `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+      {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: "abcd",
+        maxNativeZoom: 19,
+        maxZoom: 22,
+      }
+    );
+
+    const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxNativeZoom: 19,
+      maxZoom: 22,
+    });
+
+    // Default active: HD Satellite + White Street Labels
+    satelliteLayer.addTo(map);
+    satelliteLabels.addTo(map);
 
     // Register click event on map to select GPS destination target
     map.on("click", (e: L.LeafletMouseEvent) => {
@@ -128,9 +155,13 @@ export const MapPanel = React.memo(function MapPanel({
       }
     });
 
-    // Store layers for switching
-    (map as any)._streetLayer = streetLayer;
-    (map as any)._satelliteLayer = satelliteLayer;
+    // Store layers dictionary for switching
+    (map as any)._layersMap = {
+      satellite: [satelliteLayer, satelliteLabels],
+      dark: [darkLayer],
+      osm: [osmLayer],
+    };
+    (map as any)._activeStyle = "satellite";
 
     mapInstanceRef.current = map;
 
@@ -140,23 +171,27 @@ export const MapPanel = React.memo(function MapPanel({
     };
   }, []);
 
-  // State for map style & container height
-  const [isSatellite, setIsSatellite] = useState(false);
+  // State for map style ("satellite" | "dark" | "osm") & container height
+  type MapStyle = "satellite" | "dark" | "osm";
+  const [mapStyle, setMapStyle] = useState<MapStyle>("satellite");
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Toggle Satellite / Street tile layer
-  const toggleMapStyle = () => {
+  // Switch between 3 map styles
+  const changeMapStyle = (newStyle: MapStyle) => {
     const map = mapInstanceRef.current as any;
-    if (!map) return;
-    if (isSatellite) {
-      map.removeLayer(map._satelliteLayer);
-      map._streetLayer.addTo(map);
-      setIsSatellite(false);
-    } else {
-      map.removeLayer(map._streetLayer);
-      map._satelliteLayer.addTo(map);
-      setIsSatellite(true);
+    if (!map || !map._layersMap) return;
+
+    const currentLayers = map._layersMap[map._activeStyle];
+    if (currentLayers) {
+      currentLayers.forEach((layer: L.TileLayer) => map.removeLayer(layer));
     }
+
+    const nextLayers = map._layersMap[newStyle];
+    if (nextLayers) {
+      nextLayers.forEach((layer: L.TileLayer) => layer.addTo(map));
+      map._activeStyle = newStyle;
+    }
+    setMapStyle(newStyle);
   };
 
   // Quick zoom in to Drone position or Center at max zoom 20x
@@ -410,8 +445,8 @@ export const MapPanel = React.memo(function MapPanel({
   return (
     <div className="panel map-panel-wrapper" style={{ padding: 0, overflow: "hidden", position: "relative" }}>
       {/* Map Control Floating Bar */}
-      <div className="map-toolbar">
-        <div className="map-toolbar-title">
+      <div className="map-toolbar" style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "rgba(15, 23, 42, 0.95)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+        <div className="map-toolbar-title" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span>🗺️ Live Map Tracking</span>
           {droneOnline && telemetry && (
             <span className="badge online" style={{ marginLeft: "8px", fontSize: "11px" }}>
@@ -435,26 +470,68 @@ export const MapPanel = React.memo(function MapPanel({
           )}
         </div>
 
-        <div className="map-toolbar-actions">
+        <div className="map-toolbar-actions" style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
           {selectedTarget && (
             <button
               type="button"
               className="btn-map-action active"
-              style={{ borderColor: "#00F0FF", color: "#00F0FF", background: "rgba(0, 240, 255, 0.2)" }}
+              style={{ borderColor: "#00F0FF", color: "#00F0FF", background: "rgba(0, 240, 255, 0.2)", whiteSpace: "nowrap" }}
               onClick={() => onSelectTargetRef.current?.(null)}
               title="Xóa điểm đích đã chọn"
             >
               ❌ Bỏ chọn đích
             </button>
           )}
-          <button
-            type="button"
-            className={`btn-map-action ${isSatellite ? "active" : ""}`}
-            onClick={toggleMapStyle}
-            title="Chuyển đổi Bản đồ Vệ tinh / Đô thị"
-          >
-            {isSatellite ? "🗺️ Đô thị" : "🛰️ Vệ tinh"}
-          </button>
+          <div style={{ display: "flex", gap: "2px", background: "rgba(15, 23, 42, 0.9)", padding: "2px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.15)" }}>
+            <button
+              type="button"
+              className={`btn-map-action ${mapStyle === "satellite" ? "active" : ""}`}
+              onClick={() => changeMapStyle("satellite")}
+              title="Bản đồ Vệ tinh Chụp thực tế HD (Khuyên dùng)"
+              style={{
+                whiteSpace: "nowrap",
+                fontSize: "0.78rem",
+                padding: "4px 8px",
+                background: mapStyle === "satellite" ? "rgba(0, 240, 255, 0.25)" : "transparent",
+                color: mapStyle === "satellite" ? "#00f0ff" : "#94a3b8",
+                borderColor: mapStyle === "satellite" ? "#00f0ff" : "transparent",
+              }}
+            >
+              🛰️ Vệ tinh
+            </button>
+            <button
+              type="button"
+              className={`btn-map-action ${mapStyle === "dark" ? "active" : ""}`}
+              onClick={() => changeMapStyle("dark")}
+              title="Bản đồ Đêm (CARTO Dark Matter)"
+              style={{
+                whiteSpace: "nowrap",
+                fontSize: "0.78rem",
+                padding: "4px 8px",
+                background: mapStyle === "dark" ? "rgba(0, 240, 255, 0.25)" : "transparent",
+                color: mapStyle === "dark" ? "#00f0ff" : "#94a3b8",
+                borderColor: mapStyle === "dark" ? "#00f0ff" : "transparent",
+              }}
+            >
+              🌃 Đêm
+            </button>
+            <button
+              type="button"
+              className={`btn-map-action ${mapStyle === "osm" ? "active" : ""}`}
+              onClick={() => changeMapStyle("osm")}
+              title="Bản đồ Đường phố Chuẩn (OpenStreetMap sắc nét)"
+              style={{
+                whiteSpace: "nowrap",
+                fontSize: "0.78rem",
+                padding: "4px 8px",
+                background: mapStyle === "osm" ? "rgba(0, 240, 255, 0.25)" : "transparent",
+                color: mapStyle === "osm" ? "#00f0ff" : "#94a3b8",
+                borderColor: mapStyle === "osm" ? "#00f0ff" : "transparent",
+              }}
+            >
+              🗺️ Đường phố
+            </button>
+          </div>
           <button
             type="button"
             className="btn-map-action"
@@ -498,30 +575,6 @@ export const MapPanel = React.memo(function MapPanel({
             </button>
           )}
         </div>
-      </div>
-
-      {/* Map Click Hint Banner */}
-      <div
-        style={{
-          position: "absolute",
-          top: "48px",
-          left: "12px",
-          zIndex: 500,
-          background: "rgba(15, 23, 42, 0.85)",
-          color: selectedTarget ? "#00F0FF" : "#cbd5e1",
-          padding: "4px 8px",
-          borderRadius: "4px",
-          fontSize: "11px",
-          border: selectedTarget ? "1px solid rgba(0, 240, 255, 0.4)" : "1px solid rgba(255, 255, 255, 0.1)",
-          backdropFilter: "blur(4px)",
-          pointerEvents: "none",
-        }}
-      >
-        {selectedTarget ? (
-          <span>🎯 Đã chọn đích: <b>{selectedTarget.lat.toFixed(6)}, {selectedTarget.lon.toFixed(6)}</b> (Bấm bước 4 để bay)</span>
-        ) : (
-          <span>💡 <i>Click bất kỳ điểm nào trên bản đồ để chọn tọa độ đích cho bước <b>BAY GPS</b></i></span>
-        )}
       </div>
 
       {/* Main Leaflet Container */}

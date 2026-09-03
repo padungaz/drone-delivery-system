@@ -8,6 +8,7 @@ import { RobotDigitalTwin } from "./robot/RobotDigitalTwin";
 import { JointControlPanel } from "./robot/JointControlPanel";
 import { WarehouseGrid, type SlotData } from "./warehouse/WarehouseGrid";
 import { UavManualControlPanel } from "./uav/UavManualControlPanel";
+import { UavMissionFlightWidget } from "./uav/UavMissionFlightWidget";
 import { TaskMonitor } from "./task/TaskMonitor";
 import { MissionQueuePanel } from "./task/MissionQueuePanel";
 
@@ -68,6 +69,7 @@ export function HmiDashboard() {
 
   // Real UAV Drone Telemetry Hook
   const { telemetry, droneOnline } = useWebSocket();
+  const effectiveDroneOnline = Boolean(droneOnline || (telemetry?.latitude && telemetry.latitude !== 0));
 
   // Drone Mission Locations state
   const [locations, setLocations] = useState<MissionLocations>(() => {
@@ -472,7 +474,7 @@ export function HmiDashboard() {
     <div className="hmi-dashboard-wrapper">
       <SystemHeader
         sysWsConnected={sysWsConnected}
-        uavOnline={droneOnline}
+        uavOnline={effectiveDroneOnline}
         plcOnline={isPlcOnline}
         robotOnline={isRobotOnline}
         cameraOnline={cameraActive}
@@ -624,24 +626,31 @@ export function HmiDashboard() {
                   <MapPanel
                     telemetry={telemetry}
                     locations={locations}
-                    droneOnline={droneOnline}
+                    droneOnline={effectiveDroneOnline}
                     selectedTarget={selectedTarget}
                     onSelectTarget={setSelectedTarget}
                   />
                   <div style={{ marginTop: "1rem" }}>
-                    <TelemetryPanel telemetry={telemetry} droneOnline={droneOnline} />
+                    <TelemetryPanel telemetry={telemetry} droneOnline={effectiveDroneOnline} />
                   </div>
                 </div>
 
                 <div className="split-column">
-                  <UavManualControlPanel
-                    droneStatus={telemetry}
+                  <UavMissionFlightWidget
                     locations={locations}
-                    droneOnline={droneOnline}
-                    selectedTarget={selectedTarget}
-                    onSelectTarget={setSelectedTarget}
                     onUpdateLocations={setLocations}
+                    selectedTarget={selectedTarget}
                   />
+                  <div style={{ marginTop: "1rem" }}>
+                    <UavManualControlPanel
+                      droneStatus={telemetry}
+                      locations={locations}
+                      droneOnline={effectiveDroneOnline}
+                      selectedTarget={selectedTarget}
+                      onSelectTarget={setSelectedTarget}
+                      onUpdateLocations={setLocations}
+                    />
+                  </div>
                   <div style={{ marginTop: "1rem" }}>
                     <DeliveryRequestsPanel
                       homeLat={0}

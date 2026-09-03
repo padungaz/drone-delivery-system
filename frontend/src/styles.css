@@ -7772,9 +7772,13 @@ input {
 }
 
 /* ===========================================================================
- * STAFF PORTAL (WAREHOUSE OPERATOR INTERFACE) STYLING
- * Modularized into: frontend/src/components/StaffPortal.css
+ * OPENSTREETMAP & SATELLITE MAP STYLING
  * =========================================================================== */
+.leaflet-container {
+  background: #0b1120 !important;
+}
+
+
 
 
 

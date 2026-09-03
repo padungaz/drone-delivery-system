@@ -319,7 +319,7 @@ class RobotManager:
         logger.error("FAIRINO Robot: EMERGENCY STOP TRIGGERED!")
         return self.get_status()
 
-    async def _send_socket_command(self, payload: str, timeout: float = 30.0) -> bool:
+    async def _send_socket_command(self, payload: str, timeout: Optional[float] = None) -> bool:
         """Sends TCP string command to FAIRINO Robot LUA Server (Port 8090) over persistent connection."""
         if self.simulator_mode:
             logger.info("FAIRINO Robot [SIMULATOR]: Sent payload '%s' over Socket TCP", payload)
@@ -339,9 +339,14 @@ class RobotManager:
 
                 self._writer.write(msg.encode("utf-8"))
                 await self._writer.drain()
-                logger.info("FAIRINO Robot: Payload '%s' sent. Awaiting response (timeout %.1fs)...", payload, timeout)
-
-                response_str = await asyncio.wait_for(self._pending_response_future, timeout=timeout)
+                
+                if timeout is not None and timeout > 0:
+                    logger.info("FAIRINO Robot: Payload '%s' sent. Awaiting response (timeout %.1fs)...", payload, timeout)
+                    response_str = await asyncio.wait_for(self._pending_response_future, timeout=timeout)
+                else:
+                    logger.info("FAIRINO Robot: Payload '%s' sent. Awaiting response (không giới hạn thời gian chờ)...", payload)
+                    response_str = await self._pending_response_future
+                
                 logger.info("FAIRINO Robot: Response received: '%s'", response_str)
 
                 resp_upper = response_str.upper()
@@ -360,7 +365,11 @@ class RobotManager:
                 self.signal_done()
                 return True
 
-        except (asyncio.TimeoutError, ConnectionRefusedError, OSError, Exception) as err:
+        except asyncio.TimeoutError:
+            logger.warning("FAIRINO Robot command timeout for '%s'", payload)
+            self.state = "ERROR"
+            return False
+        except (ConnectionRefusedError, OSError, Exception) as err:
             logger.error("❌ FAIRINO Robot Socket command failed for '%s': %s.", payload, err)
             self.is_connected = False
             self.state = "ERROR"
@@ -370,15 +379,17 @@ class RobotManager:
             self._pending_response_future = None
             self._is_busy_moving = False
 
-
-    async def _wait_for_done(self, timeout: float = 30.0) -> bool:
+    async def _wait_for_done(self, timeout: Optional[float] = None) -> bool:
         """Wait for robot DONE signal."""
         if self.simulator_mode:
             return True
 
         self._done_event.clear()
         try:
-            await asyncio.wait_for(self._done_event.wait(), timeout=timeout)
+            if timeout is not None and timeout > 0:
+                await asyncio.wait_for(self._done_event.wait(), timeout=timeout)
+            else:
+                await self._done_event.wait()
             return True
         except asyncio.TimeoutError:
             logger.warning("FAIRINO Robot: DONE signal timeout (%.1fs)", timeout)
@@ -402,7 +413,7 @@ class RobotManager:
                 await asyncio.sleep(0.4)
                 success = True
             else:
-                success = await self._send_socket_command(payload, timeout=15.0)
+                success = await self._send_socket_command(payload, timeout=None)
             if not success:
                 raise RuntimeError(f"FAIRINO Robot MOVE_HOME execution failed")
             self.state = "READY"
@@ -415,7 +426,7 @@ class RobotManager:
                 await asyncio.sleep(0.4)
                 success = True
             else:
-                success = await self._send_socket_command("MOVE_HOME", timeout=15.0)
+                success = await self._send_socket_command("MOVE_HOME", timeout=None)
             if not success:
                 raise RuntimeError(f"FAIRINO Robot STANDBY execution failed")
             self.state = "READY"
@@ -424,7 +435,7 @@ class RobotManager:
         elif cmd == RobotCommand.REQUEST_Z_UP:
             self.state = "READY"
             if not self.simulator_mode:
-                await self._send_socket_command("REQUEST_Z_UP", timeout=10.0)
+                await self._send_socket_command("REQUEST_Z_UP", timeout=None)
             logger.info("FAIRINO Robot: Ready for Z_UP operation (DONE)")
 
         elif cmd in (RobotCommand.PICK_PRODUCT, RobotCommand.PICK):
@@ -435,7 +446,7 @@ class RobotManager:
                 await asyncio.sleep(0.6)
                 success = True
             else:
-                success = await self._send_socket_command(payload, timeout=30.0)
+                success = await self._send_socket_command(payload, timeout=None)
             if not success:
                 raise RuntimeError(f"FAIRINO Robot PICK {target} execution failed")
             self.holding_product = f"PROD_{target}" if target else "SP001"
@@ -450,7 +461,7 @@ class RobotManager:
                 await asyncio.sleep(0.6)
                 success = True
             else:
-                success = await self._send_socket_command(payload, timeout=30.0)
+                success = await self._send_socket_command(payload, timeout=None)
             if not success:
                 raise RuntimeError(f"FAIRINO Robot STORE {target} execution failed")
             self.holding_product = None
@@ -465,7 +476,7 @@ class RobotManager:
                 await asyncio.sleep(1.0)
                 success = True
             else:
-                success = await self._send_socket_command(payload, timeout=45.0)
+                success = await self._send_socket_command(payload, timeout=None)
             if not success:
                 raise RuntimeError(f"FAIRINO Robot OUTBOUND_CYCLE {target} execution failed")
             self.holding_product = None
@@ -480,7 +491,7 @@ class RobotManager:
                 await asyncio.sleep(1.0)
                 success = True
             else:
-                success = await self._send_socket_command(payload, timeout=45.0)
+                success = await self._send_socket_command(payload, timeout=None)
             if not success:
                 raise RuntimeError(f"FAIRINO Robot INBOUND_CYCLE {target} execution failed")
             self.holding_product = None
@@ -494,7 +505,7 @@ class RobotManager:
                 await asyncio.sleep(0.6)
                 success = True
             else:
-                success = await self._send_socket_command("PICK N1", timeout=30.0)
+                success = await self._send_socket_command("PICK N1", timeout=None)
             if not success:
                 raise RuntimeError(f"FAIRINO Robot PICK N1 (UAV) execution failed")
             self.holding_product = "SP_FROM_UAV"
@@ -508,7 +519,7 @@ class RobotManager:
                 await asyncio.sleep(0.6)
                 success = True
             else:
-                success = await self._send_socket_command("STORE N1", timeout=30.0)
+                success = await self._send_socket_command("STORE N1", timeout=None)
             if not success:
                 raise RuntimeError(f"FAIRINO Robot STORE N1 (UAV) execution failed")
             self.holding_product = None
@@ -521,7 +532,7 @@ class RobotManager:
                 await asyncio.sleep(0.5)
                 success = True
             else:
-                success = await self._send_socket_command("MOVE_HOME", timeout=20.0)
+                success = await self._send_socket_command("MOVE_HOME", timeout=None)
             if not success:
                 raise RuntimeError(f"FAIRINO Robot SCAN_QR_POS execution failed")
             self.state = "READY"
