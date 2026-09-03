@@ -236,27 +236,19 @@ class MissionManager:
             if not success:
                 raise Exception(f"Station Controller LOAD_PRODUCT operation failed for slot {target_slot}")
 
-            # Station loading complete -> Release station lock for drone flight
+            # Station loading complete -> Release station lock
             device_lock_manager.unlock_station()
             await fleet_manager.signal_station_loaded(mission.drone_id)
 
-            # Phase 2: DRONE_EN_ROUTE (UAV Flight Navigation)
-            mission.current_phase = "DRONE_EN_ROUTE"
-            mission.step_details = f"🚁 Drone {mission.drone_id} cất cánh bay giao hàng..."
-            await self.session.commit()
-            await self._notify_mission_progress(mission)
-            await self.log_event("UAV_FLIGHT", f"Drone {mission.drone_id} dispatched for customer delivery")
-
-            await asyncio.sleep(1.0)  # Simulate UAV flight
-
-            # Phase 3: COMPLETED
+            # Bỏ qua phần UAV: Không chờ bay hay điều hướng Drone
+            # Giải phóng ô kho thành EMPTY đã hoàn tất ở Station -> Chuyển thẳng COMPLETED và tự động chạy đơn tiếp theo
             mission.current_phase = "COMPLETED"
             mission.status = "COMPLETED"
             mission.state = "COMPLETED"
             mission.completed_at = datetime.utcnow()
-            mission.step_details = f"✅ Nhiệm vụ Xuất Kho #{mission.id} cho sản phẩm {mission.product_id} HOÀN THÀNH!"
+            mission.step_details = f"✅ Đã xuất hàng từ ô {target_slot} ra Pad N1 và giải phóng ô kho thành EMPTY! Tự động chuyển đơn tiếp theo."
             await self.session.commit()
-            await self.log_event("SERVER", f"Mission #{mission.id} (DRONE_DELIVERY) COMPLETED")
+            await self.log_event("SERVER", f"Mission #{mission.id} (DRONE_DELIVERY) COMPLETED -> Tự động chuyển đơn hàng tiếp theo")
             await system_ws_manager.broadcast("MISSION_COMPLETED", self._serialize_mission(mission))
             await self._complete_and_auto_dispatch(mission)
 
@@ -356,8 +348,8 @@ class MissionManager:
     async def auto_dispatch_next_mission(self) -> Optional[IntralogisticsMissionRecord]:
         """FIFO Auto-Queue Dispatcher: Triggers next WAITING mission in queue."""
         try:
-            if not system_mode_manager.can_auto_dispatch():
-                logger.info("[Auto-Dispatcher] System is in MANUAL mode or Scheduler inactive. Skipping auto-dispatch.")
+            if not system_mode_manager.is_auto() or system_mode_manager.is_staff_mode():
+                logger.info("[Auto-Dispatcher] System is in MANUAL mode or Staff mode. Skipping auto-dispatch.")
                 return None
 
             q_mgr = MissionQueueManager(self.session)
