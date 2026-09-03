@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import threading
+import time
 from typing import Optional
 
 from app.models.schemas import PLCCommand, PLCStatusResponse
@@ -515,8 +516,32 @@ class PLCManager:
             self.cmd_target_z = False
             return False
 
-        # 3. Poll DB15.DBX2.7 until True (No timeout limit - waits until confirmed or PLC reports error/E-stop)
-        import time
+        # 3. Giai đoạn A: Chờ PLC xác nhận rời tầng cũ (DB15.DBX2.7 chuyển về False)
+        # Giúp tránh lỗi bắt nhầm cờ True còn sót lại từ tầng trước đó
+        logger.info("PLC Z-Axis: Chờ PLC xác nhận rời vị trí cũ (DB15.DBX2.7 -> False)...")
+        wait_depart_start = time.time()
+        departed = False
+        while (time.time() - wait_depart_start) < 2.0:  # Chờ tối đa 2.0s
+            await asyncio.sleep(0.08)
+            try:
+                data = await self._async_db_read(2, 1)
+                z_in_pos = get_bool(data, 0, 7)
+                plc_err = get_bool(data, 0, 5)
+                is_estop = get_bool(data, 0, 6)
+                if is_estop or plc_err:
+                    break
+                if not z_in_pos:
+                    departed = True
+                    logger.info("PLC Z-Axis: Đã xác nhận Z bắt đầu di chuyển (DB15.DBX2.7 = False sau %.2fs)",
+                                time.time() - wait_depart_start)
+                    break
+            except Exception as e:
+                logger.warning("PLC Z-Axis: Lỗi đọc trạng thái rời tầng cũ: %s", e)
+
+        if not departed:
+            logger.warning("PLC Z-Axis: Cảnh báo - Sau 2.0s chưa thấy DB15.DBX2.7 về False, tiếp tục chờ tầng đích...")
+
+        # 4. Giai đoạn B: Poll DB15.DBX2.7 cho đến khi True (Trục Z đã đến tầng mới mục tiêu)
         start_time = time.time()
         last_log_time = 0.0
         while timeout_sec is None or (time.time() - start_time) < timeout_sec:
@@ -554,7 +579,7 @@ class PLCManager:
                     logger.info("PLC Z-Axis: Confirmed at %s (level %d). DB15.DBX2.7 = True (%.1fs)",
                                 level_label, level, elapsed)
 
-                    # 4. Khi plc_z_in_position trả về thì TẮT cmd_target_z (DB15.DBX0.2 = False)
+                    # 5. Khi plc_z_in_position trả về thì TẮT cmd_target_z (DB15.DBX0.2 = False)
                     try:
                         async with self._get_lock():
                             reset_data = bytearray(await asyncio.to_thread(self._sync_db_read, 0, 1))
