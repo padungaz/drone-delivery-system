@@ -428,12 +428,12 @@ while true do
     end
 
     -- =========================================================
-    -- B. XỬ LÝ DI1: PLC báo O1 TRỐNG -> NON-BLOCKING REQUEST
+    -- B. XỬ LÝ DI1: PLC báo O1 TRỐNG -> NON-BLOCKING REQUEST (Sườn xuống 0 -> 1 -> 0)
     -- =========================================================
-    -- Bước 2 & 3: PLC kích DI1 = 1 -> Robot gửi ROBOT_READY về Backend
-    if current_di1 == 1 and prev_di1 == 0 then
+    -- Bước 2 & 3: PLC kích xung DI1 (1 -> 0 kết thúc xung) -> Robot gửi ROBOT_READY về Backend
+    if current_di1 == 0 and prev_di1 == 1 then
         if ROBOT_STATE == "IDLE" or ROBOT_STATE == "WAITING_SLOT" then
-            print("⚡ Sườn lên DI1 = 1 (PLC sẵn sàng lấy hàng): Gửi ROBOT_READY về Backend...")
+            print("⚡ Sườn xuống DI1 (1 -> 0): Gửi ROBOT_READY về Backend...")
             PENDING_OPERATION = "OUTBOUND"
             ROBOT_STATE = "WAITING_SLOT"
             SocketSend(socket_id, "ROBOT_READY\n", 0)
@@ -444,12 +444,12 @@ while true do
     end
 
     -- =========================================================
-    -- C. XỬ LÝ DI2: PLC báo O1 CÓ HÀNG -> NON-BLOCKING REQUEST
+    -- C. XỬ LÝ DI2: PLC báo O1 CÓ HÀNG -> NON-BLOCKING REQUEST (Sườn xuống 0 -> 1 -> 0)
     -- =========================================================
-    -- Bước 2 & 3: Cảm biến O1 có hàng -> PLC kích DI2 = 1 -> Robot gửi ROBOT_INBOUND_READY về Backend
-    if current_di2 == 1 and prev_di2 == 0 then
+    -- Bước 2 & 3: Cảm biến O1 có hàng -> PLC kích xung DI2 (1 -> 0 kết thúc xung) -> Robot gửi ROBOT_INBOUND_READY về Backend
+    if current_di2 == 0 and prev_di2 == 1 then
         if ROBOT_STATE == "IDLE" or ROBOT_STATE == "WAITING_SLOT" then
-            print("⚡ Sườn lên DI2 = 1 (PLC báo O1 CÓ HÀNG): Gửi ROBOT_INBOUND_READY về Backend...")
+            print("⚡ Sườn xuống DI2 (1 -> 0): Gửi ROBOT_INBOUND_READY về Backend...")
             PENDING_OPERATION = "INBOUND"
             ROBOT_STATE = "WAITING_SLOT"
             SocketSend(socket_id, "ROBOT_INBOUND_READY\n", 0)

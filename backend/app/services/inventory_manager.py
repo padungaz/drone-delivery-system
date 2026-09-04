@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import ProductRecord, SystemLogRecord, StorageSlotRecord
-from app.models.schemas import StorageSlotStatus, QRScanPayload
+from app.models.schemas import StorageSlotStatus, QRScanPayload, StorageSlotResponse
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,30 @@ class InventoryManager:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
+    async def broadcast_inventory(self) -> List[dict]:
+        """Broadcast latest 9 storage slots to all WebSockets (/ws/system and /ws/client)."""
+        all_slots = await self.get_all_slots()
+        slots_data = [
+            StorageSlotResponse.model_validate(s, from_attributes=True).model_dump(mode="json")
+            for s in all_slots
+        ]
+        try:
+            from app.websocket.manager import system_ws_manager
+            await system_ws_manager.broadcast("INVENTORY_STATUS", slots_data)
+        except Exception as err:
+            logger.warning("Error broadcasting INVENTORY_STATUS: %s", err)
+
+        try:
+            from app.websocket.handler import manager as drone_ws_manager
+            await drone_ws_manager.broadcast_to_clients({
+                "type": "storage_update",
+                "payload": slots_data,
+            })
+        except Exception as err:
+            logger.warning("Error broadcasting storage_update: %s", err)
+
+        return slots_data
+
     async def find_available_slot(self) -> Optional[StorageSlotRecord]:
         """Find first EMPTY storage slot among active slots (A1..B3)."""
         stmt = select(StorageSlotRecord).where(
@@ -107,6 +131,7 @@ class InventoryManager:
         status: StorageSlotStatus,
         product_id: Optional[str] = None,
         qr_code: Optional[str] = None,
+        auto_broadcast: bool = False,
     ) -> Optional[StorageSlotRecord]:
         """Update status and product of a specific storage slot."""
         stmt = select(StorageSlotRecord).where(StorageSlotRecord.slot_name == slot_name)
@@ -118,22 +143,31 @@ class InventoryManager:
 
         status_val = status.value if hasattr(status, "value") else str(status)
         slot.status = status_val
-        if product_id is not None:
+        if status_val == StorageSlotStatus.EMPTY.value or status_val == "EMPTY":
             slot.product_id = product_id
-        if qr_code is not None:
             slot.qr_code = qr_code
+            slot.sender_name = None
+        else:
+            if product_id is not None:
+                slot.product_id = product_id
+            if qr_code is not None:
+                slot.qr_code = qr_code
         slot.updated_time = datetime.utcnow()
 
-        logger.info("Updated slot %s -> status=%s, product=%s", slot_name, status.value, product_id)
+        logger.info("Updated slot %s -> status=%s, product=%s", slot_name, status_val, slot.product_id)
         await self.session.commit()
         await self.session.refresh(slot)
+
+        if auto_broadcast:
+            await self.broadcast_inventory()
+
         return slot
 
-    async def clear_slot_by_id(self, slot_id: int) -> Optional[StorageSlotRecord]:
+    async def clear_slot_by_id(self, slot_id: int, auto_broadcast: bool = False) -> Optional[StorageSlotRecord]:
         """Clear/reset a storage slot by its ID."""
-        return await self.clear_slot(slot_id)
+        return await self.clear_slot(slot_id, auto_broadcast=auto_broadcast)
 
-    async def clear_slot(self, slot_identifier: str | int) -> Optional[StorageSlotRecord]:
+    async def clear_slot(self, slot_identifier: str | int, auto_broadcast: bool = False) -> Optional[StorageSlotRecord]:
         """Clear/reset a storage slot by its ID or slot_name."""
         if isinstance(slot_identifier, int) or (isinstance(slot_identifier, str) and slot_identifier.isdigit()):
             stmt = select(StorageSlotRecord).where(StorageSlotRecord.id == int(slot_identifier))
@@ -153,6 +187,10 @@ class InventoryManager:
         logger.info("Cleared slot %s (ID: %d)", slot.slot_name, slot.id)
         await self.session.commit()
         await self.session.refresh(slot)
+
+        if auto_broadcast:
+            await self.broadcast_inventory()
+
         return slot
 
     async def process_qr_scan(self, payload: QRScanPayload) -> Optional[StorageSlotRecord]:

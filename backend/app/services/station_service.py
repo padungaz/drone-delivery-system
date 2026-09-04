@@ -242,7 +242,7 @@ class StationService:
             )
 
             # 10. Clear Storage Slot in Inventory
-            await inv_mgr.update_slot(target_slot, StorageSlotStatus.EMPTY, product_id=None)
+            await inv_mgr.update_slot(target_slot, StorageSlotStatus.EMPTY, product_id=None, auto_broadcast=True)
             await self._broadcast_status("10. CLEAR_SLOT", f"Đã giải phóng ô kho {target_slot} thành EMPTY.", status="RUNNING")
 
             # 11. Check DRONE_DETECT == 0: Chờ Drone rời khỏi bãi đáp N1 (DB15.DBX2.0 == 0) thì mới hoàn thành

@@ -26,6 +26,7 @@ interface Props {
   targetZLevel?: number;
   zInPosition?: boolean;
   cmdTargetZ?: boolean;
+  isRobotBusy?: boolean;
 }
 
 const Z_LEVEL_NAMES: Record<number, string> = {
@@ -52,11 +53,17 @@ export const PLCMonitor = React.memo(function PLCMonitor({
   targetZLevel = 0,
   zInPosition = true,
   cmdTargetZ = false,
+  isRobotBusy = false,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const isActionDisabled = loading || isRobotBusy;
 
   const handleCommand = async (action: () => Promise<Response>, successMsg: string) => {
+    if (isRobotBusy) {
+      setFeedback("⚠️ Robot đang hoạt động! Toàn bộ thao tác PLC bị khóa để đảm bảo an toàn.");
+      return;
+    }
     setLoading(true);
     setFeedback(null);
     try {
@@ -196,8 +203,39 @@ export const PLCMonitor = React.memo(function PLCMonitor({
           <div className="plc-manual-controls-section">
             <div className="manual-section-title">
               <span className="font-mono text-cyan">🎮 ĐIỀU KHIỂN THỦ CÔNG PLC (MANUAL OVERRIDE):</span>
-              <span className="mode-indicator-tag active-manual">MANUAL SẴN SÀNG</span>
+              {isRobotBusy ? (
+                <span
+                  className="mode-indicator-tag active-warn"
+                  style={{ background: "#f59e0b", color: "#000", fontWeight: "bold", padding: "2px 8px", borderRadius: "4px" }}
+                >
+                  ⚠️ ROBOT ĐANG CHẠY — ĐÃ KHÓA PLC
+                </span>
+              ) : (
+                <span className="mode-indicator-tag active-manual">MANUAL SẴN SÀNG</span>
+              )}
             </div>
+
+            {/* Safety Interlock Banner when Robot is Running */}
+            {isRobotBusy && (
+              <div
+                style={{
+                  margin: "6px 0 10px 0",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  border: "1px solid rgba(239, 68, 68, 0.5)",
+                  color: "#f87171",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <span>🛑</span>
+                <span>Robot đang vận hành / chuyển động! Toàn bộ thao tác PLC bị khóa để chống va chạm cơ khí.</span>
+              </div>
+            )}
 
             {feedback && <div className="manual-feedback-pill font-mono">{feedback}</div>}
 
@@ -211,7 +249,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className={`btn-manual-plc ${currentZLevel === 0 ? "active-level" : ""}`}
                   onClick={() => handleCommand(() => controlPlcZLevel(0), "PLC Trục Z: Về HOME (Mã 0)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Di chuyển trục Z về vị trí HOME gốc"
                 >
                   🏠 Home (0)
@@ -220,7 +258,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className={`btn-manual-plc ${currentZLevel === 1 ? "active-level" : ""}`}
                   onClick={() => handleCommand(() => controlPlcZLevel(1), "PLC Trục Z: Đến HÀNG A (Mã 1)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Nâng trục Z lên độ cao HÀNG A (A1..A3)"
                 >
                   📦 Tầng A (1)
@@ -229,7 +267,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className={`btn-manual-plc ${currentZLevel === 2 ? "active-level" : ""}`}
                   onClick={() => handleCommand(() => controlPlcZLevel(2), "PLC Trục Z: Đến HÀNG B (Mã 2)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Nâng trục Z lên độ cao HÀNG B (B1..B3)"
                 >
                   📦 Tầng B (2)
@@ -238,7 +276,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className={`btn-manual-plc ${currentZLevel === 3 ? "active-level" : ""}`}
                   onClick={() => handleCommand(() => controlPlcZLevel(3), "PLC Trục Z: Đến DRONE N1 (Mã 3)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Nâng trục Z lên độ cao bãi đáp Drone N1"
                 >
                   🚁 Drone N1 (3)
@@ -247,7 +285,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className={`btn-manual-plc ${currentZLevel === 4 ? "active-level" : ""}`}
                   onClick={() => handleCommand(() => controlPlcZLevel(4), "PLC Trục Z: Đến BĂNG TẢI O1 (Mã 4)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Hạ trục Z xuống vị trí băng tải O1"
                 >
                   🛞 Băng Tải O1 (4)
@@ -265,7 +303,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className={`btn-manual-plc ${lockClamp ? "active-status" : ""}`}
                   onClick={() => handleCommand(() => controlPlcLock(true), "Đã kích hoạt khóa Drone (LOCK)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Khóa kẹp cơ khí cố định Drone (DB15.DBX0.0)"
                 >
                   🔒 Khóa Drone
@@ -274,7 +312,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className={`btn-manual-plc ${!lockClamp ? "active-status" : ""}`}
                   onClick={() => handleCommand(() => controlPlcLock(false), "Đã mở khóa Drone (UNLOCK)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Mở khóa giải phóng Drone (DB15.DBX0.1)"
                 >
                   🔓 Mở Khóa Drone
@@ -292,7 +330,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className="btn-manual-plc btn-plc-green"
                   onClick={() => handleCommand(startPlc, "Đã khởi động PLC (START_PLC)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Bật / Kích hoạt hệ thống PLC (DB15.DBX0.5)"
                 >
                   ▶️ Start PLC
@@ -301,7 +339,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className="btn-manual-plc btn-plc-red"
                   onClick={() => handleCommand(stopPlc, "Đã dừng PLC (STOP_PLC)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Dừng hệ thống PLC (DB15.DBX0.4)"
                 >
                   ⏹ Stop PLC
@@ -310,7 +348,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className="btn-manual-plc btn-plc-yellow"
                   onClick={() => handleCommand(resetPlc, "Đã reset lỗi PLC (RESET_PLC)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Reset cờ báo lỗi PLC (DB15.DBX0.6)"
                 >
                   🔄 Reset Lỗi
@@ -328,7 +366,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className="btn-manual-plc btn-plc-cyan"
                   onClick={() => handleCommand(() => executePlcCommand("STAFF_MODE_ENABLE"), "Đã bật Chế độ Nhân viên (STAFF_MODE_ENABLE)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Kích hoạt Staff Mode (DB15.DBX1.0 = 1)"
                 >
                   👷 Bật Staff Mode
@@ -337,7 +375,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className="btn-manual-plc"
                   onClick={() => handleCommand(() => executePlcCommand("STAFF_MODE_DISABLE"), "Đã tắt Chế độ Nhân viên (STAFF_MODE_DISABLE)")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Tắt Staff Mode, quay về Station Auto (DB15.DBX1.0 = 0)"
                 >
                   🛑 Tắt Staff Mode
@@ -346,7 +384,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className="btn-manual-plc"
                   onClick={() => handleCommand(() => executePlcCommand("STAFF_OUTBOUND_START"), "Bắt đầu chu trình xuất hàng ra băng tải")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Lệnh bắt đầu xuất hàng ra băng tải (DB15.DBX1.1)"
                 >
                   📦 Xuất Ra Băng Tải
@@ -355,7 +393,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                   type="button"
                   className="btn-manual-plc"
                   onClick={() => handleCommand(() => executePlcCommand("STAFF_INBOUND_START"), "Bắt đầu chu trình nhập hàng từ O1")}
-                  disabled={loading}
+                  disabled={isActionDisabled}
                   title="Lệnh bắt đầu nạp hàng từ O1 (DB15.DBX1.3)"
                 >
                   📥 Nhập Từ O1
@@ -375,7 +413,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                     type="button"
                     className={`btn-sensor-toggle ${droneDetected ? "active-detected" : ""}`}
                     onClick={() => handleCommand(() => setSimulatedDroneSensor(true), "Cảm biến: CÓ DRONE ĐÁP")}
-                    disabled={loading}
+                    disabled={isActionDisabled}
                   >
                     ● Có Drone
                   </button>
@@ -383,7 +421,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                     type="button"
                     className={`btn-sensor-toggle ${!droneDetected ? "active-empty" : ""}`}
                     onClick={() => handleCommand(() => setSimulatedDroneSensor(false), "Cảm biến: BÃI ĐÁP TRỐNG")}
-                    disabled={loading}
+                    disabled={isActionDisabled}
                   >
                     ○ Bãi Trống
                   </button>
@@ -397,7 +435,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                     type="button"
                     className={`btn-sensor-toggle ${!eStopOk ? "active-estop" : ""}`}
                     onClick={() => handleCommand(() => setSimulatedEmergencyStop(true), "CẢNH BÁO: Kích hoạt E-Stop thủ công!")}
-                    disabled={loading}
+                    disabled={isActionDisabled}
                   >
                     🛑 Kích Hoạt E-Stop
                   </button>
@@ -405,7 +443,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                     type="button"
                     className={`btn-sensor-toggle ${eStopOk ? "active-detected" : ""}`}
                     onClick={() => handleCommand(() => setSimulatedEmergencyStop(false), "E-Stop: Đã đưa về Bình thường")}
-                    disabled={loading}
+                    disabled={isActionDisabled}
                   >
                     ✅ E-Stop Bình Thường
                   </button>

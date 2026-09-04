@@ -223,6 +223,7 @@ export function useIntralogisticsWS() {
                     )
                   );
                 }
+                window.dispatchEvent(new CustomEvent("inventory_status", { detail: msg.data }));
                 break;
               case "STATION_STATUS":
                 setStationOp(msg.data as StationOperation);

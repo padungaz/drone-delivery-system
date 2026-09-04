@@ -204,28 +204,31 @@ async def system_resume_queue(session: AsyncSession = Depends(get_session)):
 
 @fleet_router.post("/api/system/reset-tasks")
 async def system_reset_tasks(session: AsyncSession = Depends(get_session)):
-    """Reset all active/in-progress tasks:
-    1. Reset Staff Operation (cancel outbound or stop inbound, status -> IDLE).
-    2. Cancel all RUNNING/PAUSED missions in DB and linked delivery requests.
-    3. Unlock station interlock (device_lock_manager.unlock_station()).
-    4. Reset Station Service status to IDLE.
-    5. Stop Camera if active.
-    6. Set Auto state to STANDBY.
-    7. Broadcast WebSocket updates for realtime UI sync.
+    """Reset all active/in-progress tasks to default state:
+    1. Clear temporary warehouse & staff queues (outbound_queue, temporary buffer, status -> IDLE).
+    2. Reset Robot to default (sends CANCEL/RESET to socket, MOVE_HOME, clears holding product/slot, state -> READY).
+    3. Reset PLC state (clear cancel/staff pulse bits, reset PLC faults, bring Z-axis to HOME level 0).
+    4. Cancel all RUNNING/PAUSED missions in DB, reset orphaned IN_TRANSIT products to IN_STOCK.
+    5. Unlock station interlocks (device_lock_manager.unlock_station()).
+    6. Reset Station Service status to IDLE and stop camera.
+    7. Force System Mode to STATION_AUTO and Auto state to STANDBY.
+    8. Broadcast WebSocket updates for realtime UI synchronization.
     """
     from datetime import datetime
     from sqlalchemy import select
-    from app.models.database import IntralogisticsMissionRecord, DeliveryRequestRecord
+    from app.models.database import IntralogisticsMissionRecord, DeliveryRequestRecord, ProductRecord
     from app.services.device_lock_manager import device_lock_manager
     from app.services.camera_manager import CameraManager
     from app.services.station_service import StationService
     from app.services.mission_queue_manager import MissionQueueManager
     from app.services.staff_operation_manager import staff_operation_manager
+    from app.services.robot_manager import RobotManager
+    from app.services.plc_manager import PLCManager
 
     now = datetime.utcnow()
     logger.info("🔄 [RESET_TASKS] Master Task Reset requested by Operator.")
 
-    # 1. Reset Staff Operation
+    # 1. Reset Staff Operation & Clear Temporary Warehouse / Queue
     staff_was_running = False
     try:
         if staff_operation_manager.status == "RUNNING" or staff_operation_manager._current_task:
@@ -245,17 +248,47 @@ async def system_reset_tasks(session: AsyncSession = Depends(get_session)):
     except Exception as staff_err:
         logger.warning("Error resetting staff operation: %s", staff_err)
     finally:
+        # Force clear all temporary queue and buffer
         staff_operation_manager.status = "IDLE"
         staff_operation_manager.active_type = None
         staff_operation_manager.inbound_current_count = 0
         staff_operation_manager.inbound_target_count = 0
         staff_operation_manager.inbound_current_slot = None
         staff_operation_manager.outbound_queue.clear()
+        staff_operation_manager.outbound_completed.clear()
         staff_operation_manager.outbound_current_slot = None
+        staff_operation_manager.last_scanned_qr = None
         staff_operation_manager._stop_requested = False
+        staff_operation_manager.message = "Đã xóa kho tạm và đưa phân hệ nhân viên về mặc định (IDLE)."
         await staff_operation_manager.broadcast_status()
 
-    # 2. Cancel all active RUNNING / PAUSED missions in Database
+    # 2. Reset FAIRINO Robot Arm to Default (CANCEL, RESET, MOVE_HOME, DO0 = 1)
+    robot_mgr = RobotManager.get_instance()
+    try:
+        await robot_mgr.reset_to_default()
+    except Exception as robot_err:
+        logger.warning("Error resetting robot to default: %s", robot_err)
+
+    # 3. Reset PLC State (Clear staff flags, lower Z to HOME level 0, reset PLC faults)
+    plc_mgr = PLCManager.get_instance()
+    try:
+        plc_mgr.cmd_staff_mode_enable = False
+        plc_mgr.cmd_staff_outbound_start = False
+        plc_mgr.cmd_staff_outbound_cancel = False
+        plc_mgr.cmd_staff_inbound_start = False
+        plc_mgr.cmd_staff_inbound_stop = False
+        plc_mgr.cmd_target_z = False
+        await plc_mgr.reset_plc()
+        # Bring Z axis to HOME level 0 if possible
+        try:
+            await plc_mgr.move_z_to_level(0)
+        except Exception:
+            pass
+        await system_ws_manager.broadcast("PLC_STATUS", plc_mgr.get_status().model_dump())
+    except Exception as plc_err:
+        logger.warning("Error resetting PLC flags: %s", plc_err)
+
+    # 4. Cancel all active RUNNING / PAUSED missions in Database and reset temporary IN_TRANSIT products
     stmt = select(IntralogisticsMissionRecord).where(
         IntralogisticsMissionRecord.status.in_(["RUNNING", "PAUSED"])
     )
@@ -280,33 +313,44 @@ async def system_reset_tasks(session: AsyncSession = Depends(get_session)):
             "reason": "OPERATOR_RESET",
         })
 
+    # Reset any product stuck in IN_TRANSIT back to IN_STOCK
+    try:
+        stmt_prod = select(ProductRecord).where(ProductRecord.status == "IN_TRANSIT")
+        res_prod = await session.execute(stmt_prod)
+        for p in res_prod.scalars().all():
+            p.status = "IN_STOCK"
+    except Exception as p_err:
+        logger.warning("Error resetting products in transit: %s", p_err)
+
     if cancelled_count > 0:
         await session.commit()
 
-    # 3. Reset Station Service & Device Lock
+    # 5. Reset Station Service & Device Lock
     station_svc = StationService.get_instance()
     station_svc.status = "IDLE"
     station_svc.current_operation = None
     station_svc.current_action = "READY"
-    station_svc.message = "Đã Reset trạng thái trạm về Chờ (IDLE)"
+    station_svc.product_id = None
+    station_svc.message = "Đã Reset toàn bộ hệ thống về mặc định (IDLE)"
 
     device_lock_manager.unlock_station()
 
-    # 4. Stop Camera if running
+    # 6. Stop Camera if running
     cam_mgr = CameraManager.get_instance()
     try:
         cam_mgr.stop_camera()
     except Exception:
         pass
 
-    # 5. Set System Auto state to STANDBY
+    # 7. Set System Mode to STATION_AUTO and Auto state to STANDBY
+    await system_mode_manager.set_operation_mode("STATION_AUTO")
     await system_mode_manager.set_auto_standby()
 
-    # 6. Broadcast all updates to WebSocket clients
+    # 8. Broadcast all updates to WebSocket clients
     await system_ws_manager.broadcast("STATION_STATUS", station_svc.get_status().model_dump())
     await system_ws_manager.broadcast("SYSTEM_ALERT", {
         "level": "INFO",
-        "message": f"🔄 Đã Reset hoàn tất: {cancelled_count} nhiệm vụ đã hủy, chế độ nhân viên và trạm đã về trạng thái Chờ (IDLE).",
+        "message": f"🔄 Đã Buộc Tất Cả Về Mặc Định: {cancelled_count} nhiệm vụ đã hủy, đã xóa kho tạm, Robot & PLC đã về vị trí HOME sẵn sàng.",
     })
 
     q_mgr = MissionQueueManager(session)
@@ -317,7 +361,10 @@ async def system_reset_tasks(session: AsyncSession = Depends(get_session)):
         "cancelled_missions": cancelled_count,
         "staff_reset": staff_was_running,
         "auto_state": "STANDBY",
+        "operation_mode": "STATION_AUTO",
+        "robot_state": "READY",
         "station_status": "IDLE",
-        "message": f"🔄 Đã Reset thành công! {cancelled_count} nhiệm vụ bị hủy, đưa trạm và nhân viên về trạng thái Chờ (IDLE).",
+        "message": f"🔄 Đã Reset thành công! Đã buộc tất cả về mặc định, xóa kho tạm, đưa Robot và PLC về HOME (IDLE).",
     }
+
 

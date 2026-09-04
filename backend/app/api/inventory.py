@@ -35,16 +35,10 @@ async def update_inventory_slot(
         status=req.status,
         product_id=req.product_id,
         qr_code=req.qr_code,
+        auto_broadcast=True,
     )
     if not updated:
         raise HTTPException(status_code=404, detail=f"Storage slot {slot_name} not found")
-
-    all_slots = await mgr.get_all_slots()
-    slots_data = [
-        StorageSlotResponse.model_validate(s, from_attributes=True).model_dump(mode="json")
-        for s in all_slots
-    ]
-    await system_ws_manager.broadcast("INVENTORY_STATUS", slots_data)
 
     return updated
 
@@ -57,16 +51,9 @@ async def clear_inventory_slot(
     session: AsyncSession = Depends(get_session),
 ):
     mgr = InventoryManager(session)
-    cleared = await mgr.clear_slot(slot_id)
+    cleared = await mgr.clear_slot(slot_id, auto_broadcast=True)
     if not cleared:
         raise HTTPException(status_code=404, detail=f"Storage slot '{slot_id}' not found")
-
-    all_slots = await mgr.get_all_slots()
-    slots_data = [
-        StorageSlotResponse.model_validate(s, from_attributes=True).model_dump(mode="json")
-        for s in all_slots
-    ]
-    await system_ws_manager.broadcast("INVENTORY_STATUS", slots_data)
 
     return cleared
 

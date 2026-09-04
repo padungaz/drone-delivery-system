@@ -553,3 +553,48 @@ class RobotManager:
             pass
 
         return status_res
+
+    async def reset_to_default(self) -> RobotStatusResponse:
+        """Reset FAIRINO Robot arm forcefully to default state:
+        1. Cancel any active motion lock or busy flags.
+        2. Signal done on pending event.
+        3. Send CANCEL and RESET down TCP socket (clearing PENDING_OPERATION and ESTOP/fault flags in Lua).
+        4. Request MOVE_HOME so Robot returns to safe HOME position (DO0 = 1).
+        5. Reset state variables: state="READY", current_slot=None, holding_product=None, _is_busy_moving=False.
+        6. Broadcast updated RobotStatusResponse.
+        """
+        logger.info("🔄 [RobotManager] Resetting FAIRINO Robot to default state...")
+        self._is_busy_moving = False
+        self._done_event.set()
+
+        if not self.simulator_mode:
+            try:
+                await self._send_socket_command("CANCEL", timeout=2.0)
+            except Exception as err:
+                logger.warning("Robot reset: Error sending CANCEL: %s", err)
+            try:
+                await self._send_socket_command("RESET", timeout=2.0)
+            except Exception as err:
+                logger.warning("Robot reset: Error sending RESET: %s", err)
+            try:
+                # Command robot back to HOME position
+                await self._send_socket_command("MOVE_HOME", timeout=5.0)
+            except Exception as err:
+                logger.warning("Robot reset: Error sending MOVE_HOME: %s", err)
+        else:
+            await asyncio.sleep(0.3)
+
+        self.state = "READY"
+        self.current_slot = None
+        self.holding_product = None
+        self._is_busy_moving = False
+
+        status_res = self.get_status()
+        try:
+            await system_ws_manager.broadcast("ROBOT_STATUS", status_res.model_dump())
+        except Exception:
+            pass
+
+        logger.info("✅ [RobotManager] FAIRINO Robot reset to default complete: State=%s, Pos=HOME", self.state)
+        return status_res
+

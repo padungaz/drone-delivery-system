@@ -133,6 +133,54 @@ export function StaffPortal({
     }
   }, [propStorageSlots]);
 
+  // Clear temporary slot selection on system reset or staff queue reset & Listen to inventory updates
+  useEffect(() => {
+    const handleStaffUpdate = (e: any) => {
+      if (e.detail?.outbound?.queue && e.detail.outbound.queue.length === 0 && e.detail.status === "IDLE") {
+        setSelectedSlotsToPick([]);
+      }
+    };
+    const handleSystemAlert = (e: any) => {
+      if (e.detail?.message && (e.detail.message.includes("Reset") || e.detail.message.includes("mặc định"))) {
+        setSelectedSlotsToPick([]);
+        fetchStatus();
+      }
+    };
+    const handleInventoryStatus = (e: any) => {
+      if (Array.isArray(e.detail)) {
+        setLocalSlots(e.detail);
+      } else if (e.detail?.slots && Array.isArray(e.detail.slots)) {
+        setLocalSlots(e.detail.slots);
+      } else if (e.detail?.slot_name) {
+        setLocalSlots((prev) =>
+          prev.map((s) => (s.slot_name === e.detail.slot_name ? { ...s, ...e.detail } : s))
+        );
+      }
+    };
+
+    window.addEventListener("staff_operation_update", handleStaffUpdate);
+    window.addEventListener("system_alert", handleSystemAlert);
+    window.addEventListener("inventory_status", handleInventoryStatus);
+
+    return () => {
+      window.removeEventListener("staff_operation_update", handleStaffUpdate);
+      window.removeEventListener("system_alert", handleSystemAlert);
+      window.removeEventListener("inventory_status", handleInventoryStatus);
+    };
+  }, [fetchStatus]);
+
+  // Auto deselect slots that became EMPTY from Outbound picking
+  useEffect(() => {
+    if (selectedSlotsToPick.length > 0) {
+      setSelectedSlotsToPick((prev) =>
+        prev.filter((slotName) => {
+          const slot = localSlots.find((s) => s.slot_name === slotName);
+          return slot && slot.status === "OCCUPIED" && Boolean(slot.product_id);
+        })
+      );
+    }
+  }, [localSlots]);
+
 
   // Toggle slot selection for Outbound
   const handleSlotClick = (slotName: string, isOccupied: boolean) => {
@@ -388,7 +436,9 @@ export function StaffPortal({
                       {isSymbolic ? (
                         <div className="slot-reserved-tag">DỰ PHÒNG</div>
                       ) : isCurrentOp ? (
-                        <div className="slot-motion-tag">🤖 ĐANG GẮP...</div>
+                        <div className="slot-motion-tag">
+                          {staffOp.active_type === "INBOUND" ? "📥 ĐANG CẤT..." : "🤖 ĐANG GẮP..."}
+                        </div>
                       ) : isOccupied ? (
                         <>
                           <div className="slot-prod-id">{slotData?.product_id || "SP_KHO"}</div>

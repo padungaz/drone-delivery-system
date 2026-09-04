@@ -4,12 +4,14 @@ interface Props {
   initialJoints?: number[];
   initialGripperState?: "OPEN" | "CLOSED";
   initialGripperForce?: number;
+  disabled?: boolean;
 }
 
 export function JointControlPanel({
   initialJoints = [-45.2, 32.1, -88.3, 90.0, 15.2, -18.0],
   initialGripperState = "OPEN",
   initialGripperForce = 80,
+  disabled = false,
 }: Props) {
   const [joints, setJoints] = useState<number[]>(initialJoints);
   const [gripperState, setGripperState] = useState<"OPEN" | "CLOSED">(
@@ -18,6 +20,7 @@ export function JointControlPanel({
   const [gripperForce] = useState<number>(initialGripperForce);
 
   const handleJointChange = (index: number, val: number) => {
+    if (disabled) return;
     const next = [...joints];
     next[index] = val;
     setJoints(next);
@@ -44,6 +47,7 @@ export function JointControlPanel({
                 max={180}
                 step={0.1}
                 value={val}
+                disabled={disabled}
                 onChange={(e) => handleJointChange(idx, parseFloat(e.target.value))}
                 className="joint-range-input"
               />
@@ -110,6 +114,8 @@ export function JointControlPanel({
               className={`btn-action-sm ${
                 gripperState === "OPEN" ? "btn-teal" : "btn-cyan"
               }`}
+              disabled={disabled}
+              title={disabled ? "Robot đang bận" : undefined}
               onClick={() =>
                 setGripperState(gripperState === "OPEN" ? "CLOSED" : "OPEN")
               }

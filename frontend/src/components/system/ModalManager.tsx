@@ -23,6 +23,7 @@ interface Props {
   onClose: () => void;
   onConfirmAction?: (payload: any) => void;
   onResetEStop?: () => void;
+  isRobotBusy?: boolean;
 }
 
 export function ModalManager({
@@ -31,6 +32,7 @@ export function ModalManager({
   onClose,
   onConfirmAction,
   onResetEStop,
+  isRobotBusy = false,
 }: Props) {
   if (!activeModal) return null;
 
@@ -44,6 +46,7 @@ export function ModalManager({
         status={modalData?.status}
         timeStored={modalData?.timeStored}
         missionRef={modalData?.missionRef}
+        isRobotBusy={isRobotBusy}
         onClose={onClose}
         onPick={() => {
           onClose();

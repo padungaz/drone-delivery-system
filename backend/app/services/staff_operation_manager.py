@@ -2,8 +2,10 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from sqlalchemy import select
 
 from app.database.repository import async_session
+from app.models.database import ProductRecord, StorageSlotRecord
 from app.models.schemas import RobotCommand, StorageSlotStatus, PLCCommand
 from app.services.camera_manager import CameraManager
 from app.services.device_lock_manager import device_lock_manager
@@ -277,6 +279,35 @@ class StaffOperationManager:
                     await self.log_event(f"❌ Lỗi Robot khi gắp ô {target_slot}: {str(e)}")
                     return
 
+                # Cập nhật CSDL kho ngay khi Robot gắp hàng ra khỏi ô: Ô chuyển sang TRỐNG (EMPTY)
+                async with async_session() as session:
+                    inv_mgr = InventoryManager(session)
+                    stmt_slot = select(StorageSlotRecord).where(StorageSlotRecord.slot_name == target_slot)
+                    res_slot = await session.execute(stmt_slot)
+                    slot_item = res_slot.scalar_one_or_none()
+                    item_prod_id = slot_item.product_id if slot_item else None
+
+                    await inv_mgr.update_slot(
+                        slot_name=target_slot,
+                        status=StorageSlotStatus.EMPTY,
+                        product_id=None,
+                        qr_code=None,
+                        auto_broadcast=True,
+                    )
+
+                    if item_prod_id:
+                        stmt_p = select(ProductRecord).where(ProductRecord.product_id == item_prod_id)
+                        res_p = await session.execute(stmt_p)
+                        prod_rec = res_p.scalar_one_or_none()
+                        if prod_rec:
+                            prod_rec.status = "EXPORTED"
+                            prod_rec.updated_at = datetime.utcnow()
+                            await session.commit()
+
+                await self.log_event(
+                    f"📦 [Cập nhật kho] Đã giải phóng ô {target_slot} thành TRỐNG (EMPTY) trên sơ đồ kho!"
+                )
+
                 # -------------------------------------------------------------
                 # Bước 7: Backend yêu cầu PLC đưa Z xuống tầng Băng tải O1
                 # -------------------------------------------------------------
@@ -302,16 +333,6 @@ class StaffOperationManager:
                     self.status = "ERROR"
                     await self.log_event(f"❌ Lỗi Robot khi đặt hàng xuống O1: {str(e)}")
                     return
-
-                # Backend cập nhật CSDL kho: Giải phóng ô kho thành EMPTY
-                async with async_session() as session:
-                    inv_mgr = InventoryManager(session)
-                    await inv_mgr.update_slot(
-                        slot_name=target_slot,
-                        status=StorageSlotStatus.EMPTY,
-                        product_id=None,
-                        qr_code=None,
-                    )
 
                 self.outbound_completed.append(target_slot)
                 self.outbound_queue.pop(0)
@@ -566,15 +587,41 @@ class StaffOperationManager:
                     await self.log_event(f"❌ Lỗi Robot khi cất vào ô {target_slot}: {str(e)}")
                     return
 
-                # Cập nhật CSDL kho: Gán ô kho thành OCCUPIED
+                # Cập nhật CSDL kho ngay khi Robot cất hàng vào ô: Ô chuyển sang CÓ HÀNG (OCCUPIED)
                 async with async_session() as session:
                     inv_mgr = InventoryManager(session)
+
+                    # 1. Đảm bảo ProductRecord tồn tại và ở trạng thái IN_STOCK
+                    stmt_p = select(ProductRecord).where(ProductRecord.product_id == prod_id)
+                    res_p = await session.execute(stmt_p)
+                    prod = res_p.scalar_one_or_none()
+                    if not prod:
+                        prod = ProductRecord(
+                            product_id=prod_id,
+                            product_name=f"Sản phẩm {prod_id}",
+                            qr_code=qr_code,
+                            status="IN_STOCK",
+                            created_at=datetime.utcnow(),
+                        )
+                        session.add(prod)
+                    else:
+                        prod.status = "IN_STOCK"
+                        prod.qr_code = qr_code
+                        prod.updated_at = datetime.utcnow()
+                    await session.commit()
+
+                    # 2. Cập nhật StorageSlotRecord và phát sóng ngay lập tức lên WebSockets
                     await inv_mgr.update_slot(
                         slot_name=target_slot,
                         status=StorageSlotStatus.OCCUPIED,
                         product_id=prod_id,
                         qr_code=qr_code,
+                        auto_broadcast=True,
                     )
+
+                await self.log_event(
+                    f"📥 [Cập nhật kho] Đã nạp thành công kiện {prod_id} vào ô {target_slot} -> Trạng thái: CÓ HÀNG (OCCUPIED)!"
+                )
 
                 self.inbound_current_count += 1
                 if self.plc_mgr.simulator_mode:
