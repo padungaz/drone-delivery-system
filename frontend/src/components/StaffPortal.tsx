@@ -188,6 +188,9 @@ export function StaffPortal({
 
   // Cancel Outbound Action
   const handleCancelOutbound = async () => {
+    if (!window.confirm("Bạn có chắc chắn muốn HỦY tiến trình lấy hàng không?")) {
+      return;
+    }
     setLoading(true);
     try {
       const res = await cancelStaffOutbound();
@@ -228,6 +231,9 @@ export function StaffPortal({
 
   // Stop Inbound Action
   const handleStopInbound = async () => {
+    if (!window.confirm("Bạn có chắc chắn muốn KẾT THÚC / DỪNG thêm hàng không?")) {
+      return;
+    }
     setLoading(true);
     try {
       const res = await stopStaffInbound();

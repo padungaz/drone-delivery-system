@@ -472,11 +472,12 @@ while true do
         print("📥 RX: " .. recv_data)
         local cmd, param, raw = ParseCommand(recv_data)
 
-        -- D.1: Phản hồi khi Backend báo không có ô khả dụng (Kho đầy / hết đơn)
-        if (cmd == "NONE" or cmd == "NO_SLOT" or cmd == "FULL") then
-            print("⚠️ Backend báo không có ô khả dụng: " .. tostring(cmd))
+        -- D.1: Phản hồi khi Backend báo HỦY thao tác / không có ô khả dụng (Kho đầy / hết đơn)
+        if (cmd == "CANCEL" or cmd == "ABORT" or cmd == "NONE" or cmd == "NO_SLOT" or cmd == "FULL") then
+            print("🛑 Backend báo HỦY thao tác / không có ô khả dụng: " .. tostring(cmd))
             PENDING_OPERATION = nil
             ROBOT_STATE = "IDLE"
+            SocketSend(socket_id, "SUCCESS CANCEL STATE:IDLE\n", 0)
 
         -- D.2: Lệnh gắp hàng (PICK / PICK_PRODUCT / Lệnh SLOT khi đang chờ Outbound)
         elseif cmd == "PICK" or cmd == "PICK_PRODUCT" or (cmd == "SLOT" and PENDING_OPERATION == "OUTBOUND") then

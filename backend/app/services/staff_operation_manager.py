@@ -156,10 +156,13 @@ class StaffOperationManager:
         device_lock_manager.lock_device("PLC01", locked_by="STAFF_OPERATION", reason="Nhân viên đang lấy hàng ra băng tải")
         device_lock_manager.lock_device("ROBOT01", locked_by="STAFF_OPERATION", reason="Nhân viên đang lấy hàng ra băng tải")
 
-        # 1. Ensure we switch system mode to STAFF_OPERATION
+        # 1. Reset cờ cancel/stop (DB15.DBX1.2 & 1.4) về 0 trước khi bắt đầu lấy hàng
+        await self.plc_mgr.clear_staff_cancel_bits()
+
+        # 2. Ensure we switch system mode to STAFF_OPERATION
         await system_mode_manager.set_operation_mode("STAFF_OPERATION")
 
-        # 2. Send Target Quantity & Outbound Start to PLC
+        # 3. Send Target Quantity & Outbound Start to PLC
         await self.plc_mgr.set_staff_target_count(target_count)
         await self.plc_mgr.execute_command(PLCCommand.STAFF_MODE_ENABLE)
         await self.plc_mgr.execute_command(PLCCommand.STAFF_OUTBOUND_START)
@@ -186,7 +189,15 @@ class StaffOperationManager:
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
 
+        # Gửi lệnh HỦY sang PLC (bật DB15.DBX1.2 = 1)
         await self.plc_mgr.execute_command(PLCCommand.STAFF_OUTBOUND_CANCEL)
+
+        # Gửi lệnh CANCEL xuống Robot để xóa cờ WAITING_SLOT và đưa Robot về IDLE an toàn
+        try:
+            await self.robot_mgr.execute_command(RobotCommand.CANCEL)
+        except Exception as e:
+            logger.warning("Không thể gửi CANCEL xuống Robot: %s", e)
+
         device_lock_manager.unlock_station()
         self.status = "CANCELLED"
         await self.log_event("🛑 Tiến trình lấy hàng đã bị hủy bởi nhân viên.")
@@ -354,9 +365,13 @@ class StaffOperationManager:
         device_lock_manager.lock_device("PLC01", locked_by="STAFF_OPERATION", reason="Nhân viên đang thêm hàng vào kho")
         device_lock_manager.lock_device("ROBOT01", locked_by="STAFF_OPERATION", reason="Nhân viên đang thêm hàng vào kho")
 
+        # 1. Reset cờ cancel/stop (DB15.DBX1.2 & 1.4) về 0 trước khi bắt đầu thêm hàng
+        await self.plc_mgr.clear_staff_cancel_bits()
+
+        # 2. Ensure we switch system mode to STAFF_OPERATION
         await system_mode_manager.set_operation_mode("STAFF_OPERATION")
 
-        # Enable Staff Mode & Inbound on PLC
+        # 3. Enable Staff Mode & Inbound on PLC
         await self.plc_mgr.execute_command(PLCCommand.STAFF_MODE_ENABLE)
         await self.plc_mgr.execute_command(PLCCommand.STAFF_INBOUND_START)
 
@@ -383,7 +398,15 @@ class StaffOperationManager:
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
 
+        # Gửi lệnh DỪNG sang PLC (bật DB15.DBX1.4 = 1)
         await self.plc_mgr.execute_command(PLCCommand.STAFF_INBOUND_STOP)
+
+        # Gửi lệnh CANCEL xuống Robot để xóa cờ WAITING_SLOT và đưa Robot về IDLE an toàn
+        try:
+            await self.robot_mgr.execute_command(RobotCommand.CANCEL)
+        except Exception as e:
+            logger.warning("Không thể gửi CANCEL xuống Robot: %s", e)
+
         device_lock_manager.unlock_station()
         self.status = "COMPLETED"
         await self.log_event(f"🏁 Nhân viên đã bấm Kết thúc nạp hàng (Tổng nạp: {self.inbound_current_count} sản phẩm).")

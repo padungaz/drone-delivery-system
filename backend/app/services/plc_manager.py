@@ -215,6 +215,8 @@ class PLCManager:
         self.staff_mode_active: bool = False     # DB15.DBX3.7
         self.staff_target_count: int = 0         # DB15.DBW4
         self.staff_current_count: int = 0        # DB15.DBW6
+        self.cmd_staff_outbound_cancel: bool = False  # DB15.DBX1.2 (Cờ lệnh Hủy xuất hàng)
+        self.cmd_staff_inbound_stop: bool = False     # DB15.DBX1.4 (Cờ lệnh Dừng nạp hàng)
 
         # Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7 + DB15.DBX0.2)
         self.cmd_target_z: bool = False          # DB15.DBX0.2 - Lệnh kích hoạt chạy trục Z
@@ -388,6 +390,11 @@ class PLCManager:
             self.staff_inbound_busy = get_bool(data, OFFSET_STAFF_INBOUND_BUSY[0], OFFSET_STAFF_INBOUND_BUSY[1])
             self.staff_inbound_done = get_bool(data, OFFSET_STAFF_INBOUND_DONE[0], OFFSET_STAFF_INBOUND_DONE[1])
             self.staff_mode_active = get_bool(data, OFFSET_STAFF_MODE_ACTIVE[0], OFFSET_STAFF_MODE_ACTIVE[1])
+
+            # Handshake: Nếu đã gửi Cancel/Stop (=1) mà PLC báo staff_mode_active == 0 -> Tự động reset cancel/stop về 0
+            if (self.cmd_staff_outbound_cancel or self.cmd_staff_inbound_stop) and not self.staff_mode_active:
+                logger.info("PLC Handshake: staff_mode_active = 0 sau khi gửi Cancel/Stop -> Reset cmd_staff_outbound_cancel và cmd_staff_inbound_stop về 0")
+                await self.clear_staff_cancel_bits()
 
             import struct
             if len(data) >= 8:
@@ -653,10 +660,12 @@ class PLCManager:
                     set_bool(cmd_data, 1, OFFSET_CMD_STAFF_OUT_START[1], True)
                 elif cmd == PLCCommand.STAFF_OUTBOUND_CANCEL:
                     set_bool(cmd_data, 1, OFFSET_CMD_STAFF_OUT_CANCEL[1], True)
+                    self.cmd_staff_outbound_cancel = True
                 elif cmd == PLCCommand.STAFF_INBOUND_START:
                     set_bool(cmd_data, 1, OFFSET_CMD_STAFF_IN_START[1], True)
                 elif cmd == PLCCommand.STAFF_INBOUND_STOP:
                     set_bool(cmd_data, 1, OFFSET_CMD_STAFF_IN_STOP[1], True)
+                    self.cmd_staff_inbound_stop = True
 
             await asyncio.to_thread(self._sync_db_write, 0, cmd_data)
 
@@ -675,8 +684,32 @@ class PLCManager:
                 set_bool(reset_data, 1, OFFSET_CMD_STAFF_OUT_CANCEL[1], False)
                 set_bool(reset_data, 1, OFFSET_CMD_STAFF_IN_START[1], False)
                 set_bool(reset_data, 1, OFFSET_CMD_STAFF_IN_STOP[1], False)
+                self.cmd_staff_outbound_cancel = False
+                self.cmd_staff_inbound_stop = False
 
             await asyncio.to_thread(self._sync_db_write, 0, reset_data)
+
+    async def clear_staff_cancel_bits(self) -> None:
+        """Atomically reset cmd_staff_outbound_cancel (DB15.DBX1.2) and cmd_staff_inbound_stop (DB15.DBX1.4) to False (0).
+        Được gọi:
+          1. Trước mỗi khi nhân viên bấm 📦 LẤY HÀNG (OUTBOUND) hoặc 📥 THÊM HÀNG (INBOUND).
+          2. Khi PLC xác nhận đã thoát Staff Mode (staff_mode_active = 0) sau khi gửi lệnh Cancel/Stop.
+        """
+        self.cmd_staff_outbound_cancel = False
+        self.cmd_staff_inbound_stop = False
+
+        if not self.simulator_mode and self.is_connected and self.client is not None:
+            try:
+                async with self._get_lock():
+                    reset_data = bytearray(await asyncio.to_thread(self._sync_db_read, 0, 2))
+                    set_bool(reset_data, 1, OFFSET_CMD_STAFF_OUT_CANCEL[1], False)
+                    set_bool(reset_data, 1, OFFSET_CMD_STAFF_IN_STOP[1], False)
+                    await asyncio.to_thread(self._sync_db_write, 0, reset_data)
+                logger.info("PLC Staff Bits: Đã reset cmd_staff_outbound_cancel và cmd_staff_inbound_stop về 0 (DB15.DBX1.2 = 0, DB15.DBX1.4 = 0)")
+            except Exception as err:
+                logger.error("Lỗi khi reset cờ cancel/stop trong DB15 Byte 1: %s", err)
+        else:
+            logger.debug("PLC [Sim]: Đã reset cmd_staff_outbound_cancel và cmd_staff_inbound_stop về False")
 
     async def _send_command_and_wait(
         self,
@@ -744,9 +777,9 @@ class PLCManager:
                     (cmd == PLCCommand.STAFF_MODE_ENABLE and staff_active) or
                     (cmd == PLCCommand.STAFF_MODE_DISABLE and not staff_active) or
                     (cmd == PLCCommand.STAFF_OUTBOUND_START and out_busy) or
-                    (cmd == PLCCommand.STAFF_OUTBOUND_CANCEL and not out_busy) or
+                    (cmd == PLCCommand.STAFF_OUTBOUND_CANCEL and (not out_busy or not staff_active)) or
                     (cmd == PLCCommand.STAFF_INBOUND_START and in_busy) or
-                    (cmd == PLCCommand.STAFF_INBOUND_STOP and not in_busy)
+                    (cmd == PLCCommand.STAFF_INBOUND_STOP and (not in_busy or not staff_active))
                 )
 
                 if is_target_reached:
@@ -830,6 +863,8 @@ class PLCManager:
             staff_mode_active=self.staff_mode_active,
             staff_target_count=self.staff_target_count,
             staff_current_count=self.staff_current_count,
+            cmd_staff_outbound_cancel=self.cmd_staff_outbound_cancel,
+            cmd_staff_inbound_stop=self.cmd_staff_inbound_stop,
             plc_z_in_position=self.plc_z_in_position,
             cmd_target_z=self.cmd_target_z,
             target_z_level=self.target_z_level,
@@ -980,7 +1015,9 @@ class PLCManager:
 
         elif cmd == PLCCommand.STAFF_OUTBOUND_CANCEL:
             self.staff_outbound_busy = False
-            logger.info("PLC [Sim]: Staff Outbound cycle cancelled")
+            self.staff_mode_active = False
+            self.cmd_staff_outbound_cancel = False
+            logger.info("PLC [Sim]: Staff Outbound cycle cancelled (staff_mode_active = False, cmd_staff_outbound_cancel = False)")
 
         elif cmd == PLCCommand.STAFF_INBOUND_START:
             self.staff_inbound_busy = True
@@ -990,7 +1027,9 @@ class PLCManager:
         elif cmd == PLCCommand.STAFF_INBOUND_STOP:
             self.staff_inbound_busy = False
             self.staff_inbound_done = True
-            logger.info("PLC [Sim]: Staff Inbound cycle stopped (staff_inbound_done = True)")
+            self.staff_mode_active = False
+            self.cmd_staff_inbound_stop = False
+            logger.info("PLC [Sim]: Staff Inbound cycle stopped (staff_mode_active = False, cmd_staff_inbound_stop = False)")
 
         status_res = self.get_status()
         try:

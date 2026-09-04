@@ -397,6 +397,8 @@ class PLCStatusResponse(BaseModel):
     staff_mode_active: bool = False    # DB15.DBX3.7 (Xác nhận PLC ở Chế độ Nhân viên)
     staff_target_count: int = 0        # DB15.DBW4 (Số lượng hàng Backend yêu cầu PLC)
     staff_current_count: int = 0       # DB15.DBW6 (Số lượng hàng PLC đã đếm được)
+    cmd_staff_outbound_cancel: bool = False # DB15.DBX1.2 (Lệnh Hủy xuất hàng)
+    cmd_staff_inbound_stop: bool = False    # DB15.DBX1.4 (Lệnh Dừng nạp hàng)
 
     # Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7 + DB15.DBX0.2)
     cmd_target_z: bool = False         # DB15.DBX0.2 (Lệnh kích hoạt chạy trục Z đến tầng DBW8)
@@ -418,6 +420,7 @@ class RobotCommand(str, Enum):
     SCAN_QR_POS = "SCAN_QR_POS"
     OPEN_GRIPPER = "OPEN_GRIPPER"
     CLOSE_GRIPPER = "CLOSE_GRIPPER"
+    CANCEL = "CANCEL"
 
     @classmethod
     def _missing_(cls, value: object):
@@ -432,6 +435,8 @@ class RobotCommand(str, Enum):
                 "OUTBOUND_CYCLE": cls.STORE,
                 "INBOUND": cls.PICK,
                 "INBOUND_CYCLE": cls.PICK,
+                "CANCEL": cls.CANCEL,
+                "ABORT": cls.CANCEL,
                 "SCAN_QR": cls.SCAN_QR_POS,
                 "SCAN_QR_POS": cls.SCAN_QR_POS,
                 "PICK_PAD": cls.PICK_UAV,

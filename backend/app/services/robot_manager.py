@@ -535,6 +535,16 @@ class RobotManager:
                 await self._send_socket_command("GRIPPER_CLOSE", timeout=10.0)
             logger.info("FAIRINO Robot: Gripper CLOSED (DONE)")
 
+        elif cmd == RobotCommand.CANCEL:
+            self.state = "READY"
+            self.current_slot = None
+            if self.simulator_mode:
+                await asyncio.sleep(0.2)
+                success = True
+            else:
+                success = await self._send_socket_command("CANCEL", timeout=3.0)
+            logger.info("FAIRINO Robot: CANCEL executed, returned to READY (DONE)")
+
         status_res = self.get_status()
         try:
             loop = asyncio.get_running_loop()
