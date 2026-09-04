@@ -144,6 +144,13 @@ export interface PLCState {
   target_z_level?: number;       // DB15.DBW8 (Mã tầng mục tiêu 0..4)
   current_z_level?: number;      // DB15.DBW8 (Mã tầng hiện tại)
 
+  // Staff Mode & Conveyor Commands & Status (DB15 Byte 1, Byte 3)
+  cmd_staff_outbound_cancel?: boolean;  // DB15.DBX1.2 (Lệnh Hủy xuất hàng)
+  cmd_staff_inbound_stop?: boolean;     // DB15.DBX1.4 (Lệnh Dừng nạp hàng)
+  staff_mode_active?: boolean;          // DB15.DBX3.7 (Xác nhận PLC ở Chế độ Nhân viên)
+  staff_outbound_busy?: boolean;        // DB15.DBX3.3 (PLC đang xuất hàng)
+  staff_inbound_busy?: boolean;         // DB15.DBX3.5 (PLC đang nhận hàng)
+
   // Derived convenience fields
   hatch_open: boolean;
   drone_landed_sensor: boolean;

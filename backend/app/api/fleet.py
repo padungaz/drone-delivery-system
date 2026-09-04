@@ -137,22 +137,11 @@ async def system_auto_start(session: AsyncSession = Depends(get_session)):
             detail="Không thể Khởi động Tự động Kho Trạm khi Nhân viên đang lấy hoặc thêm hàng! Vui lòng dừng hoặc chờ chu trình nhân viên hoàn tất."
         )
 
-    await system_ws_manager.broadcast("SYSTEM_ALERT", {
-        "level": "INFO",
-        "message": "⚡ Đang kiểm tra an toàn và kích hoạt PLC S7-1200 (Homing Trục Z & Khởi Động Trạm)...",
-    })
-
-    # 2. PLC Enable & Homing: Chỉ cần gửi lệnh START_PLC đến PLC, chương trình PLC tự động thực hiện chu trình về Home khi bắt đầu
-    try:
-        await plc_mgr.execute_command(PLCCommand.START_PLC)
-        plc_ok = True
-    except Exception as err:
-        logger.warning("PLC Start routine warning: %s", err)
-        plc_ok = False
-
+    # Bước 1 hoàn tất -> Bỏ qua Bước 2 (Không gửi lệnh START_PLC sang PLC S7-1200)
+    plc_ok = plc_mgr.is_connected or plc_mgr.simulator_mode
     robot_ok = robot_mgr.is_connected or robot_mgr.simulator_mode
 
-    # 3. Set state to RUNNING
+    # 3. Set state to RUNNING (Chuyển đổi trạng thái hệ thống sang AUTO RUNNING)
     await system_mode_manager.set_auto_running()
 
     # 4. FIFO Queue Dispatch

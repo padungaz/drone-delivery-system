@@ -192,7 +192,7 @@ export function SystemHeader({
               title={
                 operationMode === "STAFF_OPERATION"
                   ? "Bấm để kích hoạt Chế độ Kho Trạm (Drone) và chạy tự động hàng đợi FIFO"
-                  : "Kiểm tra tiền khởi động, đưa Robot về Home & chạy hàng đợi FIFO"
+                  : "Bấm để kích hoạt Chế độ Kho Trạm (Drone) và chạy tự động hàng đợi FIFO"
               }
             >
               <span className="action-icon">{isLoadingAuto ? "⏳" : "▶️"}</span>

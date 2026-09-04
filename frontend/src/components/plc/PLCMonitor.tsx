@@ -323,11 +323,11 @@ export const PLCMonitor = React.memo(function PLCMonitor({
               <div className="manual-group-label">
                 <span>👷 CHẾ ĐỘ NHÂN VIÊN & BĂNG TẢI (DB15 BYTE 1):</span>
               </div>
-              <div className="manual-btn-grid-4">
+              <div className="manual-btn-grid-3" style={{ marginBottom: "0.35rem" }}>
                 <button
                   type="button"
                   className="btn-manual-plc btn-plc-cyan"
-                  onClick={() => handleCommand(() => executePlcCommand("STAFF_MODE_ENABLE"), "Đã bật Chế độ Nhân viên (STAFF_MODE_ENABLE)")}
+                  onClick={() => handleCommand(() => executePlcCommand("STAFF_MODE_ENABLE"), "Đã bật Chế độ Nhân viên (STAFF_MODE_ENABLE - DB15.DBX1.0=1)")}
                   disabled={loading}
                   title="Kích hoạt Staff Mode (DB15.DBX1.0 = 1)"
                 >
@@ -336,16 +336,7 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                 <button
                   type="button"
                   className="btn-manual-plc"
-                  onClick={() => handleCommand(() => executePlcCommand("STAFF_MODE_DISABLE"), "Đã tắt Chế độ Nhân viên (STAFF_MODE_DISABLE)")}
-                  disabled={loading}
-                  title="Tắt Staff Mode, quay về Station Auto (DB15.DBX1.0 = 0)"
-                >
-                  🛑 Tắt Staff Mode
-                </button>
-                <button
-                  type="button"
-                  className="btn-manual-plc"
-                  onClick={() => handleCommand(() => executePlcCommand("STAFF_OUTBOUND_START"), "Bắt đầu chu trình xuất hàng ra băng tải")}
+                  onClick={() => handleCommand(() => executePlcCommand("STAFF_OUTBOUND_START"), "Bắt đầu chu trình xuất hàng ra băng tải (STAFF_OUTBOUND_START - DB15.DBX1.1=1)")}
                   disabled={loading}
                   title="Lệnh bắt đầu xuất hàng ra băng tải (DB15.DBX1.1)"
                 >
@@ -354,11 +345,40 @@ export const PLCMonitor = React.memo(function PLCMonitor({
                 <button
                   type="button"
                   className="btn-manual-plc"
-                  onClick={() => handleCommand(() => executePlcCommand("STAFF_INBOUND_START"), "Bắt đầu chu trình nhập hàng từ O1")}
+                  onClick={() => handleCommand(() => executePlcCommand("STAFF_INBOUND_START"), "Bắt đầu chu trình nhập hàng từ O1 (STAFF_INBOUND_START - DB15.DBX1.3=1)")}
                   disabled={loading}
                   title="Lệnh bắt đầu nạp hàng từ O1 (DB15.DBX1.3)"
                 >
                   📥 Nhập Từ O1
+                </button>
+              </div>
+              <div className="manual-btn-grid-3">
+                <button
+                  type="button"
+                  className="btn-manual-plc"
+                  onClick={() => handleCommand(() => executePlcCommand("STAFF_MODE_DISABLE"), "Đã tắt Chế độ Nhân viên (STAFF_MODE_DISABLE - DB15.DBX1.0=0)")}
+                  disabled={loading}
+                  title="Tắt Staff Mode, quay về Station Auto (DB15.DBX1.0 = 0)"
+                >
+                  🛑 Tắt Staff Mode
+                </button>
+                <button
+                  type="button"
+                  className="btn-manual-plc btn-plc-warn"
+                  onClick={() => handleCommand(() => executePlcCommand("STAFF_OUTBOUND_CANCEL"), "Đã kích hoạt Hủy xuất hàng (STAFF_OUTBOUND_CANCEL - DB15.DBX1.2=1)")}
+                  disabled={loading}
+                  title="Lệnh hủy chu trình xuất hàng ra băng tải (DB15.DBX1.2 = 1)"
+                >
+                  🛑 Hủy Xuất Hàng (DB1.2)
+                </button>
+                <button
+                  type="button"
+                  className="btn-manual-plc btn-plc-warn"
+                  onClick={() => handleCommand(() => executePlcCommand("STAFF_INBOUND_STOP"), "Đã kích hoạt Dừng thêm hàng (STAFF_INBOUND_STOP - DB15.DBX1.4=1)")}
+                  disabled={loading}
+                  title="Lệnh dừng chu trình nạp hàng từ O1 (DB15.DBX1.4 = 1)"
+                >
+                  🏁 Dừng Thêm Hàng (DB1.4)
                 </button>
               </div>
             </div>

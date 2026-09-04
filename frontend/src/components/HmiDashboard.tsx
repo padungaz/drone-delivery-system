@@ -161,7 +161,7 @@ export function HmiDashboard() {
   const handleStartAutoSystem = async () => {
     setIsLoadingAuto(true);
     try {
-      addLog("INFO", "⚡ Đang kiểm tra tiền khởi động, đưa Robot về Home & hạ thang Z...");
+      addLog("INFO", "⚡ Đang kiểm tra an toàn và khởi động Chế độ Kho Trạm Tự Động...");
       const res = await startSystemAuto();
       if (res.ok) {
         const data = await res.json();

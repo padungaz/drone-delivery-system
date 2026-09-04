@@ -217,6 +217,7 @@ class PLCManager:
         self.staff_current_count: int = 0        # DB15.DBW6
         self.cmd_staff_outbound_cancel: bool = False  # DB15.DBX1.2 (Cờ lệnh Hủy xuất hàng)
         self.cmd_staff_inbound_stop: bool = False     # DB15.DBX1.4 (Cờ lệnh Dừng nạp hàng)
+        self._last_cancel_time: float = 0.0           # Timestamp khi kích xung Cancel/Stop (giữ xung >= 1.0s)
 
         # Z-Axis Multi-Level Control (DB15.DBW8 + DB15.DBX2.7 + DB15.DBX0.2)
         self.cmd_target_z: bool = False          # DB15.DBX0.2 - Lệnh kích hoạt chạy trục Z
@@ -391,10 +392,11 @@ class PLCManager:
             self.staff_inbound_done = get_bool(data, OFFSET_STAFF_INBOUND_DONE[0], OFFSET_STAFF_INBOUND_DONE[1])
             self.staff_mode_active = get_bool(data, OFFSET_STAFF_MODE_ACTIVE[0], OFFSET_STAFF_MODE_ACTIVE[1])
 
-            # Handshake: Nếu đã gửi Cancel/Stop (=1) mà PLC báo staff_mode_active == 0 -> Tự động reset cancel/stop về 0
+            # Handshake: Nếu đã gửi Cancel/Stop (=1) mà PLC báo staff_mode_active == 0 -> Tự động reset cancel/stop về 0 sau khi giữ xung tối thiểu 1.0s
             if (self.cmd_staff_outbound_cancel or self.cmd_staff_inbound_stop) and not self.staff_mode_active:
-                logger.info("PLC Handshake: staff_mode_active = 0 sau khi gửi Cancel/Stop -> Reset cmd_staff_outbound_cancel và cmd_staff_inbound_stop về 0")
-                await self.clear_staff_cancel_bits()
+                if (time.time() - self._last_cancel_time) >= 1.0:
+                    logger.info("PLC Handshake: staff_mode_active = 0 sau khi giữ xung Cancel/Stop >= 1.0s -> Reset cmd_staff_outbound_cancel và cmd_staff_inbound_stop về 0")
+                    await self.clear_staff_cancel_bits()
 
             import struct
             if len(data) >= 8:
@@ -661,11 +663,13 @@ class PLCManager:
                 elif cmd == PLCCommand.STAFF_OUTBOUND_CANCEL:
                     set_bool(cmd_data, 1, OFFSET_CMD_STAFF_OUT_CANCEL[1], True)
                     self.cmd_staff_outbound_cancel = True
+                    self._last_cancel_time = time.time()
                 elif cmd == PLCCommand.STAFF_INBOUND_START:
                     set_bool(cmd_data, 1, OFFSET_CMD_STAFF_IN_START[1], True)
                 elif cmd == PLCCommand.STAFF_INBOUND_STOP:
                     set_bool(cmd_data, 1, OFFSET_CMD_STAFF_IN_STOP[1], True)
                     self.cmd_staff_inbound_stop = True
+                    self._last_cancel_time = time.time()
 
             await asyncio.to_thread(self._sync_db_write, 0, cmd_data)
 
@@ -783,12 +787,19 @@ class PLCManager:
                 )
 
                 if is_target_reached:
+                    # Enforce minimum pulse duration of 1.0s for cancel/stop commands
+                    if cmd in (PLCCommand.STAFF_OUTBOUND_CANCEL, PLCCommand.STAFF_INBOUND_STOP):
+                        if elapsed < 1.0:
+                            await asyncio.sleep(1.0 - elapsed)
                     logger.info("PLC Command %s COMPLETED (Status verified in %.1fs)", cmd.value, elapsed)
                     # Step 3: Clear pulse command bits in Byte 0 / Byte 1 atomically
                     await self._clear_pulse_bits(is_staff_cmd)
                     return True
 
-            # Timeout or aborted — clear pulse command bits anyway
+            # Timeout or aborted — enforce minimum pulse duration before clearing
+            if cmd in (PLCCommand.STAFF_OUTBOUND_CANCEL, PLCCommand.STAFF_INBOUND_STOP):
+                if (time.time() - start_time) < 1.0:
+                    await asyncio.sleep(1.0 - (time.time() - start_time))
             logger.warning("PLC Command: Timeout or aborted waiting for status flag on %s", cmd.value)
             await self._clear_pulse_bits(is_staff_cmd)
             return False
@@ -1016,8 +1027,10 @@ class PLCManager:
         elif cmd == PLCCommand.STAFF_OUTBOUND_CANCEL:
             self.staff_outbound_busy = False
             self.staff_mode_active = False
-            self.cmd_staff_outbound_cancel = False
-            logger.info("PLC [Sim]: Staff Outbound cycle cancelled (staff_mode_active = False, cmd_staff_outbound_cancel = False)")
+            self.cmd_staff_outbound_cancel = True
+            self._last_cancel_time = time.time()
+            logger.info("PLC [Sim]: Staff Outbound cycle cancelled (cmd_staff_outbound_cancel = True, pulse 1.0s)")
+            asyncio.create_task(self._delayed_clear_cancel_bit("cmd_staff_outbound_cancel", 1.0))
 
         elif cmd == PLCCommand.STAFF_INBOUND_START:
             self.staff_inbound_busy = True
@@ -1028,8 +1041,10 @@ class PLCManager:
             self.staff_inbound_busy = False
             self.staff_inbound_done = True
             self.staff_mode_active = False
-            self.cmd_staff_inbound_stop = False
-            logger.info("PLC [Sim]: Staff Inbound cycle stopped (staff_mode_active = False, cmd_staff_inbound_stop = False)")
+            self.cmd_staff_inbound_stop = True
+            self._last_cancel_time = time.time()
+            logger.info("PLC [Sim]: Staff Inbound cycle stopped (cmd_staff_inbound_stop = True, pulse 1.0s)")
+            asyncio.create_task(self._delayed_clear_cancel_bit("cmd_staff_inbound_stop", 1.0))
 
         status_res = self.get_status()
         try:
@@ -1039,6 +1054,17 @@ class PLCManager:
             pass
 
         return status_res
+
+    async def _delayed_clear_cancel_bit(self, bit_name: str, delay_sec: float = 1.0) -> None:
+        """Helper to clear pulse bits after delay in simulator mode."""
+        await asyncio.sleep(delay_sec)
+        setattr(self, bit_name, False)
+        status_res = self.get_status()
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(system_ws_manager.broadcast("PLC_STATUS", status_res.model_dump()))
+        except RuntimeError:
+            pass
 
     async def wait_for_status(
         self,

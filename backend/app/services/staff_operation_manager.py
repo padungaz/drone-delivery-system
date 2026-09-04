@@ -240,9 +240,9 @@ class StaffOperationManager:
         return self.get_status()
 
     async def cancel_outbound(self) -> Dict[str, Any]:
-        if self.status != "RUNNING":
-            return self.get_status()
-
+        """Cancel or forcibly stop Outbound picking process.
+        ALWAYS sends STAFF_OUTBOUND_CANCEL (DB15.DBX1.2 = 1) to PLC regardless of backend status.
+        """
         self._stop_requested = True
         try:
             self._robot_ready_queue.put_nowait(False)
@@ -266,8 +266,11 @@ class StaffOperationManager:
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
 
-        # Gửi lệnh HỦY sang PLC (bật DB15.DBX1.2 = 1)
-        await self.plc_mgr.execute_command(PLCCommand.STAFF_OUTBOUND_CANCEL)
+        # Luôn gửi lệnh HỦY sang PLC (kích xung DB15.DBX1.2 = 1) bất kể trạng thái Backend
+        try:
+            await self.plc_mgr.execute_command(PLCCommand.STAFF_OUTBOUND_CANCEL)
+        except Exception as e:
+            logger.error("Lỗi khi gửi STAFF_OUTBOUND_CANCEL sang PLC: %s", e)
 
         # Gửi lệnh CANCEL xuống Robot để xóa cờ WAITING_SLOT và đưa Robot về IDLE an toàn
         try:
@@ -278,7 +281,7 @@ class StaffOperationManager:
         self._holding_product_info = None
         device_lock_manager.unlock_station()
         self.status = "CANCELLED"
-        await self.log_event("🛑 Tiến trình lấy hàng đã bị hủy bởi nhân viên.")
+        await self.log_event("🛑 Tiến trình lấy hàng đã bị hủy / cưỡng bức dừng bởi nhân viên (Đã gửi DB15.DBX1.2 sang PLC).")
         return self.get_status()
 
     async def _run_outbound_loop(self) -> None:
@@ -532,9 +535,9 @@ class StaffOperationManager:
         return self.get_status()
 
     async def stop_inbound(self) -> Dict[str, Any]:
-        if self.status != "RUNNING":
-            return self.get_status()
-
+        """Stop or forcibly terminate Inbound storing process.
+        ALWAYS sends STAFF_INBOUND_STOP (DB15.DBX1.4 = 1) to PLC regardless of backend status.
+        """
         self._stop_requested = True
         try:
             self._inbound_ready_queue.put_nowait(False)
@@ -557,8 +560,11 @@ class StaffOperationManager:
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
 
-        # Gửi lệnh DỪNG sang PLC (bật DB15.DBX1.4 = 1)
-        await self.plc_mgr.execute_command(PLCCommand.STAFF_INBOUND_STOP)
+        # Luôn gửi lệnh DỪNG sang PLC (kích xung DB15.DBX1.4 = 1) bất kể trạng thái Backend
+        try:
+            await self.plc_mgr.execute_command(PLCCommand.STAFF_INBOUND_STOP)
+        except Exception as e:
+            logger.error("Lỗi khi gửi STAFF_INBOUND_STOP sang PLC: %s", e)
 
         # Gửi lệnh CANCEL xuống Robot để xóa cờ WAITING_SLOT và đưa Robot về IDLE an toàn
         try:
@@ -569,7 +575,7 @@ class StaffOperationManager:
         self._holding_product_info = None
         device_lock_manager.unlock_station()
         self.status = "COMPLETED"
-        await self.log_event(f"🏁 Nhân viên đã bấm Kết thúc nạp hàng (Tổng nạp: {self.inbound_current_count} sản phẩm).")
+        await self.log_event(f"🏁 Nhân viên đã bấm Kết thúc / Cưỡng bức dừng nạp hàng (Đã gửi DB15.DBX1.4 sang PLC, Tổng nạp: {self.inbound_current_count} sản phẩm).")
         return self.get_status()
 
     async def _run_inbound_loop(self) -> None:
