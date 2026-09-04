@@ -55,6 +55,9 @@ local socket_id = 1
 local ROBOT_STATE    = "IDLE"    -- "IDLE", "WAITING_SLOT", "MOVING", "ERROR", "ESTOP"
 local CURRENT_POS    = "HOME"    -- Lưu vị trí hiện tại của Robot
 local STOP_REQUESTED = false     -- Cờ yêu cầu dừng khẩn cấp
+local IS_HOLDING_PRODUCT = false -- [Issue #12] Cờ theo dõi Robot đang kẹp hàng
+local PENDING_DI1    = false     -- [Issue #4] Bộ đệm giữ xung DI1 khi Robot đang bận
+local PENDING_DI2    = false     -- [Issue #4] Bộ đệm giữ xung DI2 khi Robot đang bận
 
 -- Cờ chờ Backend chỉ định ô (non-blocking, thay thế SocketReceive timeout 3000ms)
 -- Giá trị: nil | "OUTBOUND" | "INBOUND"
@@ -94,7 +97,7 @@ SafeSetDO(2, 0)   -- DO2 = Logic 0 (không xung)
 function PulseOutboundO1CompleteToPLC()
     print("⚡ Pulse DO1 -> PLC: Robot đã hoàn tất O1 -> PLC chạy băng tải & đếm số lượng")
     SafeSetDO(1, 1)    -- Logic 1: xung lên
-    sleep_ms(250)
+    sleep_ms(500)      -- [Issue #8] Tăng lên 500ms đảm bảo PLC S7-1200 quét bắt kịp xung
     SafeSetDO(1, 0)    -- Logic 0: trả về mức nghỉ
 end
 
@@ -102,7 +105,7 @@ end
 function PulseInboundStoreCompleteToPLC(slot)
     print("⚡ Pulse DO2 -> PLC: Robot đã hoàn tất cất vào kho [" .. tostring(slot) .. "] -> PLC đếm nạp")
     SafeSetDO(2, 1)    -- Logic 1: xung lên
-    sleep_ms(300)
+    sleep_ms(500)      -- [Issue #8] Tăng lên 500ms đảm bảo PLC S7-1200 quét bắt kịp xung
     SafeSetDO(2, 0)    -- Logic 0: trả về mức nghỉ
 end
 
@@ -112,6 +115,8 @@ function Execute_Stop()
     STOP_REQUESTED    = true
     ROBOT_STATE       = "ESTOP"
     PENDING_OPERATION = nil
+    PENDING_DI1       = false
+    PENDING_DI2       = false
     StopMotion()
     SafeSetDO(0, 0)   -- Xóa HOME OK
     SafeSetDO(1, 0)   -- Tắt xung DO1
@@ -125,6 +130,8 @@ function Execute_ResetFault()
     print("🔄 Resetting Robot Fault / E-Stop...")
     STOP_REQUESTED    = false
     PENDING_OPERATION = nil
+    PENDING_DI1       = false
+    PENDING_DI2       = false
     ROBOT_STATE       = "IDLE"
     return true
 end
@@ -221,7 +228,8 @@ function PickFromSlot(slot)
         PTP(O1, 20, -1, 0)
         sleep_ms(300)
         PTP(O1, 25, -1, 1, -50, 0, 0, 0, 0, 0)
-        -- Đã gắp xong tại O1, nhấc lên thoát mặt băng tải, sẵn sàng quét QR hoặc nâng Z
+        -- [Issue #14] Rút hẳn tay kẹp về HOME_O1 an toàn trước khi trục Z nâng/hạ
+        PTP(HOME_O1, 25, -1, 0)
 
     else
         print("❌ [PICK] Slot khong hop le: " .. tostring(slot))
@@ -231,6 +239,7 @@ function PickFromSlot(slot)
 
     if STOP_REQUESTED then return false end
     CURRENT_POS = slot
+    IS_HOLDING_PRODUCT = true  -- [Issue #12] Đã gắp hàng thành công
     ROBOT_STATE = "IDLE"
     print("✅ [PICK] Hoan tat gap hang tai o: " .. slot)
     return true
@@ -336,6 +345,7 @@ function PlaceToSlot(slot)
 
     if STOP_REQUESTED then return false end
     CURRENT_POS = slot
+    IS_HOLDING_PRODUCT = false  -- [Issue #12] Đã thả hàng thành công
     ROBOT_STATE = "IDLE"
     print("✅ [PLACE] Hoan tat tha hang tai o: " .. slot)
     return true
@@ -439,7 +449,8 @@ while true do
             SocketSend(socket_id, "ROBOT_READY\n", 0)
             print("📤 Đã gửi ROBOT_READY -> Chờ Backend điều phối ô cần lấy...")
         else
-            print(string.format("⚠️ DI1 kích hoạt nhưng Robot đang bận: %s (Pos: %s)", ROBOT_STATE, CURRENT_POS))
+            print(string.format("⚠️ DI1 kích hoạt nhưng Robot đang bận: %s (Pos: %s) -> Lưu vào bộ đệm PENDING_DI1", ROBOT_STATE, CURRENT_POS))
+            PENDING_DI1 = true
         end
     end
 
@@ -455,7 +466,8 @@ while true do
             SocketSend(socket_id, "ROBOT_INBOUND_READY\n", 0)
             print("📤 Đã gửi ROBOT_INBOUND_READY -> Chờ Backend phân bổ ô và điều phối...")
         else
-            print(string.format("⚠️ DI2 kích hoạt nhưng Robot đang bận (State: %s, Pos: %s)", ROBOT_STATE, CURRENT_POS))
+            print(string.format("⚠️ DI2 kích hoạt nhưng Robot đang bận (State: %s, Pos: %s) -> Lưu vào bộ đệm PENDING_DI2", ROBOT_STATE, CURRENT_POS))
+            PENDING_DI2 = true
         end
     end
 
@@ -463,6 +475,23 @@ while true do
     prev_di0 = current_di0
     prev_di1 = current_di1
     prev_di2 = current_di2
+
+    -- [Issue #4] Kiểm tra bộ đệm xung DI1/DI2 khi Robot đã trở về IDLE an toàn
+    if (ROBOT_STATE == "IDLE") and PENDING_OPERATION == nil then
+        if PENDING_DI1 then
+            PENDING_DI1 = false
+            print("⚡ [BUFFERED] Kích hoạt DI1 đang chờ trong bộ đệm -> Gửi ROBOT_READY về Backend...")
+            PENDING_OPERATION = "OUTBOUND"
+            ROBOT_STATE = "WAITING_SLOT"
+            SocketSend(socket_id, "ROBOT_READY\n", 0)
+        elseif PENDING_DI2 then
+            PENDING_DI2 = false
+            print("⚡ [BUFFERED] Kích hoạt DI2 đang chờ trong bộ đệm -> Gửi ROBOT_INBOUND_READY về Backend...")
+            PENDING_OPERATION = "INBOUND"
+            ROBOT_STATE = "WAITING_SLOT"
+            SocketSend(socket_id, "ROBOT_INBOUND_READY\n", 0)
+        end
+    end
 
     -- =========================================================
     -- D. XỬ LÝ LỆNH SOCKET TỪ BACKEND (100ms timeout)
@@ -475,6 +504,9 @@ while true do
         -- D.1: Phản hồi khi Backend báo HỦY thao tác / không có ô khả dụng (Kho đầy / hết đơn)
         if (cmd == "CANCEL" or cmd == "ABORT" or cmd == "NONE" or cmd == "NO_SLOT" or cmd == "FULL") then
             print("🛑 Backend báo HỦY thao tác / không có ô khả dụng: " .. tostring(cmd))
+            if IS_HOLDING_PRODUCT then
+                print("⚠️ CẢNH BÁO: Nhận lệnh CANCEL khi Robot vẫn đang kẹp hàng! Giữ nguyên kẹp đóng để tránh rơi rớt kiện hàng.")
+            end
             PENDING_OPERATION = nil
             ROBOT_STATE = "IDLE"
             SocketSend(socket_id, "SUCCESS CANCEL STATE:IDLE\n", 0)
@@ -517,9 +549,14 @@ while true do
         elseif cmd == "STATUS" or cmd == "GET_STATUS" then
             local is_busy = (ROBOT_STATE ~= "IDLE" and ROBOT_STATE ~= "WAITING_SLOT") and "TRUE" or "FALSE"
             local pend    = PENDING_OPERATION or "NONE"
-            local status_resp = string.format("STATE:%s BUSY:%s POSITION:%s PENDING:%s\n",
-                                              ROBOT_STATE, is_busy, CURRENT_POS, pend)
+            local is_hold = IS_HOLDING_PRODUCT and "TRUE" or "FALSE"
+            local status_resp = string.format("STATE:%s BUSY:%s POSITION:%s PENDING:%s HOLDING:%s\n",
+                                              ROBOT_STATE, is_busy, CURRENT_POS, pend, is_hold)
             SocketSend(socket_id, status_resp, 0)
+
+        -- [Issue #11] D.4b: Lệnh Heartbeat Ping từ Backend
+        elseif cmd == "PING" then
+            SocketSend(socket_id, "PONG\n", 0)
 
         -- D.5: Lệnh dừng khẩn cấp (STOP / ESTOP)
         elseif cmd == "STOP" or cmd == "ESTOP" then

@@ -153,23 +153,7 @@ class RobotManager:
                 elif line_upper.startswith("ROBOT_INBOUND_READY") or line_upper.startswith("REQUEST_STORE_SLOT"):
                     await self._handle_robot_store_request()
 
-                # 3. Handle Robot Pick Complete notification
-                elif line_upper.startswith("DONE_PICK") or line_upper.startswith("SUCCESS PICK"):
-                    parts = line.split()
-                    slot = parts[1] if len(parts) > 1 and parts[1] != "PICK" else (parts[2] if len(parts) > 2 else "")
-                    await self._handle_robot_pick_done(slot)
-                    if self._pending_response_future and not self._pending_response_future.done():
-                        self._pending_response_future.set_result(line)
-
-                # 4. Handle Robot Store Complete notification
-                elif line_upper.startswith("DONE_STORE") or line_upper.startswith("SUCCESS STORE"):
-                    parts = line.split()
-                    slot = parts[1] if len(parts) > 1 and parts[1] != "STORE" else (parts[2] if len(parts) > 2 else "")
-                    await self._handle_robot_store_done(slot)
-                    if self._pending_response_future and not self._pending_response_future.done():
-                        self._pending_response_future.set_result(line)
-
-                # 5. Handle Responses for command callers
+                # 3. Handle Robot Responses (SUCCESS PICK, SUCCESS STORE, DONE, etc.) for command callers
                 elif self._pending_response_future and not self._pending_response_future.done():
                     self._pending_response_future.set_result(line)
 
@@ -191,18 +175,16 @@ class RobotManager:
                 staff_operation_manager.notify_robot_ready()
                 return
 
-            async with async_session() as session:
-                inv_mgr = InventoryManager(session)
-                occupied = await inv_mgr.get_occupied_slots()
-                if occupied:
-                    target_slot = occupied[0].slot_name
-                    logger.info("FAIRINO Robot: Auto-assigning PICK slot '%s'", target_slot)
-                    await self._send_raw_socket_reply(f"PICK {target_slot}\n")
-                else:
-                    logger.warning("FAIRINO Robot requested PICK slot, but warehouse is empty.")
-                    await self._send_raw_socket_reply("NONE\n")
+            # [Issue #6] Chặn Fallback tự gắp: Tuyệt đối không tự ý gắp khi không ở Staff RUNNING
+            # vì thiếu điều phối vị trí trục Z dẫn tới va chạm cơ khí nghiêm trọng!
+            logger.warning(
+                "FAIRINO Robot [DI1 Event]: Nhận ROBOT_READY nhưng Staff Outbound không RUNNING (status=%s, type=%s). "
+                "Gửi NONE để Robot chờ điều phối, tuyệt đối không tự gắp sai tầng!",
+                staff_operation_manager.status, staff_operation_manager.active_type
+            )
+            await self._send_raw_socket_reply("NONE\n")
         except Exception as err:
-            logger.error("Failed to handle REQUEST_PICK_SLOT: %s", err)
+            logger.error("Failed to handle REQUEST_PICK_SLOT / ROBOT_READY: %s", err)
             await self._send_raw_socket_reply("NONE\n")
 
     async def _handle_robot_store_request(self) -> None:
@@ -215,65 +197,17 @@ class RobotManager:
                 staff_operation_manager.notify_inbound_ready()
                 return
 
-            async with async_session() as session:
-                inv_mgr = InventoryManager(session)
-                free_slot = await inv_mgr.find_available_slot()
-                if free_slot:
-                    target_slot = free_slot.slot_name
-                    logger.info("FAIRINO Robot: Auto-assigning STORE slot '%s'", target_slot)
-                    await self._send_raw_socket_reply(f"STORE {target_slot}\n")
-                else:
-                    logger.warning("FAIRINO Robot requested STORE slot, but warehouse is FULL.")
-                    await self._send_raw_socket_reply("FULL\n")
+            # [Issue #6] Chặn Fallback tự cất: Tuyệt đối không tự ý cất khi không ở Staff RUNNING
+            logger.warning(
+                "FAIRINO Robot [DI2 Event]: Nhận ROBOT_INBOUND_READY nhưng Staff Inbound không RUNNING (status=%s, type=%s). "
+                "Gửi FULL để Robot chờ điều phối, tuyệt đối không tự cất sai tầng!",
+                staff_operation_manager.status, staff_operation_manager.active_type
+            )
+            await self._send_raw_socket_reply("FULL\n")
         except Exception as err:
             logger.error("Failed to handle REQUEST_STORE_SLOT / ROBOT_INBOUND_READY: %s", err)
             await self._send_raw_socket_reply("FULL\n")
 
-    async def _handle_robot_pick_done(self, slot: str) -> None:
-        logger.info("FAIRINO Robot reports DONE_PICK for slot '%s'", slot)
-        if slot:
-            try:
-                async with async_session() as session:
-                    inv_mgr = InventoryManager(session)
-                    await inv_mgr.update_slot(slot_name=slot, status=StorageSlotStatus.EMPTY, product_id=None, qr_code=None)
-                    all_slots = await inv_mgr.get_all_slots()
-                    slots_data = [
-                        {
-                            "id": s.id,
-                            "slot_name": s.slot_name,
-                            "status": s.status,
-                            "product_id": s.product_id,
-                            "qr_code": s.qr_code,
-                            "is_empty": s.status == StorageSlotStatus.EMPTY.value or not s.product_id,
-                        }
-                        for s in all_slots
-                    ]
-                    await system_ws_manager.broadcast("STORAGE_UPDATE", {"slots": slots_data})
-            except Exception as err:
-                logger.error("Error updating slot after DONE_PICK: %s", err)
-
-    async def _handle_robot_store_done(self, slot: str) -> None:
-        logger.info("FAIRINO Robot reports DONE_STORE for slot '%s'", slot)
-        if slot:
-            try:
-                async with async_session() as session:
-                    inv_mgr = InventoryManager(session)
-                    await inv_mgr.update_slot(slot_name=slot, status=StorageSlotStatus.OCCUPIED, product_id=f"PROD_{slot}")
-                    all_slots = await inv_mgr.get_all_slots()
-                    slots_data = [
-                        {
-                            "id": s.id,
-                            "slot_name": s.slot_name,
-                            "status": s.status,
-                            "product_id": s.product_id,
-                            "qr_code": s.qr_code,
-                            "is_empty": s.status == StorageSlotStatus.EMPTY.value or not s.product_id,
-                        }
-                        for s in all_slots
-                    ]
-                    await system_ws_manager.broadcast("STORAGE_UPDATE", {"slots": slots_data})
-            except Exception as err:
-                logger.error("Error updating slot after DONE_STORE: %s", err)
 
     async def _send_raw_socket_reply(self, text: str) -> None:
         if self._writer and not self._writer.is_closing():

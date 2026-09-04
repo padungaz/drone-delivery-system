@@ -89,10 +89,23 @@ class DeviceLockManager:
             return st_lock.get("mission_id")
         return self._locks.get(dev, {}).get("mission_id")
 
+    def get_lock_description(self, device_name: str = "STATION") -> str:
+        dev = device_name.upper().strip()
+        lock = self._locks.get("STATION") if self._locks.get("STATION", {}).get("locked") else self._locks.get(dev, {})
+        if not lock or not lock.get("locked"):
+            return ""
+        locked_by = lock.get("locked_by") or "Hệ thống"
+        mission_id = lock.get("mission_id")
+        reason = lock.get("reason")
+        if mission_id:
+            return f"{locked_by} (Nhiệm vụ #{mission_id})"
+        return f"{locked_by} ({reason})" if reason else str(locked_by)
+
     def get_lock_status(self) -> Dict[str, Any]:
         return {
             "station_locked": self.is_station_busy(),
             "station_locking_mission_id": self.get_locking_mission_id("STATION"),
+            "station_lock_description": self.get_lock_description("STATION"),
             "devices": self._locks,
         }
 
