@@ -10,7 +10,6 @@ interface Props {
   onPick?: (slotId: string) => void;
   onStore?: (slotId: string) => void;
   onClear?: (slotId: string) => void;
-  isRobotBusy?: boolean;
 }
 
 export function SlotDetailModal({
@@ -25,7 +24,6 @@ export function SlotDetailModal({
   onPick,
   onStore,
   onClear,
-  isRobotBusy = false,
 }: Props) {
   if (!isOpen) return null;
 
@@ -72,8 +70,6 @@ export function SlotDetailModal({
             <button
               type="button"
               className="btn-hmi btn-green"
-              disabled={isRobotBusy}
-              title={isRobotBusy ? "Robot đang bận" : undefined}
               onClick={() => onPick(slotId)}
             >
               📦 PICK
@@ -83,8 +79,6 @@ export function SlotDetailModal({
             <button
               type="button"
               className="btn-hmi btn-orange"
-              disabled={isRobotBusy}
-              title={isRobotBusy ? "Robot đang bận" : undefined}
               onClick={() => onStore(slotId)}
             >
               📥 STORE

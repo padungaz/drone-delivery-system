@@ -52,16 +52,6 @@ async def execute_robot_command(req: RobotCommandRequest):
             detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
         )
 
-    mgr = RobotManager.get_instance()
-    # Check if robot is already running a motion cycle (allow CANCEL/STOP)
-    if (mgr.state in ("MOVING", "PICKING", "PLACING", "BUSY") or mgr._is_busy_moving) and req.command not in (
-        RobotCommand.CANCEL,
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail=f"⚠️ Robot đang trong hành trình chuyển động ({mgr.state})! Không thể nhận lệnh thao tác mới lúc này.",
-        )
-
     # Khóa an toàn liên động Trục Z (Cách B)
     if req.command in (
         RobotCommand.PICK,
@@ -71,6 +61,7 @@ async def execute_robot_command(req: RobotCommandRequest):
     ) and req.slot:
         check_z_axis_precondition(req.slot)
 
+    mgr = RobotManager.get_instance()
     status = await mgr.execute_command(req.command, slot=req.slot)
 
     # Broadcast Robot status to realtime WebSocket
@@ -86,16 +77,10 @@ async def robot_pick(req: RobotSlotRequest):
             detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
         )
 
-    mgr = RobotManager.get_instance()
-    if mgr.state in ("MOVING", "PICKING", "PLACING", "BUSY") or mgr._is_busy_moving:
-        raise HTTPException(
-            status_code=409,
-            detail=f"⚠️ Robot đang trong hành trình chuyển động ({mgr.state})! Không thể nhận lệnh gắp mới lúc này.",
-        )
-
     # Khóa an toàn liên động Trục Z (Cách B)
     check_z_axis_precondition(req.slot)
 
+    mgr = RobotManager.get_instance()
     status = await mgr.execute_command(RobotCommand.PICK, slot=req.slot)
 
     await system_ws_manager.broadcast("ROBOT_STATUS", status.model_dump())
@@ -113,16 +98,10 @@ async def robot_store(req: RobotSlotRequest):
             detail=f"Robot đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('ROBOT01')}! Vui lòng không can thiệp thủ công."
         )
 
-    mgr = RobotManager.get_instance()
-    if mgr.state in ("MOVING", "PICKING", "PLACING", "BUSY") or mgr._is_busy_moving:
-        raise HTTPException(
-            status_code=409,
-            detail=f"⚠️ Robot đang trong hành trình chuyển động ({mgr.state})! Không thể nhận lệnh cất mới lúc này.",
-        )
-
     # Khóa an toàn liên động Trục Z (Cách B)
     check_z_axis_precondition(req.slot)
 
+    mgr = RobotManager.get_instance()
     status = await mgr.execute_command(RobotCommand.STORE, slot=req.slot)
 
     await system_ws_manager.broadcast("ROBOT_STATUS", status.model_dump())

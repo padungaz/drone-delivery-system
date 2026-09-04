@@ -15,7 +15,6 @@ interface Props {
   zInPosition?: boolean;
   selectedSlot?: string;
   onSelectSlot?: (slot: string) => void;
-  isRobotBusy?: boolean;
 }
 
 const SLOT_Z_LEVELS: Record<string, number> = {
@@ -48,22 +47,11 @@ export const QuickControlPanel = memo(function QuickControlPanel({
   zInPosition = true,
   selectedSlot: propSelectedSlot,
   onSelectSlot,
-  isRobotBusy = false,
 }: Props) {
   const [internalSlot, setInternalSlot] = useState<string>("A2");
   const selectedSlot = propSelectedSlot || internalSlot;
 
-  const isBusy = Boolean(
-    isRobotBusy ||
-    robotState?.includes("MOVING") ||
-    robotState?.includes("BUSY") ||
-    robotState?.includes("PICKING") ||
-    robotState?.includes("PLACING") ||
-    robotState?.includes("WAITING")
-  );
-
   const handleSelectSlot = (slot: string) => {
-    if (isBusy) return;
     setInternalSlot(slot);
     if (onSelectSlot) {
       onSelectSlot(slot);
@@ -74,7 +62,6 @@ export const QuickControlPanel = memo(function QuickControlPanel({
   const isZAligned = currentZLevel === requiredZ && zInPosition;
 
   const send = (cmd: string, payload?: Record<string, unknown>) => {
-    if (isBusy) return;
     if (onCommand) {
       onCommand(cmd, payload);
     }
@@ -211,39 +198,8 @@ export const QuickControlPanel = memo(function QuickControlPanel({
           <div className="robot-manual-controls-section">
             <div className="manual-section-title">
               <span className="font-mono text-cyan">🎮 ĐIỀU KHIỂN THỦ CÔNG ROBOT (MANUAL OVERRIDE):</span>
-              {isBusy ? (
-                <span
-                  className="mode-indicator-tag active-warn"
-                  style={{ background: "#f59e0b", color: "#000", fontWeight: "bold", padding: "2px 8px", borderRadius: "4px" }}
-                >
-                  ⚠️ ROBOT ĐANG CHẠY — ĐÃ KHÓA NÚT
-                </span>
-              ) : (
-                <span className="mode-indicator-tag active-manual">MANUAL SẴN SÀNG</span>
-              )}
+              <span className="mode-indicator-tag active-manual">MANUAL SẴN SÀNG</span>
             </div>
-
-            {/* Safety Interlock Banner when Robot is Running */}
-            {isBusy && (
-              <div
-                style={{
-                  margin: "6px 0 10px 0",
-                  padding: "8px 12px",
-                  borderRadius: "6px",
-                  background: "rgba(239, 68, 68, 0.15)",
-                  border: "1px solid rgba(239, 68, 68, 0.5)",
-                  color: "#f87171",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                }}
-              >
-                <span>🛑</span>
-                <span>Robot đang vận hành ({robotState}). Toàn bộ thao tác thủ công bị vô hiệu hóa để bảo vệ an toàn cơ khí!</span>
-              </div>
-            )}
 
             {/* Group 1: Macro / Fixed Positions */}
             <div className="manual-control-group">
@@ -255,8 +211,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   type="button"
                   className={`btn-manual-plc ${(!currentSlot || currentSlot === "HOME") ? "active-level" : ""}`}
                   onClick={() => send("MOVE_HOME")}
-                  disabled={isBusy}
-                  title={isBusy ? "Robot đang bận" : "Di chuyển Robot về vị trí Home an toàn (Kích DO0=1 cho PLC nâng Z)"}
+                  title="Di chuyển Robot về vị trí Home an toàn (Kích DO0=1 cho PLC nâng Z)"
                 >
                   🏠 Về HOME (DO0=1)
                 </button>
@@ -264,8 +219,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   type="button"
                   className={`btn-manual-plc ${currentSlot === "STANDBY" ? "active-level" : ""}`}
                   onClick={() => send("STANDBY")}
-                  disabled={isBusy}
-                  title={isBusy ? "Robot đang bận" : "Di chuyển Robot về vị trí Chờ (Standby)"}
+                  title="Di chuyển Robot về vị trí Chờ (Standby)"
                 >
                   ⏸️ Vị Trí STANDBY
                 </button>
@@ -273,8 +227,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   type="button"
                   className={`btn-manual-plc ${currentSlot === "SCAN_QR" ? "active-level" : ""}`}
                   onClick={() => send("SCAN_QR_POS")}
-                  disabled={isBusy}
-                  title={isBusy ? "Robot đang bận" : "Đưa hàng đến trước Camera QR CAM01"}
+                  title="Đưa hàng đến trước Camera QR CAM01"
                 >
                   📷 Vị Trí Soi QR
                 </button>
@@ -282,8 +235,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   type="button"
                   className={`btn-manual-plc ${currentSlot === "O1" ? "active-level" : ""}`}
                   onClick={() => send("PICK", { slot: "O1" })}
-                  disabled={isBusy}
-                  title={isBusy ? "Robot đang bận" : "Di chuyển Robot đến vị trí đầu băng tải O1"}
+                  title="Di chuyển Robot đến vị trí đầu băng tải O1"
                 >
                   🛞 Đầu Băng Tải O1
                 </button>
@@ -303,8 +255,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                     type="button"
                     className={`slot-chip ${selectedSlot === s ? "active-slot-chip" : ""}`}
                     onClick={() => handleSelectSlot(s)}
-                    disabled={isBusy}
-                    title={isBusy ? "Robot đang bận" : `Chọn ô kho ${s}`}
+                    title={`Chọn ô kho ${s}`}
                   >
                     Ô {s}
                   </button>
@@ -341,8 +292,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   type="button"
                   className="btn-manual-plc btn-plc-green"
                   onClick={() => send("PICK", { slot: selectedSlot })}
-                  disabled={isBusy || !isZAligned}
-                  title={isBusy ? "Robot đang chuyển động" : `Robot gắp sản phẩm tại ô kho ${selectedSlot}`}
+                  title={`Robot gắp sản phẩm tại ô kho ${selectedSlot}`}
                 >
                   📤 Gắp Từ Ô [{selectedSlot}]
                 </button>
@@ -350,8 +300,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   type="button"
                   className="btn-manual-plc btn-plc-yellow"
                   onClick={() => send("STORE", { slot: selectedSlot })}
-                  disabled={isBusy || !isZAligned}
-                  title={isBusy ? "Robot đang chuyển động" : `Robot cất sản phẩm vào ô kho ${selectedSlot}`}
+                  title={`Robot cất sản phẩm vào ô kho ${selectedSlot}`}
                 >
                   📥 Cất Vào Ô [{selectedSlot}]
                 </button>
@@ -387,8 +336,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   type="button"
                   className="btn-manual-plc btn-plc-cyan"
                   onClick={() => send("PICK_UAV")}
-                  disabled={isBusy || !(zInPosition && currentZLevel === SLOT_Z_LEVELS["N1"])}
-                  title={isBusy ? "Robot đang chuyển động" : "Robot gắp kiện hàng từ lưng UAV tại bãi đáp N1"}
+                  title="Robot gắp kiện hàng từ lưng UAV tại bãi đáp N1"
                 >
                   🚁 Gắp Khỏi Drone N1
                 </button>
@@ -396,8 +344,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   type="button"
                   className="btn-manual-plc btn-plc-cyan"
                   onClick={() => send("PLACE_UAV")}
-                  disabled={isBusy || !(zInPosition && currentZLevel === SLOT_Z_LEVELS["N1"])}
-                  title={isBusy ? "Robot đang chuyển động" : "Robot đặt kiện hàng lên lưng UAV tại bãi đáp N1"}
+                  title="Robot đặt kiện hàng lên lưng UAV tại bãi đáp N1"
                 >
                   🚀 Đặt Lên Drone N1
                 </button>
@@ -433,8 +380,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   type="button"
                   className="btn-manual-plc btn-plc-yellow"
                   onClick={() => send("STORE", { slot: "O1" })}
-                  disabled={isBusy || !(zInPosition && currentZLevel === SLOT_Z_LEVELS["O1"])}
-                  title={isBusy ? "Robot đang chuyển động" : "Robot đặt kiện hàng xuống băng tải O1"}
+                  title="Robot đặt kiện hàng xuống băng tải O1"
                 >
                   📥 Đặt Lên Băng Tải O1
                 </button>
@@ -442,8 +388,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                   type="button"
                   className="btn-manual-plc btn-plc-green"
                   onClick={() => send("PICK", { slot: "O1" })}
-                  disabled={isBusy || !(zInPosition && currentZLevel === SLOT_Z_LEVELS["O1"])}
-                  title={isBusy ? "Robot đang chuyển động" : "Robot gắp kiện hàng từ băng tải O1"}
+                  title="Robot gắp kiện hàng từ băng tải O1"
                 >
                   📤 Gắp Từ Băng Tải O1
                 </button>

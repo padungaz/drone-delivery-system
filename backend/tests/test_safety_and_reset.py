@@ -13,34 +13,6 @@ from app.services.device_lock_manager import device_lock_manager
 
 
 @pytest.mark.asyncio
-async def test_robot_busy_blocks_plc_commands():
-    """Verify that when robot is moving/busy, manual PLC commands are rejected with 409 Conflict."""
-    robot_mgr = RobotManager.get_instance()
-    robot_mgr.simulator_mode = True
-    robot_mgr.state = "MOVING"
-    robot_mgr._is_busy_moving = True
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Test PLC z-level movement
-        res = await client.post("/api/plc/z-level", json={"level": 2})
-        assert res.status_code == 409
-        assert "Robot đang hoạt động" in res.json()["detail"] or "Robot đang" in res.json()["detail"]
-
-        # 2. Test PLC lock command
-        res_lock = await client.post("/api/plc/lock", json={"action": "LOCK"})
-        assert res_lock.status_code == 409
-
-        # 3. Test robot pick command while busy
-        res_pick = await client.post("/api/robot/pick", json={"slot": "A1"})
-        assert res_pick.status_code == 409
-
-    # Reset state back
-    robot_mgr.state = "READY"
-    robot_mgr._is_busy_moving = False
-
-
-@pytest.mark.asyncio
 async def test_system_reset_tasks():
     """Verify system_reset_tasks forces all defaults, clears temp warehouse queue, and resets robot/PLC."""
     robot_mgr = RobotManager.get_instance()

@@ -127,7 +127,14 @@ class StaffOperationManager:
     # =========================================================================
     async def start_outbound(self, slots: Optional[List[str]] = None, quantity: Optional[int] = None) -> Dict[str, Any]:
         if self.status == "RUNNING":
-            raise RuntimeError("Đang có tiến trình khác đang chạy. Vui lòng dừng hoặc chờ hoàn tất.")
+            if self.active_type == "INBOUND":
+                logger.info("📦 [Chế độ LẤY HÀNG]: Tự động TẮT / DỪNG tiến trình THÊM HÀNG (Inbound)...")
+                await self.stop_inbound()
+                await asyncio.sleep(0.4)
+            elif self.active_type == "OUTBOUND":
+                raise RuntimeError("Tiến trình lấy hàng đang chạy. Vui lòng dừng hoặc chờ hoàn tất.")
+            else:
+                raise RuntimeError("Đang có tiến trình khác đang chạy. Vui lòng dừng hoặc chờ hoàn tất.")
 
         # Resolve target slots from slots parameter or quantity count
         resolved_slots: List[str] = []
@@ -374,7 +381,14 @@ class StaffOperationManager:
     # =========================================================================
     async def start_inbound(self) -> Dict[str, Any]:
         if self.status == "RUNNING":
-            raise RuntimeError("Đang có tiến trình khác đang chạy. Vui lòng dừng hoặc chờ hoàn tất.")
+            if self.active_type == "OUTBOUND":
+                logger.info("📥 [Chế độ THÊM HÀNG]: Tự động TẮT / HỦY tiến trình LẤY HÀNG (Outbound)...")
+                await self.cancel_outbound()
+                await asyncio.sleep(0.4)
+            elif self.active_type == "INBOUND":
+                raise RuntimeError("Tiến trình thêm hàng đang chạy. Vui lòng dừng hoặc chờ hoàn tất.")
+            else:
+                raise RuntimeError("Đang có tiến trình khác đang chạy. Vui lòng dừng hoặc chờ hoàn tất.")
 
         # Check safety interlock: ensure station is not busy with a Drone Mission
         if device_lock_manager.is_station_busy() and device_lock_manager._locks.get("STATION", {}).get("locked_by") != "STAFF_OPERATION":

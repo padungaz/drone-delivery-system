@@ -288,13 +288,6 @@ export function HmiDashboard() {
   const isPlcOnline = Boolean(plcDev?.status === "ONLINE" || plc?.connected || plc?.simulator_mode);
   const isRobotOnline = Boolean(robotDev?.status === "ONLINE" || robot?.connected || robot?.simulator_mode);
 
-  // Real-time Robot Busy & Motion Interlock State
-  const isRobotBusy = Boolean(
-    activeRobotCmd ||
-    robot?.status === "BUSY" ||
-    (robot?.current_task && ["MOVING", "PICKING", "PLACING", "BUSY", "WAITING_SLOT"].includes(robot.current_task))
-  );
-
   // Fetch real logs periodically
   const fetchRealLogs = async () => {
     try {
@@ -443,10 +436,6 @@ export function HmiDashboard() {
 
   // Execute Real Robot / PLC Commands directly
   const handleQuickCommand = async (cmd: string, payload?: Record<string, unknown>) => {
-    if (isRobotBusy && !["CANCEL", "STOP", "ESTOP"].includes(cmd)) {
-      addLog("WARN", "⚠️ Robot đang hoạt động! Thao tác thủ công bị chặn để đảm bảo an toàn.");
-      return;
-    }
     const slot = (payload?.slot as string) || selectedQuickSlot || "A2";
     const normalizedCmd = cmd === "HOME" ? "MOVE_HOME" : cmd;
     await runRobotCommandWithTelemetry(normalizedCmd, slot);
@@ -562,7 +551,6 @@ export function HmiDashboard() {
                       ? robot.joint_positions
                       : [-45.2, 32.1, -88.3, 90.0, 15.2, -18.0]
                   }
-                  disabled={isRobotBusy}
                 />
               </div>
 
@@ -592,7 +580,6 @@ export function HmiDashboard() {
                     zInPosition={plc?.plc_z_in_position ?? true}
                     selectedSlot={selectedQuickSlot}
                     onSelectSlot={setSelectedQuickSlot}
-                    isRobotBusy={isRobotBusy}
                   />
                 </div>
               </div>
@@ -609,7 +596,6 @@ export function HmiDashboard() {
                   targetZLevel={plc?.target_z_level ?? 0}
                   zInPosition={plc?.plc_z_in_position ?? true}
                   cmdTargetZ={plc?.cmd_target_z ?? false}
-                  isRobotBusy={isRobotBusy}
                 />
                 <CameraVision
                   cameraActive={cameraActive}
@@ -773,7 +759,6 @@ export function HmiDashboard() {
         modalData={modalData}
         onClose={() => setActiveModal(null)}
         onConfirmAction={handleConfirmModalAction}
-        isRobotBusy={isRobotBusy}
         onResetEStop={async () => {
           addLog("INFO", "Resetting PLC E-STOP...");
           try {

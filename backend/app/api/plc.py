@@ -17,30 +17,14 @@ class PLCLockRequest(BaseModel):
     action: str  # "LOCK" or "UNLOCK"
 
 
-def check_robot_not_running() -> None:
-    """Safety Interlock: Disable all PLC operations while Robot is actively moving or performing pick/place."""
-    from app.services.robot_manager import RobotManager
-    robot_mgr = RobotManager.get_instance()
-    if robot_mgr.state in ("MOVING", "PICKING", "PLACING", "BUSY") or robot_mgr._is_busy_moving:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"⚠️ CẢNH BÁO AN TOÀN CƠ KHÍ: Robot đang hoạt động / chuyển động ({robot_mgr.state})! "
-                "Toàn bộ thao tác điều khiển PLC bị khóa để chống va chạm cơ khí."
-            ),
-        )
-
-
 @plc_router.post("/command", response_model=PLCStatusResponse)
 async def execute_plc_command(req: PLCCommandRequest):
     # Safety Interlock: Block manual motion commands during AUTO mission, allow STOP/RESET
-    if req.command not in (PLCCommand.STOP_PLC, PLCCommand.RESET_PLC):
-        if device_lock_manager.is_device_locked("PLC01"):
-            raise HTTPException(
-                status_code=409,
-                detail=f"PLC đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('PLC01')}! Vui lòng không can thiệp thủ công."
-            )
-        check_robot_not_running()
+    if req.command not in (PLCCommand.STOP_PLC, PLCCommand.RESET_PLC) and device_lock_manager.is_device_locked("PLC01"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"PLC đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('PLC01')}! Vui lòng không can thiệp thủ công."
+        )
 
     mgr = PLCManager.get_instance()
     try:
@@ -60,7 +44,6 @@ async def control_plc_hatch(req: PLCHatchRequest):
             status_code=409,
             detail=f"PLC đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('PLC01')}! Vui lòng không can thiệp thủ công."
         )
-    check_robot_not_running()
 
     mgr = PLCManager.get_instance()
     cmd = PLCCommand.Z_UP if req.action.upper() in ("OPEN", "Z_UP") else PLCCommand.Z_DOWN
@@ -87,7 +70,6 @@ async def control_plc_z_level(req: PLCZLevelRequest):
             status_code=409,
             detail=f"PLC đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('PLC01')}! Vui lòng không can thiệp thủ công."
         )
-    check_robot_not_running()
 
     mgr = PLCManager.get_instance()
     from app.services.plc_manager import Z_LEVEL_LABELS
@@ -114,7 +96,6 @@ async def control_plc_lock(req: PLCLockRequest):
             status_code=409,
             detail=f"PLC đang bị khóa bởi Nhiệm vụ AUTO #{device_lock_manager.get_locking_mission_id('PLC01')}! Vui lòng không can thiệp thủ công."
         )
-    check_robot_not_running()
 
     mgr = PLCManager.get_instance()
     cmd = PLCCommand.LOCK_DRONE if req.action.upper() in ("LOCK", "LOCK_DRONE") else PLCCommand.UNLOCK_DRONE

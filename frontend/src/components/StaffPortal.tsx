@@ -198,6 +198,45 @@ export function StaffPortal({
     );
   };
 
+  // Handle tab switching with mutual deactivation:
+  // Chọn LẤY HÀNG (OUTBOUND) là tắt thêm hàng
+  // Chọn THÊM HÀNG (INBOUND) là tắt lấy hàng
+  const handleSelectSubTab = async (targetTab: "outbound" | "inbound") => {
+    if (targetTab === activeSubTab) return;
+
+    if (targetTab === "outbound") {
+      // Nếu đang THÊM HÀNG (Inbound running) thì tự động tắt thêm hàng
+      if (staffOp.status === "RUNNING" && staffOp.active_type === "INBOUND") {
+        setLoading(true);
+        try {
+          await stopStaffInbound();
+          setActionSuccess("Đã chọn LẤY HÀNG (Tự động dừng tiến trình Thêm hàng).");
+          fetchStatus();
+        } catch (e: any) {
+          console.error("Lỗi khi tắt Thêm hàng:", e);
+        } finally {
+          setLoading(false);
+        }
+      }
+      setActiveSubTab("outbound");
+    } else if (targetTab === "inbound") {
+      // Nếu đang LẤY HÀNG (Outbound running) thì tự động tắt lấy hàng
+      if (staffOp.status === "RUNNING" && staffOp.active_type === "OUTBOUND") {
+        setLoading(true);
+        try {
+          await cancelStaffOutbound();
+          setActionSuccess("Đã chọn THÊM HÀNG (Tự động dừng tiến trình Lấy hàng).");
+          fetchStatus();
+        } catch (e: any) {
+          console.error("Lỗi khi tắt Lấy hàng:", e);
+        } finally {
+          setLoading(false);
+        }
+      }
+      setActiveSubTab("inbound");
+    }
+  };
+
   // Start Outbound Action
   const handleStartOutbound = async () => {
     if (outboundMode === "SLOTS" && selectedSlotsToPick.length === 0) {
@@ -207,6 +246,16 @@ export function StaffPortal({
     setLoading(true);
     setActionError(null);
     try {
+      // Tự động dừng Thêm hàng nếu đang chạy
+      if (staffOp.status === "RUNNING" && staffOp.active_type === "INBOUND") {
+        try {
+          await stopStaffInbound();
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        } catch (e: any) {
+          console.warn("Lỗi dừng Inbound trước Outbound:", e);
+        }
+      }
+
       if (!isStaffModeActive) {
         await setStaffOperationMode("STAFF_OPERATION");
       }
@@ -258,6 +307,16 @@ export function StaffPortal({
     setLoading(true);
     setActionError(null);
     try {
+      // Tự động dừng Lấy hàng nếu đang chạy
+      if (staffOp.status === "RUNNING" && staffOp.active_type === "OUTBOUND") {
+        try {
+          await cancelStaffOutbound();
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        } catch (e: any) {
+          console.warn("Lỗi dừng Outbound trước Inbound:", e);
+        }
+      }
+
       if (!isStaffModeActive) {
         await setStaffOperationMode("STAFF_OPERATION");
       }
@@ -525,16 +584,16 @@ export function StaffPortal({
               <button
                 type="button"
                 className={`op-tab-btn ${activeSubTab === "outbound" ? "active" : ""}`}
-                onClick={() => setActiveSubTab("outbound")}
-                disabled={isRunning}
+                onClick={() => handleSelectSubTab("outbound")}
+                disabled={loading}
               >
                 📦 1. LẤY HÀNG (OUTBOUND)
               </button>
               <button
                 type="button"
                 className={`op-tab-btn ${activeSubTab === "inbound" ? "active" : ""}`}
-                onClick={() => setActiveSubTab("inbound")}
-                disabled={isRunning}
+                onClick={() => handleSelectSubTab("inbound")}
+                disabled={loading}
               >
                 📥 2. THÊM HÀNG (INBOUND)
               </button>
