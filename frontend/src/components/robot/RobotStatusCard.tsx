@@ -182,9 +182,9 @@ export const RobotStatusCard = React.memo(function RobotStatusCard({
           </div>
 
           <div className="param-cyber-row">
-            <span className="p-lbl">Tay kẹp khí nén (DO1)</span>
+            <span className="p-lbl">Xung hoàn tất O1 (DO1)</span>
             <span className={`p-val font-mono ${gripperHolding ? "text-orange-glow" : "text-slate"}`}>
-              {gripperHolding ? "🖐️ [DO1: ON] ĐANG GIỮ HÀNG" : "⚪ [DO1: OFF] MỞ / RỖNG"}
+              {gripperHolding ? "⚡ [DO1: PULSE] BÁO XONG O1" : "⚪ [DO1: OFF] MỨC NGHỈ"}
             </span>
           </div>
 
@@ -239,8 +239,8 @@ export const RobotStatusCard = React.memo(function RobotStatusCard({
           <div className={`step-item ${currentStep === 3 ? "step-active" : currentStep > 3 || !isMoving ? "step-done" : ""}`}>
             <span className="step-num">3</span>
             <div className="step-text">
-              <strong className="step-name">Kẹp DO1</strong>
-              <span className="step-desc">Khí nén</span>
+              <strong className="step-name">Gắp / Thả</strong>
+              <span className="step-desc">Tác vụ ô</span>
             </div>
           </div>
 
@@ -267,7 +267,7 @@ export const RobotStatusCard = React.memo(function RobotStatusCard({
             <span className="dot"></span> POWER {power && isOnline ? "ON" : "OFF"}
           </span>
           <span className={`flag-badge ${gripperHolding ? "flag-warning" : "flag-on"}`}>
-            <span className="dot"></span> DO1 {gripperHolding ? "GRIP" : "RELEASE"}
+            <span className="dot"></span> DO1 {gripperHolding ? "ACTIVE" : "READY"}
           </span>
         </div>
 

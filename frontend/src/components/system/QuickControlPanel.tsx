@@ -379,7 +379,7 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                 <button
                   type="button"
                   className="btn-manual-plc btn-plc-yellow"
-                  onClick={() => send("PLACE_CONVEYOR", { slot: "O1" })}
+                  onClick={() => send("STORE", { slot: "O1" })}
                   title="Robot đặt kiện hàng xuống băng tải O1"
                 >
                   📥 Đặt Lên Băng Tải O1
@@ -387,35 +387,10 @@ export const QuickControlPanel = memo(function QuickControlPanel({
                 <button
                   type="button"
                   className="btn-manual-plc btn-plc-green"
-                  onClick={() => send("PICK_CONVEYOR", { slot: "O1" })}
+                  onClick={() => send("PICK", { slot: "O1" })}
                   title="Robot gắp kiện hàng từ băng tải O1"
                 >
                   📤 Gắp Từ Băng Tải O1
-                </button>
-              </div>
-            </div>
-
-            {/* Group 4: Gripper Open/Close Controls */}
-            <div className="manual-control-group">
-              <div className="manual-group-label">
-                <span>🦾 ĐIỀU KHIỂN TAY GẮP ROBOT (GRIPPER):</span>
-              </div>
-              <div className="manual-btn-grid-2">
-                <button
-                  type="button"
-                  className={`btn-manual-plc ${!holdingProduct ? "active-status" : ""}`}
-                  onClick={() => send("OPEN_GRIPPER")}
-                  title="Mở ngàm kẹp Robot"
-                >
-                  🔓 Mở Tay Kẹp (OPEN)
-                </button>
-                <button
-                  type="button"
-                  className={`btn-manual-plc ${holdingProduct ? "active-status" : ""}`}
-                  onClick={() => send("CLOSE_GRIPPER")}
-                  title="Đóng ngàm kẹp Robot"
-                >
-                  🔒 Đóng Tay Kẹp (CLOSE)
                 </button>
               </div>
             </div>

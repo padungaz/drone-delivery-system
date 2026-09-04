@@ -203,9 +203,7 @@ function PickFromSlot(slot)
         PTP(HOME_B, 25, -1, 0)
 
     elseif slot == "C1" or slot == "C2" or slot == "C3" then
-        print("⚠️ [PICK] O kho " .. tostring(slot) .. " la o tuong trung / du phong (Khong hoat dong tren robot)!")
-        ROBOT_STATE = "ERROR"
-        sleep_ms(100)
+        print("⚠️ [PICK] O kho " .. tostring(slot) .. " la o du phong (Khong teach toa do)!")
         ROBOT_STATE = "IDLE"
         return false
 
@@ -223,13 +221,10 @@ function PickFromSlot(slot)
         PTP(O1, 20, -1, 0)
         sleep_ms(300)
         PTP(O1, 25, -1, 1, -50, 0, 0, 0, 0, 0)
-        -- Đã gắp xong tại O1, nhấc lên thoát khỏi mặt băng tải, KHÔNG lùi sâu về HOME_O1
-
+        -- Đã gắp xong tại O1, nhấc lên thoát mặt băng tải, sẵn sàng quét QR hoặc nâng Z
 
     else
         print("❌ [PICK] Slot khong hop le: " .. tostring(slot))
-        ROBOT_STATE = "ERROR"
-        sleep_ms(100)
         ROBOT_STATE = "IDLE"
         return false
     end
@@ -313,9 +308,7 @@ function PlaceToSlot(slot)
         PTP(HOME_B, 25, -1, 0)
 
     elseif slot == "C1" or slot == "C2" or slot == "C3" then
-        print("⚠️ [PLACE] O kho " .. tostring(slot) .. " la o tuong trung / du phong (Khong hoat dong tren robot)!")
-        ROBOT_STATE = "ERROR"
-        sleep_ms(100)
+        print("⚠️ [PLACE] O kho " .. tostring(slot) .. " la o du phong (Khong teach toa do)!")
         ROBOT_STATE = "IDLE"
         return false
 
@@ -337,8 +330,6 @@ function PlaceToSlot(slot)
 
     else
         print("❌ [PLACE] Slot khong hop le: " .. tostring(slot))
-        ROBOT_STATE = "ERROR"
-        sleep_ms(100)
         ROBOT_STATE = "IDLE"
         return false
     end
@@ -377,62 +368,17 @@ function Execute_MoveHome()
 end
 
 -- =========================================================================
--- 4. CHU TRÌNH LẤY HÀNG (OUTBOUND) & THÊM HÀNG (INBOUND) TỰ ĐỘNG
+-- 4. ĐIỀU PHỐI CHU TRÌNH PHỐI HỢP TRỤC Z ĐA TẦNG CỦA PLC
 -- =========================================================================
-
--- Chu trình OUTBOUND (Xuất kho):
---   1. PickFromSlot(slot)   -> Gắp hàng từ ô kho
---   2. Execute_MoveHome()   -> Về HOME an toàn
---   3. PlaceToSlot("O1")    -> Thả hàng lên đầu băng tải O1
---   4. Execute_MoveHome()   -> Về HOME an toàn
---   5. Kích xung DO1        -> PLC chạy băng tải đưa hàng ra cho Nhân viên
-function Execute_OutboundCycle(slot)
-    print(string.format("🚀 [OUTBOUND] Bat dau xuat kho tu o [%s] ra Bang tai O1...", slot))
-
-    -- 1. Gắp hàng từ ô kho chỉ định
-    if not PickFromSlot(slot) then return false end
-
-    -- 2. Về vị trí HOME an toàn
-    Execute_MoveHome()
-
-    -- 3. Thả hàng lên đầu băng tải O1
-    if not PlaceToSlot("O1") then return false end
-
-    -- 4. Về vị trí HOME an toàn
-    Execute_MoveHome()
-
-    -- 5. Kích xung DO1 báo PLC -> PLC chạy băng tải
-    PulseOutboundO1CompleteToPLC()
-    print(string.format("✅ [OUTBOUND] Hoan tat xuat kho o [%s] ra O1!", slot))
-    return true
-end
-
--- Chu trình INBOUND (Nhập kho):
---   1. PickFromSlot("O1")   -> Gắp hàng từ đầu băng tải O1
---   2. Execute_MoveHome()   -> Về HOME an toàn
---   3. PlaceToSlot(slot)    -> Thả hàng vào ô kho chỉ định
---   4. Execute_MoveHome()   -> Về HOME an toàn
---   5. Kích xung DO2        -> PLC xác nhận đã cất hàng vào kho
-function Execute_InboundCycle(slot)
-    print(string.format("📥 [INBOUND] Bat dau nhap kho tu O1 vao o [%s]...", slot))
-
-    -- 1. Gắp hàng từ đầu băng tải O1
-    if not PickFromSlot("O1") then return false end
-
-    -- 2. Về vị trí HOME an toàn
-    Execute_MoveHome()
-
-    -- 3. Thả hàng vào ô kho chỉ định
-    if not PlaceToSlot(slot) then return false end
-
-    -- 4. Về vị trí HOME an toàn
-    Execute_MoveHome()
-
-    -- 5. Kích xung DO2 báo PLC đã cất vào kho xong
-    PulseInboundStoreCompleteToPLC(slot)
-    print(string.format("✅ [INBOUND] Hoan tat nhap kho vao o [%s]!", slot))
-    return true
-end
+-- ⚠️ NGUYÊN TẮC AN TOÀN TUYỆT ĐỐI:
+-- Hệ thống sử dụng Trục Z nâng hạ nhiều tầng do PLC Siemens S7-1200 điều khiển.
+-- Robot KHÔNG tự ý chạy chu trình gắp và thả liên tục (đã loại bỏ Outbound/Inbound cycle cũ)
+-- để tránh va chạm cơ khí khi trục Z chưa đến đúng tầng.
+--
+-- Backend điều phối từng bước nguyên tử qua Socket TCP:
+--   - OUTBOUND: PLC nâng Z lên tầng -> Robot: PICK <slot> -> PLC hạ Z xuống O1 -> Robot: STORE O1 (kích DO1)
+--   - INBOUND:  PLC hạ Z xuống O1 -> Robot: PICK O1 -> Quét QR -> PLC nâng Z lên tầng -> Robot: STORE <slot> (kích DO2)
+-- =========================================================================
 
 -- =========================================================================
 -- 5. BỘ TÁCH LỆNH CHUẨN (PATTERN PARSER NÂNG CAO)
@@ -442,8 +388,6 @@ function ParseCommand(raw_data)
         return "", "", ""
     end
     local clean_data = string.gsub(raw_data, "[%r%n]", "")
-    clean_data = string.gsub(clean_data, "\\r", "")
-    clean_data = string.gsub(clean_data, "\\n", "")
     clean_data = string.match(clean_data, "^%s*(.-)%s*$") or ""
     local cmd, param = string.match(clean_data, "^(%S+)%s*(%S*)$")
     cmd   = cmd   and string.upper(cmd)   or ""
@@ -523,67 +467,75 @@ while true do
     -- =========================================================
     -- D. XỬ LÝ LỆNH SOCKET TỪ BACKEND (100ms timeout)
     -- =========================================================
-    -- Xử lý cả: phản hồi PICK/STORE <slot> (cho PENDING_OPERATION)
-    --          + lệnh điều khiển trực tiếp (STATUS, STOP, MOVE_HOME...)
     local recv_time, recv_data = SocketReceive(socket_id, 100, 1)
     if recv_data and recv_data ~= "" then
         print("📥 RX: " .. recv_data)
         local cmd, param, raw = ParseCommand(recv_data)
 
-        -- D.1: Phản hồi PICK <slot> khi PENDING_OPERATION == "OUTBOUND"
-        -- Bước 5 & 6: Robot chỉ gắp kiện hàng từ ô kho và rút lui an toàn, sau đó báo thành công
-        if PENDING_OPERATION == "OUTBOUND"
-           and (cmd == "PICK" or cmd == "SLOT")
-           and param ~= "" and param ~= "NONE" then
-            print("🎯 [NON-BLOCK] Backend chỉ định gắp ô: " .. param)
+        -- D.1: Phản hồi khi Backend báo không có ô khả dụng (Kho đầy / hết đơn)
+        if (cmd == "NONE" or cmd == "NO_SLOT" or cmd == "FULL") then
+            print("⚠️ Backend báo không có ô khả dụng: " .. tostring(cmd))
             PENDING_OPERATION = nil
             ROBOT_STATE = "IDLE"
-            if PickFromSlot(param) then
-                SocketSend(socket_id, "SUCCESS PICK " .. param .. "\n", 0)
+
+        -- D.2: Lệnh gắp hàng (PICK / PICK_PRODUCT / Lệnh SLOT khi đang chờ Outbound)
+        elseif cmd == "PICK" or cmd == "PICK_PRODUCT" or (cmd == "SLOT" and PENDING_OPERATION == "OUTBOUND") then
+            -- Cho phép thực thi khi Robot IDLE hoặc đang ở trạng thái WAITING_SLOT (khi DI1/DI2 vừa kích hoạt)
+            if ROBOT_STATE ~= "IDLE" and ROBOT_STATE ~= "WAITING_SLOT" then
+                SocketSend(socket_id, "BUSY STATE:" .. ROBOT_STATE .. " POSITION:" .. CURRENT_POS .. "\n", 0)
             else
-                SocketSend(socket_id, "FAILED PICK " .. param .. "\n", 0)
+                PENDING_OPERATION = nil
+                if PickFromSlot(param) then
+                    SocketSend(socket_id, "SUCCESS PICK " .. param .. "\n", 0)
+                else
+                    SocketSend(socket_id, "FAILED PICK " .. param .. "\n", 0)
+                end
             end
 
-        -- D.2: Phản hồi STORE <slot> khi PENDING_OPERATION == "INBOUND"
-        elseif PENDING_OPERATION == "INBOUND"
-           and (cmd == "STORE" or cmd == "SLOT")
-           and param ~= "" and param ~= "NONE" and param ~= "FULL" then
-            print("🎯 [NON-BLOCK] Backend chi dinh cat vao o: " .. param)
-            PENDING_OPERATION = nil
-            ROBOT_STATE = "IDLE"
-            if Execute_InboundCycle(param) then
-                SocketSend(socket_id, "DONE_STORE " .. param .. "\n", 0)
+        -- D.3: Lệnh thả / cất hàng (STORE / PLACE_PRODUCT / Lệnh SLOT khi đang chờ Inbound)
+        elseif cmd == "STORE" or cmd == "PLACE_PRODUCT" or (cmd == "SLOT" and PENDING_OPERATION == "INBOUND") then
+            if ROBOT_STATE ~= "IDLE" and ROBOT_STATE ~= "WAITING_SLOT" then
+                SocketSend(socket_id, "BUSY STATE:" .. ROBOT_STATE .. " POSITION:" .. CURRENT_POS .. "\n", 0)
             else
-                SocketSend(socket_id, "FAILED_STORE " .. param .. "\n", 0)
+                PENDING_OPERATION = nil
+                if PlaceToSlot(param) then
+                    if param == "O1" then
+                        -- Thả xong tại O1 -> Kích xung DO1 báo PLC chạy băng tải đưa hàng ra
+                        PulseOutboundO1CompleteToPLC()
+                    elseif param ~= "N1" then
+                        -- Cất xong vào ô kho (A1..B3) -> Kích xung DO2 báo PLC xác nhận Inbound
+                        PulseInboundStoreCompleteToPLC(param)
+                    end
+                    SocketSend(socket_id, "SUCCESS STORE " .. param .. "\n", 0)
+                else
+                    SocketSend(socket_id, "FAILED STORE " .. param .. "\n", 0)
+                end
             end
 
-        -- D.3: Backend báo không có ô khả dụng (kho đầy / không có đơn)
-        elseif PENDING_OPERATION ~= nil
-           and (cmd == "NONE" or cmd == "NO_SLOT" or cmd == "FULL") then
-            print("⚠️ Backend bao khong co o kha dung: " .. tostring(param))
-            PENDING_OPERATION = nil
-            ROBOT_STATE = "IDLE"
-
-        -- D.4: Lệnh điều khiển trực tiếp
+        -- D.4: Lệnh hỏi trạng thái Robot
         elseif cmd == "STATUS" or cmd == "GET_STATUS" then
-            local is_busy = (ROBOT_STATE ~= "IDLE") and "TRUE" or "FALSE"
+            local is_busy = (ROBOT_STATE ~= "IDLE" and ROBOT_STATE ~= "WAITING_SLOT") and "TRUE" or "FALSE"
             local pend    = PENDING_OPERATION or "NONE"
             local status_resp = string.format("STATE:%s BUSY:%s POSITION:%s PENDING:%s\n",
                                               ROBOT_STATE, is_busy, CURRENT_POS, pend)
             SocketSend(socket_id, status_resp, 0)
 
+        -- D.5: Lệnh dừng khẩn cấp (STOP / ESTOP)
         elseif cmd == "STOP" or cmd == "ESTOP" then
             Execute_Stop()
             SocketSend(socket_id, "STOP SUCCESS STATE:ESTOP\n", 0)
 
+        -- D.6: Lệnh reset trạng thái sau sự cố
         elseif cmd == "RESET" or cmd == "RESET_ESTOP" or cmd == "CLEAR_FAULT" then
             Execute_ResetFault()
             SocketSend(socket_id, "RESET SUCCESS STATE:IDLE\n", 0)
 
-        elseif cmd == "MOVE_HOME" then
+        -- D.7: Lệnh di chuyển về vị trí HOME an toàn
+        elseif cmd == "MOVE_HOME" or cmd == "REQUEST_Z_DOWN" then
             if ROBOT_STATE ~= "IDLE" and ROBOT_STATE ~= "ESTOP" and ROBOT_STATE ~= "WAITING_SLOT" then
                 SocketSend(socket_id, "BUSY STATE:" .. ROBOT_STATE .. " POSITION:" .. CURRENT_POS .. "\n", 0)
             else
+                PENDING_OPERATION = nil
                 if Execute_MoveHome() then
                     SocketSend(socket_id, "SUCCESS MOVE_HOME\n", 0)
                 else
@@ -591,58 +543,8 @@ while true do
                 end
             end
 
-        elseif cmd == "OUTBOUND_CYCLE" or cmd == "PICK_TO_O1" then
-            if ROBOT_STATE ~= "IDLE" then
-                SocketSend(socket_id, "BUSY STATE:" .. ROBOT_STATE .. " POSITION:" .. CURRENT_POS .. "\n", 0)
-            else
-                if Execute_OutboundCycle(param) then
-                    SocketSend(socket_id, "SUCCESS OUTBOUND " .. param .. "\n", 0)
-                else
-                    SocketSend(socket_id, "FAILED OUTBOUND " .. param .. "\n", 0)
-                end
-            end
-
-        elseif cmd == "INBOUND_CYCLE" or cmd == "STORE_FROM_O1" then
-            if ROBOT_STATE ~= "IDLE" then
-                SocketSend(socket_id, "BUSY STATE:" .. ROBOT_STATE .. " POSITION:" .. CURRENT_POS .. "\n", 0)
-            else
-                if Execute_InboundCycle(param) then
-                    SocketSend(socket_id, "SUCCESS INBOUND " .. param .. "\n", 0)
-                else
-                    SocketSend(socket_id, "FAILED INBOUND " .. param .. "\n", 0)
-                end
-            end
-
-        elseif cmd == "PICK" or cmd == "PICK_PRODUCT" then
-            if ROBOT_STATE ~= "IDLE" then
-                SocketSend(socket_id, "BUSY STATE:" .. ROBOT_STATE .. " POSITION:" .. CURRENT_POS .. "\n", 0)
-            else
-                if PickFromSlot(param) then
-                    SocketSend(socket_id, "SUCCESS PICK " .. param .. "\n", 0)
-                else
-                    SocketSend(socket_id, "FAILED INVALID_SLOT " .. param .. "\n", 0)
-                end
-            end
-
-        elseif cmd == "STORE" or cmd == "PLACE_PRODUCT" then
-            if ROBOT_STATE ~= "IDLE" then
-                SocketSend(socket_id, "BUSY STATE:" .. ROBOT_STATE .. " POSITION:" .. CURRENT_POS .. "\n", 0)
-            else
-                if PlaceToSlot(param) then
-                    if param == "O1" then
-                        PulseOutboundO1CompleteToPLC()
-                    elseif param ~= "N1" then
-                        -- Bước 9: Cất xong vào ô kho (A1..B3) -> Kích xung DO2 báo PLC cho băng tải chạy tiếp
-                        PulseInboundStoreCompleteToPLC(param)
-                    end
-                    SocketSend(socket_id, "SUCCESS STORE " .. param .. "\n", 0)
-                else
-                    SocketSend(socket_id, "FAILED INVALID_SLOT " .. param .. "\n", 0)
-                end
-            end
-
+        -- D.8: Phản hồi lệnh tay kẹp (GRIPPER)
         elseif cmd == "GRIPPER_OPEN" or cmd == "OPEN_GRIPPER" or cmd == "GRIPPER_CLOSE" or cmd == "CLOSE_GRIPPER" then
-            print("ℹ️ Lệnh tay kẹp DO1 đã được gỡ bỏ -> Bỏ qua lệnh " .. cmd)
             SocketSend(socket_id, "SUCCESS " .. cmd .. "\n", 0)
 
         else

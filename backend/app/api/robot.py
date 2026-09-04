@@ -58,8 +58,6 @@ async def execute_robot_command(req: RobotCommandRequest):
         RobotCommand.PICK_PRODUCT,
         RobotCommand.STORE,
         RobotCommand.PLACE_PRODUCT,
-        RobotCommand.OUTBOUND_CYCLE,
-        RobotCommand.INBOUND_CYCLE,
     ) and req.slot:
         check_z_axis_precondition(req.slot)
 

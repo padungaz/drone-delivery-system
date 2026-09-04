@@ -413,15 +413,11 @@ class RobotCommand(str, Enum):
     PLACE_PRODUCT = "PLACE_PRODUCT"
     PICK = "PICK"
     STORE = "STORE"
-    OUTBOUND_CYCLE = "OUTBOUND_CYCLE"
-    INBOUND_CYCLE = "INBOUND_CYCLE"
     PICK_UAV = "PICK_UAV"
     PLACE_UAV = "PLACE_UAV"
     SCAN_QR_POS = "SCAN_QR_POS"
     OPEN_GRIPPER = "OPEN_GRIPPER"
     CLOSE_GRIPPER = "CLOSE_GRIPPER"
-    REQUEST_Z_UP = "REQUEST_Z_UP"
-    REQUEST_Z_DOWN = "REQUEST_Z_DOWN"
 
     @classmethod
     def _missing_(cls, value: object):
@@ -432,12 +428,18 @@ class RobotCommand(str, Enum):
                 "MOVE_HOME": cls.MOVE_HOME,
                 "STANDBY": cls.STANDBY,
                 "MOVE_STANDBY": cls.STANDBY,
-                "OUTBOUND": cls.OUTBOUND_CYCLE,
-                "INBOUND": cls.INBOUND_CYCLE,
+                "OUTBOUND": cls.STORE,
+                "OUTBOUND_CYCLE": cls.STORE,
+                "INBOUND": cls.PICK,
+                "INBOUND_CYCLE": cls.PICK,
                 "SCAN_QR": cls.SCAN_QR_POS,
                 "SCAN_QR_POS": cls.SCAN_QR_POS,
                 "PICK_PAD": cls.PICK_UAV,
                 "PLACE_PAD": cls.PLACE_UAV,
+                "PLACE_CONVEYOR": cls.STORE,
+                "PICK_CONVEYOR": cls.PICK,
+                "REQUEST_Z_DOWN": cls.MOVE_HOME,
+                "REQUEST_Z_UP": cls.MOVE_HOME,
             }
             if val_upper in aliases:
                 return aliases[val_upper]

@@ -424,16 +424,16 @@ class RobotManager:
 
         logger.info("Executing FAIRINO Robot command: %s (slot: %s -> target: %s, simulator: %s)", cmd.value, slot, target, self.simulator_mode)
 
-        if cmd in (RobotCommand.MOVE_HOME, RobotCommand.REQUEST_Z_DOWN):
+        if cmd == RobotCommand.MOVE_HOME:
             self.state = "MOVING"
-            payload = "MOVE_HOME" if cmd == RobotCommand.MOVE_HOME else "REQUEST_Z_DOWN"
+            payload = "MOVE_HOME"
             if self.simulator_mode:
                 await asyncio.sleep(0.4)
                 success = True
             else:
                 success = await self._send_socket_command(payload, timeout=None)
             if not success:
-                raise RuntimeError(f"FAIRINO Robot MOVE_HOME execution failed")
+                raise RuntimeError("FAIRINO Robot MOVE_HOME execution failed")
             self.state = "READY"
             self.current_slot = None
             logger.info("FAIRINO Robot: Returned to HOME position (DONE)")
@@ -446,17 +446,12 @@ class RobotManager:
             else:
                 success = await self._send_socket_command("MOVE_HOME", timeout=None)
             if not success:
-                raise RuntimeError(f"FAIRINO Robot STANDBY execution failed")
+                raise RuntimeError("FAIRINO Robot STANDBY execution failed")
             self.state = "READY"
-            logger.info("FAIRINO Robot: Moved to STANDBY position (DONE)")
+            self.current_slot = None
+            logger.info("FAIRINO Robot: Entered STANDBY position (DONE)")
 
-        elif cmd == RobotCommand.REQUEST_Z_UP:
-            self.state = "READY"
-            if not self.simulator_mode:
-                await self._send_socket_command("REQUEST_Z_UP", timeout=None)
-            logger.info("FAIRINO Robot: Ready for Z_UP operation (DONE)")
-
-        elif cmd in (RobotCommand.PICK_PRODUCT, RobotCommand.PICK):
+        elif cmd in (RobotCommand.PICK, RobotCommand.PICK_PRODUCT):
             self.state = "PICKING"
             self.current_slot = target
             payload = f"PICK {target}"
@@ -467,11 +462,11 @@ class RobotManager:
                 success = await self._send_socket_command(payload, timeout=None)
             if not success:
                 raise RuntimeError(f"FAIRINO Robot PICK {target} execution failed")
-            self.holding_product = f"PROD_{target}" if target else "SP001"
+            self.holding_product = f"PRD-{target}"
             self.state = "READY"
             logger.info("FAIRINO Robot: Successfully picked product from %s (DONE)", target)
 
-        elif cmd in (RobotCommand.PLACE_PRODUCT, RobotCommand.STORE):
+        elif cmd in (RobotCommand.STORE, RobotCommand.PLACE_PRODUCT):
             self.state = "PLACING"
             self.current_slot = target
             payload = f"STORE {target}"
@@ -485,36 +480,6 @@ class RobotManager:
             self.holding_product = None
             self.state = "READY"
             logger.info("FAIRINO Robot: Successfully placed product into %s (DONE)", target)
-
-        elif cmd == RobotCommand.OUTBOUND_CYCLE:
-            self.state = "MOVING"
-            self.current_slot = target
-            payload = f"OUTBOUND_CYCLE {target}"
-            if self.simulator_mode:
-                await asyncio.sleep(1.0)
-                success = True
-            else:
-                success = await self._send_socket_command(payload, timeout=None)
-            if not success:
-                raise RuntimeError(f"FAIRINO Robot OUTBOUND_CYCLE {target} execution failed")
-            self.holding_product = None
-            self.state = "READY"
-            logger.info("FAIRINO Robot: Successfully completed OUTBOUND_CYCLE (%s -> HOME -> O1 -> HOME -> DO2) (DONE)", target)
-
-        elif cmd == RobotCommand.INBOUND_CYCLE:
-            self.state = "MOVING"
-            self.current_slot = target
-            payload = f"INBOUND_CYCLE {target}"
-            if self.simulator_mode:
-                await asyncio.sleep(1.0)
-                success = True
-            else:
-                success = await self._send_socket_command(payload, timeout=None)
-            if not success:
-                raise RuntimeError(f"FAIRINO Robot INBOUND_CYCLE {target} execution failed")
-            self.holding_product = None
-            self.state = "READY"
-            logger.info("FAIRINO Robot: Successfully completed INBOUND_CYCLE (O1 -> HOME -> %s -> HOME -> DO3) (DONE)", target)
 
         elif cmd == RobotCommand.PICK_UAV:
             self.state = "PICKING"
